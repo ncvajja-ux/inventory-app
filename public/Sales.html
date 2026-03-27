@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales Order</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --ink:     #0f0f0f;
+            --muted:   #6b7280;
+            --accent:  #c8973a;
+            --accent2: #f0e6d0;
+            --bg:      #faf9f7;
+            --card:    #ffffff;
+            --border:  #e5e2db;
+            --sidebar: #141414;
+            --danger:  #dc2626;
+            --success: #16a34a;
+            --info:    #0369a1;
+        }
+
+        body { font-family: 'DM Sans', sans-serif; background: var(--bg); display: flex; min-height: 100vh; color: var(--ink); }
+
+        /* ── Sidebar ── */
+        .sidebar { width: 240px; min-height: 100vh; background: var(--sidebar); color: #f5f5f5; display: flex; flex-direction: column; padding: 32px 20px; gap: 4px; position: sticky; top: 0; height: 100vh; }
+        .sidebar-brand { font-family: 'DM Serif Display', serif; font-size: 22px; color: white; margin-bottom: 8px; padding: 0 8px; }
+        .sidebar-sub   { font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--accent); padding: 0 8px; margin-bottom: 28px; }
+        .nav-item      { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; font-size: 14px; font-weight: 500; color: #9ca3af; transition: all 0.2s; text-decoration: none; border: none; background: none; width: 100%; text-align: left; cursor: pointer; }
+        .nav-item:hover, .nav-item.active { background: #1f1f1f; color: white; }
+        .nav-item.active { color: var(--accent); }
+        .nav-section   { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: #4b5563; padding: 16px 12px 6px; }
+        .sidebar-footer { margin-top: auto; padding-top: 20px; border-top: 1px solid #1f1f1f; }
+        .back-link     { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font-size: 13px; color: #6b7280; text-decoration: none; border-radius: 8px; transition: all 0.2s; }
+        .back-link:hover { color: white; background: #1f1f1f; }
+
+        /* ── Main ── */
+        .main { flex: 1; display: flex; flex-direction: column; overflow-x: hidden; }
+
+        /* ── Top bar ── */
+        .topbar {
+            background: white;
+            border-bottom: 1px solid var(--border);
+            padding: 0 40px;
+            height: 64px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+        .topbar-left { display: flex; align-items: center; gap: 16px; }
+        .page-title  { font-family: 'DM Serif Display', serif; font-size: 22px; }
+
+        /* Customer chip - floats in topbar once set */
+        .customer-chip {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            background: var(--accent2);
+            border: 1.5px solid #e8d0a0;
+            border-radius: 20px;
+            padding: 6px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #92650a;
+        }
+        .customer-chip.visible { display: flex; }
+        .customer-chip .chip-id { font-family: 'Courier New', monospace; font-size: 12px; }
+
+        /* Cart button */
+        .cart-btn {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 9px 18px;
+            background: var(--ink);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .cart-btn:hover { background: #333; }
+        .cart-badge {
+            position: absolute;
+            top: -6px; right: -6px;
+            background: var(--accent);
+            color: white;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 6px;
+            min-width: 18px;
+            text-align: center;
+            display: none;
+        }
+        .cart-badge.visible { display: block; }
+
+        /* ── Content area ── */
+        .content { flex: 1; padding: 36px 40px; }
+
+        /* ── Step indicator ── */
+        .steps {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            margin-bottom: 32px;
+        }
+        .step {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--muted);
+        }
+        .step.active { color: var(--accent); }
+        .step.done   { color: var(--success); }
+        .step-num {
+            width: 28px; height: 28px;
+            border-radius: 50%;
+            border: 2px solid currentColor;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; font-weight: 700;
+        }
+        .step.done .step-num { background: var(--success); border-color: var(--success); color: white; }
+        .step.active .step-num { background: var(--accent); border-color: var(--accent); color: white; }
+        .step-line { flex: 1; max-width: 48px; height: 2px; background: var(--border); margin: 0 8px; }
+        .step-line.done { background: var(--success); }
+
+        /* ── Pages (views) ── */
+        .view { display: none; }
+        .view.active { display: block; }
+
+        /* ── Cards ── */
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 28px 32px; box-shadow: 0 2px 12px rgba(0,0,0,0.04); margin-bottom: 20px; }
+        .card-title { font-family: 'DM Serif Display', serif; font-size: 20px; margin-bottom: 4px; }
+        .card-sub   { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+
+        /* ── Forms ── */
+        .input-row { display: flex; gap: 12px; align-items: flex-end; }
+        .form-group { display: flex; flex-direction: column; gap: 6px; }
+        label { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+        input, select {
+            padding: 10px 14px;
+            border: 1.5px solid var(--border);
+            border-radius: 8px;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 14px;
+            color: var(--ink);
+            background: var(--bg);
+            transition: border-color 0.2s, box-shadow 0.2s;
+            outline: none;
+        }
+        input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent2); background: white; }
+
+        .btn { padding: 10px 22px; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s; }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-primary:hover { background: #b5852e; transform: translateY(-1px); }
+        .btn-ghost   { background: transparent; color: var(--muted); border: 1.5px solid var(--border); }
+        .btn-ghost:hover { border-color: var(--ink); color: var(--ink); }
+        .btn-danger  { background: #fee2e2; color: var(--danger); }
+        .btn-danger:hover { background: var(--danger); color: white; }
+
+        /* ── Product selection ── */
+        .filter-row { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+        .filter-row select { min-width: 180px; }
+        .search-wrap { position: relative; flex: 1; min-width: 200px; }
+        .search-wrap input { width: 100%; padding-left: 36px; }
+        .search-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+
+        /* Product grid */
+        .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-bottom: 24px; }
+        .product-card {
+            background: white;
+            border: 1.5px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+        .product-card:hover { border-color: var(--accent); box-shadow: 0 4px 16px rgba(200,151,58,0.12); transform: translateY(-2px); }
+        .product-card.selected { border-color: var(--accent); background: var(--accent2); }
+        .product-card .p-matnr { font-family: 'Courier New', monospace; font-size: 11px; color: #92650a; background: var(--accent2); padding: 2px 7px; border-radius: 4px; display: inline-block; margin-bottom: 8px; }
+        .product-card.selected .p-matnr { background: rgba(200,151,58,0.2); }
+        .product-card .p-brand  { font-weight: 700; font-size: 14px; margin-bottom: 2px; }
+        .product-card .p-meta   { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+        .product-card .p-price  { font-size: 15px; font-weight: 700; color: var(--accent); }
+        .product-card .p-qty    { font-size: 11px; color: var(--muted); }
+        .selected-tick { position: absolute; top: 10px; right: 10px; width: 20px; height: 20px; background: var(--accent); border-radius: 50%; display: none; align-items: center; justify-content: center; color: white; font-size: 11px; }
+        .product-card.selected .selected-tick { display: flex; }
+
+        /* Add to cart bar */
+        .add-bar {
+            position: sticky;
+            bottom: 0;
+            background: white;
+            border-top: 1px solid var(--border);
+            padding: 16px 40px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin: 0 -40px;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.06);
+        }
+        .add-bar .selected-info { flex: 1; font-size: 14px; color: var(--muted); }
+        .add-bar .selected-info strong { color: var(--ink); }
+        .qty-input { width: 80px; text-align: center; }
+
+        /* Empty state */
+        .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+        .empty-state .empty-icon { font-size: 40px; margin-bottom: 12px; }
+        .empty-state p { font-size: 14px; }
+
+        /* ── Cart view ── */
+        .cart-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+        .cart-header h1 { font-family: 'DM Serif Display', serif; font-size: 28px; flex: 1; }
+
+        .cart-table-wrap { background: white; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; margin-bottom: 24px; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        thead th { padding: 13px 16px; text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); background: var(--bg); }
+        thead th.right, tbody td.right { text-align: right; }
+        tbody tr { border-bottom: 1px solid var(--border); transition: background 0.15s; }
+        tbody tr:last-child { border-bottom: none; }
+        tbody tr:hover { background: #fdf8f2; }
+        tbody td { padding: 13px 16px; vertical-align: middle; }
+        .mono { font-family: 'Courier New', monospace; font-size: 12px; background: var(--accent2); color: #92650a; padding: 2px 7px; border-radius: 4px; }
+
+        /* Cart totals */
+        .totals-card { background: white; border: 1px solid var(--border); border-radius: 16px; padding: 24px 28px; max-width: 360px; margin-left: auto; }
+        .totals-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; font-size: 14px; border-bottom: 1px solid var(--border); }
+        .totals-row:last-child { border-bottom: none; }
+        .totals-row.grand { font-size: 17px; font-weight: 700; padding-top: 14px; }
+        .totals-row.tax { color: var(--muted); font-size: 13px; }
+
+        .place-order-btn {
+            width: 100%;
+            margin-top: 20px;
+            padding: 14px;
+            background: var(--success);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-family: 'DM Serif Display', serif;
+            font-size: 17px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .place-order-btn:hover { background: #15803d; transform: translateY(-1px); }
+
+        /* State rows */
+        .state-row td { text-align: center; padding: 40px; color: var(--muted); }
+        .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; margin-right: 8px; vertical-align: middle; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Toast ── */
+        #toast { position: fixed; bottom: 32px; right: 32px; padding: 14px 22px; border-radius: 10px; font-size: 14px; font-weight: 500; color: white; opacity: 0; transform: translateY(12px); transition: all 0.3s ease; z-index: 999; pointer-events: none; }
+        #toast.show { opacity: 1; transform: translateY(0); }
+        #toast.success { background: var(--success); }
+        #toast.error   { background: var(--danger); }
+        #toast.info    { background: var(--info); }
+    </style>
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<div class="sidebar">
+    <a class="sidebar-brand" href="Landing_Page.html" style="text-decoration:none;cursor:pointer;">Store CRM</a>
+    <div class="sidebar-sub">Sales</div>
+    <span class="nav-section">Sales</span>
+    <button class="nav-item active" id="nav-new" onclick="goToStep1()">🧾 New Order</button>
+    <span class="nav-section">Navigation</span>
+    <a class="nav-item" href="Customer.html">👤 Customers</a>
+    <a class="nav-item" href="Inventory.html">🏷️ Inventory</a>
+    <div class="sidebar-footer">
+        <a class="back-link" href="Landing_Page.html">← Home</a>
+    </div>
+</div>
+
+<!-- ── Main ── -->
+<div class="main">
+
+    <!-- Top bar -->
+    <div class="topbar">
+        <div class="topbar-left">
+            <span class="page-title">Sales Order</span>
+            <div class="customer-chip" id="customerChip">
+                <span>👤</span>
+                <span class="chip-id" id="chipKunnr"></span>
+                <span id="chipName"></span>
+            </div>
+        </div>
+        <button class="cart-btn" id="cartBtn" onclick="showCart()" style="display:none">
+            🛒 Cart
+            <span class="cart-badge" id="cartBadge">0</span>
+        </button>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+
+        <!-- Step indicators -->
+        <div class="steps" id="stepsBar">
+            <div class="step active" id="step1-ind">
+                <div class="step-num">1</div>
+                <span>Customer</span>
+            </div>
+            <div class="step-line" id="line-1"></div>
+            <div class="step" id="step2-ind">
+                <div class="step-num">2</div>
+                <span>Add Products</span>
+            </div>
+            <div class="step-line" id="line-2"></div>
+            <div class="step" id="step3-ind">
+                <div class="step-num">3</div>
+                <span>Cart &amp; Place Order</span>
+            </div>
+        </div>
+
+        <!-- ── VIEW 1: Customer lookup ── -->
+        <div class="view active" id="view-customer">
+            <div class="card">
+                <div class="card-title">Enter Customer ID</div>
+                <div class="card-sub">Enter the 6-digit KUNNR to start a new sales order.</div>
+                <div class="input-row">
+                    <div class="form-group">
+                        <label>KUNNR</label>
+                        <input id="kunnrInput" placeholder="e.g. 100001" maxlength="6" style="width:180px"
+                               onkeydown="if(event.key==='Enter') lookupCustomer()">
+                    </div>
+                    <button class="btn btn-primary" onclick="lookupCustomer()">Look Up →</button>
+                </div>
+                <div id="customerResult" style="margin-top:20px;"></div>
+            </div>
+        </div>
+
+        <!-- ── VIEW 2: Product selection ── -->
+        <div class="view" id="view-products">
+            <div class="card" style="margin-bottom:16px;">
+                <div class="card-title">Add Products</div>
+                <div class="card-sub">Filter by type and brand, then select a product to add to cart.</div>
+                <div class="filter-row">
+                    <div class="form-group">
+                        <label>Product Type</label>
+                        <select id="filterType" onchange="onTypeChange()">
+                            <option value="">All Types</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Brand</label>
+                        <select id="filterBrand" onchange="loadProducts()">
+                            <option value="">All Brands</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex:1">
+                        <label>Filter by MATNR</label>
+                        <div class="search-wrap">
+                            <span class="search-icon">🔍</span>
+                            <input id="matnrFilter" placeholder="Type MATNR to filter…" oninput="filterProducts()">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="product-grid" id="productGrid">
+                <div class="empty-state" style="grid-column:1/-1">
+                    <div class="empty-icon">📦</div>
+                    <p>Select a product type to browse items.</p>
+                </div>
+            </div>
+
+            <!-- Add to cart sticky bar -->
+            <div class="add-bar" id="addBar">
+                <div class="selected-info" id="selectedInfo">No product selected</div>
+                <div class="form-group" style="margin-bottom:0">
+                    <label>Qty</label>
+                    <input class="qty-input" id="addQty" type="number" min="1" value="1">
+                </div>
+                <button class="btn btn-primary" onclick="addToCart()">Add to Cart 🛒</button>
+            </div>
+        </div>
+
+        <!-- ── VIEW 3: Cart ── -->
+        <div class="view" id="view-cart">
+            <div class="cart-header">
+                <button class="btn btn-ghost" onclick="showProducts()">← Back to Products</button>
+                <h1>Your Cart</h1>
+            </div>
+
+            <div class="cart-table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>MATNR</th>
+                            <th>Brand</th>
+                            <th>Details</th>
+                            <th class="right">Unit Price</th>
+                            <th class="right">Qty</th>
+                            <th class="right">Gross Price</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="cartBody">
+                        <tr class="state-row"><td colspan="7">Your cart is empty.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap;">
+                <div style="flex:1; min-width:200px;">
+                    <p style="font-size:13px;color:var(--muted);line-height:1.6;">
+                        Review your items before placing the order.<br>
+                        Once placed, a confirmed order number will be assigned.
+                    </p>
+                </div>
+                <div class="totals-card">
+                    <div class="totals-row">
+                        <span>Subtotal</span>
+                        <span id="subtotal">₹0.00</span>
+                    </div>
+                    <div class="totals-row tax">
+                        <span>GST (18%)</span>
+                        <span id="taxAmount">₹0.00</span>
+                    </div>
+                    <div class="totals-row grand">
+                        <span>Total</span>
+                        <span id="grandTotal">₹0.00</span>
+                    </div>
+                    <button class="place-order-btn" onclick="placeOrder()">✅ Place Order</button>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- /content -->
+</div><!-- /main -->
+
+<div id="toast"></div>
+
+<script>
+    const TAX_RATE = 0.18;
+    let currentKunnr   = null;
+    let currentCustomer = null;
+    let selectedProduct = null;
+    let allProducts     = [];
+    let cartItems       = [];  // local cache {id, matnr, brand, brandfamily, size, type, quantity, price}
+
+    // ── Utilities ────────────────────────────────────────────────────────────
+    function showToast(msg, type = 'success') {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = `show ${type}`;
+        setTimeout(() => t.className = '', 3200);
+    }
+
+    function fmt(n) { return '₹' + parseFloat(n || 0).toFixed(2); }
+
+    function setStep(n) {
+        [1,2,3].forEach(i => {
+            const el = document.getElementById(`step${i}-ind`);
+            el.className = 'step' + (i < n ? ' done' : i === n ? ' active' : '');
+            if (i < 3) {
+                const line = document.getElementById(`line-${i}`);
+                line.className = 'step-line' + (i < n ? ' done' : '');
+            }
+        });
+    }
+
+    function showView(name) {
+        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+        document.getElementById(`view-${name}`).classList.add('active');
+    }
+
+    function updateCartBadge() {
+        const total = cartItems.reduce((s, i) => s + i.quantity, 0);
+        const badge = document.getElementById('cartBadge');
+        const btn   = document.getElementById('cartBtn');
+        badge.textContent = total;
+        badge.classList.toggle('visible', total > 0);
+        btn.style.display = total > 0 || currentKunnr ? 'flex' : 'none';
+    }
+
+    // ── STEP 1: Customer ─────────────────────────────────────────────────────
+    function goToStep1() {
+        currentKunnr    = null;
+        currentCustomer = null;
+        selectedProduct = null;
+        cartItems       = [];
+        document.getElementById('kunnrInput').value = '';
+        document.getElementById('customerResult').innerHTML = '';
+        document.getElementById('customerChip').classList.remove('visible');
+        document.getElementById('cartBtn').style.display = 'none';
+        setStep(1);
+        showView('customer');
+    }
+
+    async function lookupCustomer() {
+        const kunnr = document.getElementById('kunnrInput').value.trim();
+        if (kunnr.length !== 6) return showToast('KUNNR must be 6 digits', 'error');
+
+        const resultEl = document.getElementById('customerResult');
+        resultEl.innerHTML = '<span class="spinner"></span> Looking up…';
+
+        try {
+            const res = await fetch(`/customers/${kunnr}`);
+            if (!res.ok) throw new Error('Customer not found');
+            const cust = await res.json();
+            currentKunnr    = kunnr;
+            currentCustomer = cust;
+
+            // Show result card
+            resultEl.innerHTML = `
+                <div style="background:var(--accent2);border:1.5px solid #e8d0a0;border-radius:10px;padding:16px 20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+                    <div>
+                        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:#92650a;margin-bottom:4px;">Customer Found</div>
+                        <div style="font-size:18px;font-weight:700;">${cust.name}</div>
+                        <div style="font-size:13px;color:#92650a;font-family:'Courier New',monospace;">KUNNR: ${cust.kunnr}</div>
+                    </div>
+                    ${cust.number ? `<div style="font-size:13px;color:var(--muted);">📞 ${cust.number}</div>` : ''}
+                    ${cust.email  ? `<div style="font-size:13px;color:var(--muted);">✉️ ${cust.email}</div>`  : ''}
+                    <button class="btn btn-primary" style="margin-left:auto" onclick="proceedToProducts()">Continue → Add Products</button>
+                </div>`;
+
+            // Float chip in topbar
+            document.getElementById('chipKunnr').textContent = cust.kunnr;
+            document.getElementById('chipName').textContent  = cust.name;
+            document.getElementById('customerChip').classList.add('visible');
+
+            // Load existing cart if any
+            await loadCart();
+            updateCartBadge();
+        } catch (err) {
+            resultEl.innerHTML = `<div style="color:var(--danger);font-size:14px;">❌ ${err.message}</div>`;
+        }
+    }
+
+    // ── STEP 2: Products ─────────────────────────────────────────────────────
+    async function proceedToProducts() {
+        setStep(2);
+        showView('products');
+        await loadTypes();
+        await loadProducts();
+    }
+
+    async function loadTypes() {
+        try {
+            const res   = await fetch('/inventory/meta/types');
+            const types = await res.json();
+            const sel   = document.getElementById('filterType');
+            sel.innerHTML = '<option value="">All Types</option>' +
+                types.map(t => `<option value="${t}">${t}</option>`).join('');
+        } catch {}
+    }
+
+    async function onTypeChange() {
+        const type = document.getElementById('filterType').value;
+        try {
+            const url   = type ? `/inventory/meta/brands?type=${encodeURIComponent(type)}` : '/inventory/meta/brands';
+            const res   = await fetch(url);
+            const brands = await res.json();
+            document.getElementById('filterBrand').innerHTML =
+                '<option value="">All Brands</option>' +
+                brands.map(b => `<option value="${b}">${b}</option>`).join('');
+        } catch {}
+        await loadProducts();
+    }
+
+    async function loadProducts() {
+        const type  = document.getElementById('filterType').value;
+        const brand = document.getElementById('filterBrand').value;
+        let url = '/inventory/meta/items';
+        const params = [];
+        if (type)  params.push(`type=${encodeURIComponent(type)}`);
+        if (brand) params.push(`brand=${encodeURIComponent(brand)}`);
+        if (params.length) url += '?' + params.join('&');
+
+        const grid = document.getElementById('productGrid');
+        grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><span class="spinner"></span> Loading…</div>';
+
+        try {
+            const res = await fetch(url);
+            allProducts = await res.json();
+            renderProducts(allProducts);
+        } catch {
+            grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">❌</div><p>Could not load products.</p></div>';
+        }
+    }
+
+    function renderProducts(products) {
+        const grid = document.getElementById('productGrid');
+        if (products.length === 0) {
+            grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">📦</div><p>No products found.</p></div>';
+            return;
+        }
+        grid.innerHTML = products.map(p => `
+            <div class="product-card ${selectedProduct?.matnr === p.matnr ? 'selected' : ''}"
+                 onclick="selectProduct('${p.matnr}')">
+                <div class="selected-tick">✓</div>
+                <span class="p-matnr">${p.matnr}</span>
+                <div class="p-brand">${p.brand || '—'}</div>
+                <div class="p-meta">${[p.brandfamily, p.size, p.type].filter(Boolean).join(' · ')}</div>
+                <div class="p-price">${fmt(p.price)}</div>
+                <div class="p-qty">Stock: ${p.quantity ?? 0}</div>
+            </div>
+        `).join('');
+    }
+
+    function filterProducts() {
+        const q = document.getElementById('matnrFilter').value.toLowerCase();
+        renderProducts(allProducts.filter(p =>
+            p.matnr.toLowerCase().includes(q) ||
+            (p.brand||'').toLowerCase().includes(q) ||
+            (p.type||'').toLowerCase().includes(q)
+        ));
+    }
+
+    function selectProduct(matnr) {
+        selectedProduct = allProducts.find(p => p.matnr === matnr) || null;
+        // Re-render to update selection highlight
+        filterProducts();
+        if (selectedProduct) {
+            document.getElementById('selectedInfo').innerHTML =
+                `<strong>${selectedProduct.brand}</strong> · <span style="font-family:'Courier New',monospace;font-size:12px;">${selectedProduct.matnr}</span> · ${fmt(selectedProduct.price)}`;
+        }
+    }
+
+    async function addToCart() {
+        if (!selectedProduct) return showToast('Select a product first', 'error');
+        const qty = parseInt(document.getElementById('addQty').value) || 1;
+        if (qty < 1) return showToast('Quantity must be at least 1', 'error');
+
+        try {
+            const res = await fetch(`/order/temp/${currentKunnr}/add`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ matnr: selectedProduct.matnr, quantity: qty, price: selectedProduct.price })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+            showToast(`✅ ${selectedProduct.brand} added to cart!`);
+            await loadCart();
+            updateCartBadge();
+            selectedProduct = null;
+            document.getElementById('addQty').value = 1;
+            document.getElementById('selectedInfo').innerHTML = 'No product selected';
+            filterProducts();
+        } catch (err) {
+            showToast(`❌ ${err.message}`, 'error');
+        }
+    }
+
+    // ── Cart ─────────────────────────────────────────────────────────────────
+    async function loadCart() {
+        if (!currentKunnr) return;
+        try {
+            const res  = await fetch(`/order/temp/${currentKunnr}`);
+            const data = await res.json();
+            cartItems = data ? (data.items || []) : [];
+        } catch { cartItems = []; }
+    }
+
+    function showCart() {
+        setStep(3);
+        showView('cart');
+        renderCart();
+    }
+
+    function showProducts() {
+        setStep(2);
+        showView('products');
+    }
+
+    function renderCart() {
+        const tbody = document.getElementById('cartBody');
+        if (cartItems.length === 0) {
+            tbody.innerHTML = '<tr class="state-row"><td colspan="7">Your cart is empty. Go back to add products.</td></tr>';
+            document.getElementById('subtotal').textContent  = '₹0.00';
+            document.getElementById('taxAmount').textContent = '₹0.00';
+            document.getElementById('grandTotal').textContent= '₹0.00';
+            return;
+        }
+
+        let subtotal = 0;
+        tbody.innerHTML = cartItems.map(item => {
+            const gross = item.price * item.quantity;
+            subtotal += gross;
+            return `
+            <tr>
+                <td><span class="mono">${item.matnr}</span></td>
+                <td><strong>${item.brand || '—'}</strong></td>
+                <td style="font-size:13px;color:var(--muted)">${[item.brandfamily, item.size, item.type].filter(Boolean).join(' · ')}</td>
+                <td class="right">${fmt(item.price)}</td>
+                <td class="right">${item.quantity}</td>
+                <td class="right"><strong>${fmt(gross)}</strong></td>
+                <td><button class="btn btn-danger" style="padding:4px 10px;font-size:12px" onclick="removeFromCart(${item.id})">✕</button></td>
+            </tr>`;
+        }).join('');
+
+        const tax   = subtotal * TAX_RATE;
+        const total = subtotal + tax;
+        document.getElementById('subtotal').textContent  = fmt(subtotal);
+        document.getElementById('taxAmount').textContent = fmt(tax);
+        document.getElementById('grandTotal').textContent= fmt(total);
+    }
+
+    async function removeFromCart(id) {
+        try {
+            await fetch(`/order/temp/${currentKunnr}/item/${id}`, { method: 'DELETE' });
+            await loadCart();
+            updateCartBadge();
+            renderCart();
+        } catch (err) {
+            showToast('❌ Could not remove item', 'error');
+        }
+    }
+
+    async function placeOrder() {
+        if (cartItems.length === 0) return showToast('Cart is empty', 'error');
+        if (!confirm(`Place this order for ${currentCustomer.name}?\nThis will create a confirmed sales order.`)) return;
+
+        try {
+            const res  = await fetch(`/order/place/${currentKunnr}`, { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to place order');
+
+            showToast(`✅ Order ${data.order_id} placed!`, 'success');
+
+            // Open invoice in new window
+            setTimeout(() => {
+                window.open(`Invoice.html?order_id=${data.order_id}`, '_blank');
+                // Reset for new order
+                goToStep1();
+            }, 800);
+        } catch (err) {
+            showToast(`❌ ${err.message}`, 'error');
+        }
+    }
+
+    // ── Init ─────────────────────────────────────────────────────────────────
+    goToStep1();
+</script>
+</body>
+</html>

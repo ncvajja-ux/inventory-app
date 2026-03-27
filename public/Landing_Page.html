@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Store CRM</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --ink:    #0f0f0f;
+            --muted:  #6b7280;
+            --accent: #c8973a;
+            --bg:     #faf9f7;
+            --card:   #ffffff;
+            --border: #e5e2db;
+        }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: var(--bg);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        /* Subtle grain texture */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .wrapper {
+            position: relative;
+            z-index: 1;
+            text-align: center;
+            padding: 60px 40px;
+        }
+
+        .eyebrow {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--accent);
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            font-family: 'DM Serif Display', serif;
+            font-size: clamp(42px, 6vw, 72px);
+            color: var(--ink);
+            line-height: 1.1;
+            margin-bottom: 12px;
+        }
+
+        .subtitle {
+            font-size: 16px;
+            color: var(--muted);
+            margin-bottom: 56px;
+            font-weight: 300;
+        }
+
+        .cards {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .nav-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 36px 32px;
+            width: 200px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            text-decoration: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 14px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        }
+
+        .nav-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 16px 40px rgba(0,0,0,0.10);
+            border-color: var(--accent);
+        }
+
+        .nav-card .icon {
+            font-size: 32px;
+        }
+
+        .nav-card .label {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--ink);
+            letter-spacing: 0.02em;
+        }
+
+        .nav-card .desc {
+            font-size: 12px;
+            color: var(--muted);
+            font-weight: 300;
+        }
+
+        .divider {
+            width: 40px;
+            height: 2px;
+            background: var(--accent);
+            margin: 0 auto 48px;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+<div class="wrapper">
+    <p class="eyebrow">Clothing Store</p>
+    <h1>Store Manager</h1>
+    <p class="subtitle">CRM &amp; Inventory in one place</p>
+    <div class="divider"></div>
+
+    <div class="cards">
+        <a class="nav-card" href="Customer.html">
+            <span class="icon">👤</span>
+            <span class="label">Customers</span>
+            <span class="desc">Add &amp; manage CRM</span>
+        </a>
+        <a class="nav-card" href="Inventory.html">
+            <span class="icon">🏷️</span>
+            <span class="label">Inventory</span>
+            <span class="desc">Stock &amp; materials</span>
+        </a>
+        <a class="nav-card" href="Sales.html">
+            <span class="icon">🧾</span>
+            <span class="label">Sales</span>
+            <span class="desc">Create sales orders</span>
+        </a>
+    </div>
+</div>
+</body>
+</html>

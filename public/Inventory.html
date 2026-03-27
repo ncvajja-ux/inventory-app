@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --ink:    #0f0f0f;
+            --muted:  #6b7280;
+            --accent: #c8973a;
+            --accent2:#f0e6d0;
+            --bg:     #faf9f7;
+            --card:   #ffffff;
+            --border: #e5e2db;
+            --sidebar:#141414;
+            --danger: #dc2626;
+            --success:#16a34a;
+        }
+
+        body { font-family: 'DM Sans', sans-serif; background: var(--bg); display: flex; min-height: 100vh; color: var(--ink); }
+
+        /* Sidebar (same as other pages) */
+        .sidebar { width: 240px; min-height: 100vh; background: var(--sidebar); color: #f5f5f5; display: flex; flex-direction: column; padding: 32px 20px; gap: 4px; position: sticky; top: 0; }
+        .sidebar-brand { font-family: 'DM Serif Display', serif; font-size: 22px; color: white; margin-bottom: 8px; padding: 0 8px; }
+        .sidebar-sub { font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--accent); padding: 0 8px; margin-bottom: 28px; }
+        .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; color: #9ca3af; transition: all 0.2s; text-decoration: none; }
+        .nav-item:hover, .nav-item.active { background: #1f1f1f; color: white; }
+        .nav-item.active { color: var(--accent); }
+        .nav-section { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: #4b5563; padding: 16px 12px 6px; }
+        .sidebar-footer { margin-top: auto; padding-top: 20px; border-top: 1px solid #1f1f1f; }
+        .back-link { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font-size: 13px; color: #6b7280; text-decoration: none; border-radius: 8px; transition: all 0.2s; }
+        .back-link:hover { color: white; background: #1f1f1f; }
+
+        /* Main */
+        .main { flex: 1; padding: 32px 28px; overflow-x: auto; }
+
+        /* Tabs */
+        .tabs { display: flex; gap: 4px; margin-bottom: 32px; background: white; border: 1px solid var(--border); border-radius: 10px; padding: 4px; width: fit-content; }
+        .tab { padding: 8px 20px; border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; background: transparent; color: var(--muted); transition: all 0.2s; }
+        .tab.active { background: var(--accent); color: white; }
+
+        /* Page sections */
+        .section { display: none; }
+        .section.active { display: block; }
+
+        .page-title { font-family: 'DM Serif Display', serif; font-size: 32px; margin-bottom: 4px; }
+        .page-sub { color: var(--muted); font-size: 14px; margin-bottom: 28px; }
+
+        /* Form card */
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 32px; box-shadow: 0 2px 12px rgba(0,0,0,0.04); }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .form-group { display: flex; flex-direction: column; gap: 6px; }
+        .form-group.full { grid-column: 1 / -1; }
+        label { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+        input, select { padding: 10px 14px; border: 1.5px solid var(--border); border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 14px; color: var(--ink); background: var(--bg); transition: border-color 0.2s, box-shadow 0.2s; outline: none; }
+        input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent2); background: white; }
+
+        .btn-row { display: flex; gap: 12px; margin-top: 28px; }
+        .btn { padding: 11px 24px; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s; }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-primary:hover { background: #b5852e; transform: translateY(-1px); }
+        .btn-ghost { background: transparent; color: var(--muted); border: 1.5px solid var(--border); }
+        .btn-ghost:hover { border-color: var(--ink); color: var(--ink); }
+
+        /* View section toolbar */
+        .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+        .search-wrap { position: relative; }
+        .search-wrap input { padding: 9px 14px 9px 36px; width: 220px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 13px; background: white; }
+        .search-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); font-size: 14px; pointer-events: none; }
+
+        /* Stats */
+        .stats { display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+        .stat-pill { background: white; border: 1px solid var(--border); border-radius: 10px; padding: 10px 18px; font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+        .stat-pill strong { color: var(--ink); font-size: 16px; }
+
+        /* Table */
+        .table-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; overflow-x: auto; box-shadow: 0 2px 12px rgba(0,0,0,0.04); }
+        table { width: 100%; min-width: 960px; border-collapse: collapse; font-size: 13px; }
+        thead th { padding: 11px 10px; text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); background: var(--bg); }
+        tbody tr { border-bottom: 1px solid var(--border); transition: background 0.15s; }
+        tbody tr:last-child { border-bottom: none; }
+        tbody tr:hover { background: #fdf8f2; }
+        tbody td { padding: 11px 10px; vertical-align: middle; }
+        .mono { font-family: 'Courier New', monospace; font-size: 12px; background: var(--accent2); color: #92650a; padding: 2px 7px; border-radius: 4px; }
+        .qty-badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .qty-ok  { background: #dcfce7; color: #15803d; }
+        .qty-low { background: #fef9c3; color: #854d0e; }
+        .qty-zero{ background: #fee2e2; color: var(--danger); }
+        .action-btn { padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s; }
+        .btn-edit   { background: #e0f2fe; color: #0369a1; }
+        .btn-edit:hover   { background: #0369a1; color: white; }
+        .btn-delete { background: #fee2e2; color: var(--danger); }
+        .btn-delete:hover { background: var(--danger); color: white; }
+        .state-row td { text-align: center; padding: 48px; color: var(--muted); font-size: 14px; }
+        .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; margin-right: 8px; vertical-align: middle; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+
+        /* ── Edit Modal ── */
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; align-items: center; justify-content: center; }
+        .modal-overlay.open { display: flex; }
+        .modal { background: white; border-radius: 16px; padding: 32px; width: 580px; max-width: 95vw; max-height: 90vh; overflow-y: auto; box-shadow: 0 24px 60px rgba(0,0,0,0.2); }
+        .modal-title { font-family: 'DM Serif Display', serif; font-size: 22px; margin-bottom: 6px; }
+        .modal-sub   { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+        .modal-grid  { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .modal-actions { display: flex; gap: 12px; margin-top: 24px; justify-content: flex-end; }
+
+        /* Toast */
+        #toast { position: fixed; bottom: 32px; right: 32px; padding: 14px 22px; border-radius: 10px; font-size: 14px; font-weight: 500; color: white; opacity: 0; transform: translateY(12px); transition: all 0.3s ease; z-index: 999; pointer-events: none; }
+        #toast.show { opacity: 1; transform: translateY(0); }
+        #toast.success { background: var(--success); }
+        #toast.error   { background: var(--danger); }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <a class="sidebar-brand" href="Landing_Page.html" style="text-decoration:none;cursor:pointer;">Store CRM</a>
+    <div class="sidebar-sub">Inventory</div>
+
+    <span class="nav-section">Inventory</span>
+    <a class="nav-item active" onclick="switchTab('add')">➕ Add Item</a>
+    <a class="nav-item" id="nav-view" onclick="switchTab('view')">📦 View Stock</a>
+    <a class="nav-item" id="nav-cats" onclick="switchTab('cats')">🗂️ Categories</a>
+
+    <span class="nav-section">Navigation</span>
+    <a class="nav-item" href="Customer.html">👤 Customers</a>
+
+    <div class="sidebar-footer">
+        <a class="back-link" href="Landing_Page.html">← Home</a>
+    </div>
+</div>
+
+<div class="main">
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab active" id="tab-add"  onclick="switchTab('add')">➕ Add Item</button>
+        <button class="tab"        id="tab-view" onclick="switchTab('view')">📦 View Stock</button>
+        <button class="tab"        id="tab-cats" onclick="switchTab('cats')">🗂️ Categories</button>
+    </div>
+
+    <!-- ADD ITEM section -->
+    <div class="section active" id="section-add">
+        <h1 class="page-title">Add Inventory Item</h1>
+        <p class="page-sub">Fill in the details — a MATNR will be assigned automatically.</p>
+
+        <div class="card">
+            <!-- Auto-ID display -->
+            <div style="margin-bottom:24px; padding-bottom:20px; border-bottom:1px solid var(--border);">
+                <label style="font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);">Auto-Assigned MATNR</label>
+                <div style="margin-top:8px; display:flex; align-items:center; gap:12px;">
+                    <div id="matnrBadge" style="display:inline-flex;align-items:center;background:var(--accent2);color:#92650a;border:1.5px solid #e8d0a0;border-radius:8px;padding:10px 16px;font-family:'Courier New',monospace;font-size:15px;font-weight:700;letter-spacing:0.08em;min-width:110px;justify-content:center;">—</div>
+                    <span style="font-size:12px;color:var(--muted);">Assigned automatically on save</span>
+                </div>
+            </div>
+
+            <div class="form-grid">
+
+                <div class="form-group">
+                    <label>Brand</label>
+                    <input id="brand" placeholder="e.g. Levi's">
+                </div>
+
+                <div class="form-group">
+                    <label>Brand Family</label>
+                    <input id="brandfamily" placeholder="e.g. Jeans, T-Shirts">
+                </div>
+
+                <div class="form-group">
+                    <label>Size</label>
+                    <select id="size">
+                        <option value="">Select size…</option>
+                        <option>XS</option><option>S</option><option>M</option>
+                        <option>L</option><option>XL</option><option>XXL</option>
+                        <option>Free Size</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Quantity</label>
+                    <input id="quantity" type="number" min="0" placeholder="0">
+                </div>
+
+                <div class="form-group">
+                    <label>Price (₹)</label>
+                    <input id="price" type="number" min="0" step="0.01" placeholder="0.00">
+                </div>
+
+                <div class="form-group">
+                    <label>Gender</label>
+                    <select id="gender">
+                        <option value="">Select…</option>
+                        <option>Male</option>
+                        <option>Female</option>
+                        <option>Unisex</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Category</label>
+                    <select id="category" onchange="loadSubcategories('category','subcategory')">
+                        <option value="">Select…</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Sub-Category</label>
+                    <select id="subcategory">
+                        <option value="">Select category first…</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Param 1 <span style="font-weight:300;text-transform:none;font-size:11px">(optional)</span></label>
+                    <input id="param1" placeholder="e.g. Color">
+                </div>
+
+                <div class="form-group">
+                    <label>Param 2 <span style="font-weight:300;text-transform:none;font-size:11px">(optional)</span></label>
+                    <input id="param2" placeholder="e.g. Material">
+                </div>
+
+            </div>
+
+            <div class="btn-row">
+                <button class="btn btn-primary" onclick="saveItem()">💾 Save Item</button>
+                <button class="btn btn-ghost"   onclick="resetForm()">Clear</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- VIEW STOCK section -->
+    <div class="section" id="section-view">
+        <h1 class="page-title">Stock Overview</h1>
+        <p class="page-sub">All inventory items from the live database.</p>
+
+        <div class="toolbar">
+            <div class="search-wrap">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="searchInput" placeholder="Search inventory…" oninput="filterTable()">
+            </div>
+            <button class="btn btn-ghost" onclick="loadData()">↺ Refresh</button>
+        </div>
+
+        <div class="stats">
+            <div class="stat-pill">Total Items <strong id="totalCount">—</strong></div>
+            <div class="stat-pill">Total Units <strong id="totalUnits">—</strong></div>
+        </div>
+
+        <div class="table-card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>MATNR</th>
+                        <th>Brand</th>
+                        <th>Family</th>
+                        <th>Size</th>
+                        <th>Gender</th>
+                        <th>Category</th>
+                        <th>Sub-Category</th>
+                        <th>Qty</th>
+                        <th>Price (₹)</th>
+                        <th>Param 1</th>
+                        <th>Param 2</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <tr class="state-row"><td colspan="12">Click "View Stock" to load data.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- CATEGORIES section -->
+    <div class="section" id="section-cats">
+        <h1 class="page-title">Categories</h1>
+        <p class="page-sub">Manage product categories and sub-categories used across inventory.</p>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+
+            <!-- Left: category tree -->
+            <div class="card" style="padding:24px;">
+                <div style="font-weight:700;font-size:16px;margin-bottom:4px;">Category Tree</div>
+                <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">Click ✕ to remove a sub-category.</div>
+                <div id="catTree"></div>
+            </div>
+
+            <!-- Right: add forms -->
+            <div style="display:flex;flex-direction:column;gap:16px;">
+
+                <!-- Add subcategory to existing category -->
+                <div class="card" style="padding:24px;">
+                    <div style="font-weight:700;font-size:15px;margin-bottom:16px;">➕ Add Sub-Category</div>
+                    <div class="form-group" style="margin-bottom:12px;">
+                        <label>Category</label>
+                        <select id="newSubCat">
+                            <option value="">Select category…</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-bottom:16px;">
+                        <label>Sub-Category Name</label>
+                        <input id="newSubName" placeholder="e.g. Polo Shirts">
+                    </div>
+                    <button class="btn btn-primary" onclick="addSubcategory()">Add Sub-Category</button>
+                </div>
+
+                <!-- Add brand new category -->
+                <div class="card" style="padding:24px;">
+                    <div style="font-weight:700;font-size:15px;margin-bottom:16px;">🆕 Add New Category</div>
+                    <div class="form-group" style="margin-bottom:12px;">
+                        <label>Category Name</label>
+                        <input id="newCatName" placeholder="e.g. Sportswear">
+                    </div>
+                    <div class="form-group" style="margin-bottom:16px;">
+                        <label>First Sub-Category</label>
+                        <input id="newCatFirstSub" placeholder="e.g. Jersey">
+                    </div>
+                    <button class="btn btn-primary" onclick="addNewCategory()">Create Category</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+</div>
+
+<!-- ── Edit Inventory Modal ── -->
+<div class="modal-overlay" id="editModal">
+    <div class="modal">
+        <div class="modal-title">Edit Inventory Item</div>
+        <div class="modal-sub" id="editModalSub"></div>
+
+        <!-- MATNR read-only badge -->
+        <div style="margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;">
+            <div id="editMatnrBadge" style="display:inline-flex;align-items:center;background:var(--accent2);color:#92650a;border:1.5px solid #e8d0a0;border-radius:8px;padding:8px 16px;font-family:'Courier New',monospace;font-size:15px;font-weight:700;letter-spacing:0.08em;min-width:110px;justify-content:center;">—</div>
+            <span style="font-size:12px;color:var(--muted);">MATNR cannot be changed</span>
+        </div>
+
+        <div class="modal-grid">
+            <div class="form-group">
+                <label>Brand</label>
+                <input id="edit-brand" placeholder="e.g. Levi's">
+            </div>
+            <div class="form-group">
+                <label>Brand Family</label>
+                <input id="edit-brandfamily" placeholder="e.g. Jeans, T-Shirts">
+            </div>
+            <div class="form-group">
+                <label>Size</label>
+                <select id="edit-size">
+                    <option value="">Select size…</option>
+                    <option>XS</option><option>S</option><option>M</option>
+                    <option>L</option><option>XL</option><option>XXL</option>
+                    <option>Free Size</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Quantity</label>
+                <input id="edit-quantity" type="number" min="0" placeholder="0">
+            </div>
+            <div class="form-group">
+                <label>Price (₹)</label>
+                <input id="edit-price" type="number" min="0" step="0.01" placeholder="0.00">
+            </div>
+            <div class="form-group">
+                <label>Gender</label>
+                <select id="edit-gender">
+                    <option value="">Select…</option>
+                    <option>Male</option>
+                    <option>Female</option>
+                    <option>Unisex</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Category</label>
+                <select id="edit-category" onchange="loadSubcategories('edit-category','edit-subcategory')">
+                    <option value="">Select…</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Sub-Category</label>
+                <select id="edit-subcategory">
+                    <option value="">Select category first…</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Param 1</label>
+                <input id="edit-param1" placeholder="e.g. Color">
+            </div>
+            <div class="form-group">
+                <label>Param 2</label>
+                <input id="edit-param2" placeholder="e.g. Material">
+            </div>
+        </div>
+
+        <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeEditModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveEdit()">Save Changes</button>
+        </div>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+    let allData = [];
+
+    function showToast(msg, type = 'success') {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = `show ${type}`;
+        setTimeout(() => t.className = '', 3000);
+    }
+
+    function switchTab(tab) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+        document.getElementById(`tab-${tab}`).classList.add('active');
+        document.getElementById(`section-${tab}`).classList.add('active');
+        if (tab === 'view') loadData();
+        if (tab === 'cats') { loadCatTree(); loadCategoryDropdowns(); }
+    }
+
+    async function loadNextMatnr() {
+        try {
+            const res  = await fetch('/next-matnr');
+            const data = await res.json();
+            document.getElementById('matnrBadge').textContent = data.matnr || '—';
+        } catch {
+            document.getElementById('matnrBadge').textContent = 'Auto';
+        }
+    }
+
+    function resetForm() {
+        ['brand','brandfamily','size','quantity','price','gender','category','subcategory','param1','param2'].forEach(id => {
+            document.getElementById(id).value = '';
+        });
+        loadNextMatnr();
+        document.getElementById('brand').focus();
+    }
+
+
+    async function loadData() {
+        const tbody = document.getElementById('tableBody');
+        tbody.innerHTML = '<tr class="state-row"><td colspan="12"><span class="spinner"></span> Loading inventory…</td></tr>';
+        try {
+            const res = await fetch('/inventory');
+            allData   = await res.json();
+            const totalUnits = allData.reduce((sum, r) => sum + (parseInt(r.quantity) || 0), 0);
+            document.getElementById('totalCount').textContent = allData.length;
+            document.getElementById('totalUnits').textContent = totalUnits;
+            renderTable(allData);
+        } catch {
+            tbody.innerHTML = '<tr class="state-row"><td colspan="12">❌ Could not connect to server.</td></tr>';
+        }
+    }
+
+    function renderTable(data) {
+        const tbody = document.getElementById('tableBody');
+        if (data.length === 0) {
+            tbody.innerHTML = '<tr class="state-row"><td colspan="12">No items found.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = data.map(row => {
+            const qty = parseInt(row.quantity) || 0;
+            const qtyClass = qty === 0 ? 'qty-zero' : qty < 5 ? 'qty-low' : 'qty-ok';
+            return `
+            <tr>
+                <td><span class="mono">${row.matnr || '—'}</span></td>
+                <td><strong>${row.brand || '—'}</strong></td>
+                <td>${row.brandfamily || '—'}</td>
+                <td>${row.size || '—'}</td>
+                <td>${row.gender || '—'}</td>
+                <td>${row.category || '—'}</td>
+                <td>${row.subcategory || '—'}</td>
+                <td><span class="qty-badge ${qtyClass}">${qty}</span></td>
+                <td>${row.price != null ? '₹' + parseFloat(row.price).toFixed(2) : '—'}</td>
+                <td>${row.param1 || '—'}</td>
+                <td>${row.param2 || '—'}</td>
+                <td>
+                    <div style="display:flex;gap:6px;">
+                        <button class="action-btn btn-edit" onclick="openEdit('${row.matnr}')">Edit</button>
+                        <button class="action-btn btn-delete" onclick="deleteItem('${row.matnr}')">Delete</button>
+                    </div>
+                </td>
+            </tr>`;
+        }).join('');
+    }
+
+    function filterTable() {
+        const q = document.getElementById('searchInput').value.toLowerCase();
+        renderTable(allData.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(q))));
+    }
+
+    async function deleteItem(matnr) {
+        if (!confirm(`Delete item ${matnr}? This cannot be undone.`)) return;
+        try {
+            const res = await fetch(`/inventory/${matnr}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+            showToast(`🗑️ Item ${matnr} deleted`);
+            loadData();
+        } catch (err) {
+            showToast(`❌ ${err.message}`, 'error');
+        }
+    }
+
+
+
+
+
+    let catData = {}; // global category cache
+
+    async function loadCategoryDropdowns() {
+        try {
+            const res = await fetch('/categories/list');
+            const cats = await res.json();
+            catData._list = cats;
+            ['category','edit-category','newSubCat'].forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                const cur = el.value;
+                el.innerHTML = '<option value="">Select…</option>' +
+                    cats.map(c => `<option value="${c}">${c}</option>`).join('');
+                if (cur) el.value = cur;
+            });
+        } catch(e) { console.error(e); }
+    }
+
+    async function loadSubcategories(catSelectId, subSelectId) {
+        const cat = document.getElementById(catSelectId).value;
+        const sub = document.getElementById(subSelectId);
+        if (!cat) { sub.innerHTML = '<option value="">Select category first…</option>'; return; }
+        try {
+            const res  = await fetch(`/categories/${encodeURIComponent(cat)}/subs`);
+            const rows = await res.json();
+            sub.innerHTML = '<option value="">Select sub-category…</option>' +
+                rows.map(r => `<option value="${r.subcategory}">${r.subcategory}</option>`).join('');
+        } catch(e) { sub.innerHTML = '<option value="">Error loading</option>'; }
+    }
+
+    async function loadCatTree() {
+        try {
+            const res  = await fetch('/categories');
+            catData    = await res.json();
+            const tree = document.getElementById('catTree');
+            tree.innerHTML = Object.entries(catData).map(([cat, subs]) => `
+                <div style="margin-bottom:16px;">
+                    <div style="font-weight:700;font-size:14px;padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:8px;color:var(--accent);">
+                        📁 ${cat}
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                        ${subs.map(s => `
+                            <span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:13px;">
+                                ${s.subcategory}
+                                <button onclick="deleteSubcategory(${s.id})" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:11px;padding:0 2px;line-height:1;" title="Remove">✕</button>
+                            </span>`).join('')}
+                    </div>
+                </div>`).join('');
+        } catch(e) { document.getElementById('catTree').innerHTML = '<p style="color:var(--muted)">Could not load categories.</p>'; }
+    }
+
+    async function addSubcategory() {
+        const category    = document.getElementById('newSubCat').value;
+        const subcategory = document.getElementById('newSubName').value.trim();
+        if (!category)    return showToast('Select a category', 'error');
+        if (!subcategory) return showToast('Enter a sub-category name', 'error');
+        try {
+            const res  = await fetch('/categories', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ category, subcategory })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+            showToast(`✅ "${subcategory}" added to ${category}`);
+            document.getElementById('newSubName').value = '';
+            await loadCatTree();
+            await loadCategoryDropdowns();
+        } catch(err) { showToast(`❌ ${err.message}`, 'error'); }
+    }
+
+    async function addNewCategory() {
+        const category    = document.getElementById('newCatName').value.trim();
+        const subcategory = document.getElementById('newCatFirstSub').value.trim();
+        if (!category)    return showToast('Enter a category name', 'error');
+        if (!subcategory) return showToast('Enter the first sub-category', 'error');
+        try {
+            const res  = await fetch('/categories/new', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ category, subcategory })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+            showToast(`✅ Category "${category}" created`);
+            document.getElementById('newCatName').value    = '';
+            document.getElementById('newCatFirstSub').value = '';
+            await loadCatTree();
+            await loadCategoryDropdowns();
+        } catch(err) { showToast(`❌ ${err.message}`, 'error'); }
+    }
+
+    async function deleteSubcategory(id) {
+        if (!confirm('Remove this sub-category?')) return;
+        try {
+            await fetch(`/categories/${id}`, { method: 'DELETE' });
+            showToast('🗑️ Sub-category removed');
+            await loadCatTree();
+            await loadCategoryDropdowns();
+        } catch(err) { showToast('❌ Could not delete', 'error'); }
+    }
+
+    // Override switchTab to load categories when needed
+    const _origSwitchTab = switchTab;
+
+
+
+    async function openEdit(matnr) {
+        const row = allData.find(r => r.matnr === matnr);
+        if (!row) return showToast('Item not found', 'error');
+
+        // Populate simple fields first
+        document.getElementById('editModalSub').textContent   = `Editing MATNR: ${matnr}`;
+        document.getElementById('editMatnrBadge').textContent = matnr;
+        document.getElementById('edit-brand').value           = row.brand       || '';
+        document.getElementById('edit-brandfamily').value     = row.brandfamily || '';
+        document.getElementById('edit-size').value            = row.size        || '';
+        document.getElementById('edit-quantity').value        = row.quantity    ?? '';
+        document.getElementById('edit-price').value           = row.price != null ? parseFloat(row.price).toFixed(2) : '';
+        document.getElementById('edit-gender').value          = row.gender      || '';
+        document.getElementById('edit-param1').value          = row.param1      || '';
+        document.getElementById('edit-param2').value          = row.param2      || '';
+
+        // Load category dropdowns then set saved values
+        await loadCategoryDropdowns();
+        document.getElementById('edit-category').value = row.category || '';
+        if (row.category) {
+            await loadSubcategories('edit-category', 'edit-subcategory');
+            document.getElementById('edit-subcategory').value = row.subcategory || '';
+        }
+
+        openEditModal();
+    }
+
+    function closeEditModal() {
+        document.getElementById('editModal').classList.remove('open');
+        document.getElementById('editModal').style.display = 'none';
+    }
+
+    function openEditModal() {
+        document.getElementById('editModal').style.display = 'flex';
+        document.getElementById('editModal').classList.add('open');
+    }
+
+    document.addEventListener('click', function(e) {
+        const modal = document.getElementById('editModal');
+        if (e.target === modal) closeEditModal();
+    });
+
+    async function saveEdit() {
+        const matnr       = document.getElementById('editMatnrBadge').textContent;
+        const brand       = document.getElementById('edit-brand').value.trim();
+        const brandfamily = document.getElementById('edit-brandfamily').value.trim();
+        const size        = document.getElementById('edit-size').value;
+        const quantity    = document.getElementById('edit-quantity').value || 0;
+        const price       = document.getElementById('edit-price').value || 0;
+        const gender      = document.getElementById('edit-gender').value;
+        const category    = document.getElementById('edit-category').value;
+        const subcategory = document.getElementById('edit-subcategory').value;
+        const param1      = document.getElementById('edit-param1').value.trim();
+        const param2      = document.getElementById('edit-param2').value.trim();
+
+        if (!brand) return showToast('Brand is required', 'error');
+
+        try {
+            const res  = await fetch(`/inventory/${matnr}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ brand, brandfamily, size, quantity, price, gender, category, subcategory, param1, param2 })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Update failed');
+            showToast(`✅ Item ${matnr} updated!`);
+            closeEditModal();
+            loadData();
+        } catch (err) {
+            showToast(`❌ ${err.message}`, 'error');
+        }
+    }
+
+    async function saveItem() {
+        const brand       = document.getElementById('brand').value.trim();
+        const brandfamily = document.getElementById('brandfamily').value.trim();
+        const size        = document.getElementById('size').value;
+        const quantity    = document.getElementById('quantity').value || 0;
+        const price       = document.getElementById('price').value || 0;
+        const gender      = document.getElementById('gender').value;
+        const category    = document.getElementById('category').value;
+        const subcategory = document.getElementById('subcategory').value;
+        const param1      = document.getElementById('param1').value.trim();
+        const param2      = document.getElementById('param2').value.trim();
+
+        if (!brand) return showToast('Brand is required', 'error');
+
+        try {
+            const res  = await fetch('/addinventory', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ brand, brandfamily, size, quantity, price, gender, category, subcategory, param1, param2 })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed');
+            showToast(`✅ Item added! MATNR: ${data.matnr}`);
+            resetForm();
+            switchTab('view');
+        } catch (err) {
+            showToast(`❌ ${err.message}`, 'error');
+        }
+    }
+
+    // Init
+    loadNextMatnr();
+    loadCategoryDropdowns();
+    loadCatTree();
+</script>
+</body>
+</html>

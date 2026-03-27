@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root { --accent: #c8973a; --accent2: #f0e6d0; --bg: #faf9f7; --border: #e5e2db; --success: #16a34a; --muted: #6b7280; }
+        body { font-family: 'DM Sans', sans-serif; background: var(--bg); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 40px; }
+        .container { text-align: center; max-width: 500px; }
+        .icon { font-size: 72px; margin-bottom: 24px; }
+        h1 { font-family: 'DM Serif Display', serif; font-size: 36px; margin-bottom: 8px; }
+        .order-id { display: inline-block; background: var(--accent2); color: #92650a; border: 1.5px solid #e8d0a0; border-radius: 8px; padding: 8px 20px; font-family: 'Courier New', monospace; font-size: 18px; font-weight: 700; margin: 12px 0 24px; }
+        p { font-size: 15px; color: var(--muted); line-height: 1.6; margin-bottom: 28px; }
+        .badge { display: inline-block; background: #dcfce7; color: var(--success); border-radius: 20px; padding: 6px 18px; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 32px; }
+        .btn { display: inline-block; padding: 11px 24px; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; border: none; background: var(--accent); color: white; text-decoration: none; transition: all 0.2s; }
+        .btn:hover { background: #b5852e; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="icon">🧾</div>
+    <h1>Order Confirmed!</h1>
+    <div class="order-id" id="orderIdDisplay">—</div>
+    <div class="badge">✅ Order Placed Successfully</div>
+    <p>Your sales order has been saved to the database.<br>
+    The full invoice layout is currently being designed — it will show itemised details, customer info, tax breakdown, and totals.</p>
+    <a class="btn" href="Sales.html">← New Order</a>
+</div>
+<script>
+    const params  = new URLSearchParams(window.location.search);
+    const orderId = params.get('order_id');
+    if (orderId) {
+        document.getElementById('orderIdDisplay').textContent = `Order #${orderId}`;
+        document.title = `Invoice — Order ${orderId}`;
+    }
+</script>
+</body>
+</html>
