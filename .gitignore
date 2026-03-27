@@ -1,0 +1,6 @@
+node_modules/
+inventory.db
+*.db
+*.db.bak
+*.db.broken
+.DS_Store
