@@ -388,15 +388,26 @@ function AllPOsTab() {
     return <span className={`badge badge-${map[ps] || ''}`}>{lbl}</span>
   }
 
-  async function updateLineStatus(poId, lineId, status) {
+  async function updateLineStatus(poId, lineNo, status) {
     try {
-      await fetch(`/purchase-orders/${poId}/lines/${lineId}`, {
+      const res = await fetch(`/purchase-orders/${poId}/items/${lineNo}/gr`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       })
+      if (!res.ok) {
+        const d = await res.json()
+        throw new Error(d.error || 'Update failed')
+      }
+      showToast(status === 'Goods Receipt' ? '✅ Goods Receipt confirmed — stock updated' : `✅ Line ${lineNo} → ${status}`)
+      // Refresh modal
+      if (viewOrder) {
+        const r = await fetch(`/purchase-orders/${poId}`)
+        const d = await r.json()
+        setViewOrder(d)
+      }
       loadOrders()
-    } catch (e) { showToast('Update failed', 'error') }
+    } catch (e) { showToast(`❌ ${e.message}`, 'error') }
   }
 
   async function updatePOPayment(poId, status) {
@@ -503,29 +514,47 @@ function AllPOsTab() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
-                    {['MATNR', 'Product', 'Qty', 'Unit Price', 'Line Total', 'Status'].map((h, i) => (
-                      <th key={i} style={{ padding: '10px 12px', textAlign: i >= 2 && i <= 4 ? 'right' : 'left', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)' }}>{h}</th>
+                    {['Line', 'MATNR', 'Product', 'Qty', 'Unit Price', 'Line Total', 'Status', ''].map((h, i) => (
+                      <th key={i} style={{ padding: '10px 12px', textAlign: i >= 3 && i <= 5 ? 'right' : 'left', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {(viewOrder.lines || viewOrder.items || []).map((l, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '10px 12px' }}><span className="mono">{l.matnr}</span></td>
-                      <td style={{ padding: '10px 12px' }}>{l.brand || l.matnr}</td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right' }}>{l.quantity}</td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right' }}>{fmt(l.unit_price)}</td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right' }}><strong>{fmt(l.quantity * l.unit_price)}</strong></td>
-                      <td style={{ padding: '10px 12px' }}>
-                        <select value={l.status || 'Created'} onChange={e => updateLineStatus(viewOrder.po_id, l.id, e.target.value)}
-                          style={{ fontSize: 12, padding: '4px 8px', border: '1.5px solid var(--border)', borderRadius: 6 }}>
-                          <option>Created</option>
-                          <option>Accepted</option>
-                          <option>Goods Receipt</option>
-                        </select>
-                      </td>
-                    </tr>
-                  ))}
+                  {(viewOrder.items || viewOrder.lines || []).map((l, i) => {
+                    const lineNo = l.line_no || (i + 1)
+                    const status = l.status || 'Created'
+                    const isGR = status === 'Goods Receipt'
+                    return (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '10px 12px', color: 'var(--muted)', fontSize: 12 }}>{lineNo}</td>
+                        <td style={{ padding: '10px 12px' }}><span className="mono">{l.matnr}</span></td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <strong>{l.brand || l.matnr}</strong>
+                          {[l.category, l.subcategory, l.size].filter(Boolean).length > 0 && (
+                            <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 6 }}>{[l.category, l.subcategory, l.size].filter(Boolean).join(' · ')}</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right' }}>{l.quantity}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right' }}>{fmt(l.unit_price)}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right' }}><strong>{fmt(l.line_total || l.quantity * l.unit_price)}</strong></td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <span className={`badge badge-${isGR ? 'gr' : status === 'Accepted' ? 'accepted' : 'created'}`}>
+                            {isGR ? 'GR Done' : status}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>
+                          {!isGR && (
+                            <select value={status} onChange={e => updateLineStatus(viewOrder.po_id, lineNo, e.target.value)}
+                              style={{ fontSize: 11, padding: '3px 6px', border: '1px solid var(--border)', borderRadius: 6 }}>
+                              <option value="Created">Created</option>
+                              <option value="Accepted">Accepted</option>
+                              <option value="Goods Receipt">Mark GR</option>
+                            </select>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

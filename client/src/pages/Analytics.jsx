@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import Sidebar from '../components/Sidebar'
+import { Link } from 'react-router-dom'
 import { useToast } from '../components/Toast'
 
 const DARK = {
@@ -11,7 +11,9 @@ const DARK = {
   '--muted': '#888',
   '--gold': '#c9a84c',
   '--green': '#4caf74',
-  '--red': '#e05252',
+  '--red': '#c05a5a',
+  '--rust': '#c05a35',
+  '--sage': '#6a9e7f',
   '--blue': '#5b8dee',
   '--yellow': '#e0a820',
 }
@@ -170,7 +172,26 @@ function computeAnalytics(orders, inventory, customers, purchaseOrders, from, to
     customerRevMap[o.kunnr].revenue += o.grand_total || 0
     customerRevMap[o.kunnr].orders++
   })
-  const topCustomers = Object.values(customerRevMap).sort((a, b) => b.revenue - a.revenue).slice(0, 8)
+  const topCustomers = Object.values(customerRevMap).sort((a, b) => b.revenue - a.revenue).slice(0, 10)
+
+  // Top products (from order lines if available)
+  const productMap = {}
+  salesOrders.forEach(o => {
+    if (!o.items) return
+    o.items.forEach(item => {
+      const k = item.matnr
+      if (!productMap[k]) productMap[k] = { matnr: k, brand: item.brand || '—', units: 0, revenue: 0 }
+      productMap[k].units += item.quantity || 0
+      productMap[k].revenue += (parseFloat(item.mrp || 0)) * (item.quantity || 0)
+    })
+  })
+  const topProducts = Object.values(productMap).sort((a, b) => b.units - a.units).slice(0, 10)
+
+  // Low stock from inventory
+  const lowStock = inventory.filter(i => {
+    const avail = (i.quantity || 0) - (i.reserved || 0)
+    return avail >= 0 && avail <= 3
+  }).slice(0, 20)
 
   // Returns
   const returnRate = allSales.length ? (allReturns.length / allSales.length) * 100 : 0
@@ -191,10 +212,11 @@ function computeAnalytics(orders, inventory, customers, purchaseOrders, from, to
 
   return {
     revenue: { total: revenue, net: netRevenue, avg: avgOrderValue, pending: pendingRevenue, paid: paidOrders.length, count: salesOrders.length, monthTrend },
-    inventory: { totalSKUs, inStock, outOfStock, totalStock, value: inventoryValue, categoryStock },
+    inventory: { totalSKUs, inStock, outOfStock, totalStock, value: inventoryValue, categoryStock, lowStock },
     customers: { unique: uniqueCustomers, repeat: repeatCustomers, newCount: newCustomerOrders.length, topCustomers },
     returns: { count: returnOrders.length, value: returnValue, rate: returnRate, reasons: returnReasons },
     pos: { count: posInRange.length, value: totalPOValue, pending: pendingPOs, completed: completedPOs },
+    topProducts,
   }
 }
 
@@ -272,64 +294,70 @@ export default function Analytics() {
   ]
 
   return (
-    <div ref={containerRef} style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)' }}>
-      <Sidebar section="Analytics" activeTab="dashboard" onTabChange={() => {}} />
-      <div style={{ flex: 1, padding: '32px 40px', overflowY: 'auto', maxWidth: 1100 }}>
-
-        {/* Header */}
-        <div style={{ marginBottom: 32 }}>
-          <h1 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 32, color: 'var(--gold)', marginBottom: 4 }}>Analytics</h1>
-          <p style={{ fontSize: 13, color: 'var(--muted)' }}>Business intelligence and performance overview</p>
+    <div ref={containerRef} style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)' }}>
+      {/* Dark Topbar */}
+      <div style={{
+        background: 'var(--surface)',
+        borderBottom: '1px solid var(--border)',
+        padding: '0 32px',
+        height: 56,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        position: 'sticky',
+        top: 0,
+        zIndex: 100,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+          <Link to="/" style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: 12, letterSpacing: 1, display: 'flex', alignItems: 'center', gap: 6 }}>← Home</Link>
+          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, color: 'var(--text)' }}>
+            Fat Closet <span style={{ color: 'var(--gold)' }}>/</span> Analytics
+          </div>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            onClick={loadData}
+            style={{
+              background: 'none', border: '1px solid var(--border)', color: 'var(--muted)',
+              padding: '6px 14px', fontFamily: "'DM Sans', sans-serif", fontSize: 11,
+              letterSpacing: 2, textTransform: 'uppercase', cursor: 'pointer', transition: 'all 0.2s',
+            }}
+          >↻ Refresh</button>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 32px 64px' }}>
 
         {/* Period Filter */}
-        <div style={{ marginBottom: 32, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ marginBottom: 36, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', marginRight: 4 }}>Period</span>
           {PERIODS.map(p => (
             <button
               key={p.key}
               onClick={() => setPeriod(p.key)}
               style={{
-                padding: '6px 14px',
-                borderRadius: 20,
                 border: `1px solid ${period === p.key ? 'var(--gold)' : 'var(--border)'}`,
-                background: period === p.key ? 'var(--gold)' : 'var(--surface)',
-                color: period === p.key ? '#000' : 'var(--text)',
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: period === p.key ? 700 : 400,
-                transition: 'all 0.15s',
+                background: period === p.key ? 'var(--gold)' : 'none',
+                color: period === p.key ? '#0f0f0f' : 'var(--muted)',
+                padding: '7px 16px', fontFamily: "'DM Sans', sans-serif", fontSize: 12,
+                cursor: 'pointer', fontWeight: period === p.key ? 600 : 400, transition: 'all 0.2s',
               }}
             >{p.label}</button>
           ))}
-          {period === 'custom' && (
-            <>
-              <input
-                type="date"
-                value={customFrom}
-                onChange={e => setCustomFrom(e.target.value)}
-                style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 12 }}
-              />
-              <span style={{ color: 'var(--muted)', fontSize: 12 }}>to</span>
-              <input
-                type="date"
-                value={customTo}
-                onChange={e => setCustomTo(e.target.value)}
-                style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 12 }}
-              />
-            </>
-          )}
-          <button
-            onClick={loadData}
-            style={{
-              padding: '6px 14px',
-              borderRadius: 20,
-              border: '1px solid var(--border)',
-              background: 'var(--surface2)',
-              color: 'var(--text)',
-              cursor: 'pointer',
-              fontSize: 12,
-            }}
-          >↺ Refresh</button>
+          <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 8px' }} />
+          <input
+            type="date"
+            value={customFrom}
+            onChange={e => { setCustomFrom(e.target.value); setPeriod('custom') }}
+            style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '7px 12px', fontFamily: "'DM Sans', sans-serif", fontSize: 12, colorScheme: 'dark' }}
+          />
+          <span style={{ color: 'var(--muted)', fontSize: 12 }}>→</span>
+          <input
+            type="date"
+            value={customTo}
+            onChange={e => { setCustomTo(e.target.value); setPeriod('custom') }}
+            style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '7px 12px', fontFamily: "'DM Sans', sans-serif", fontSize: 12, colorScheme: 'dark' }}
+          />
         </div>
 
         {loading ? (
@@ -360,6 +388,50 @@ export default function Analytics() {
               )}
             </Section>
 
+            {/* Top Products */}
+            {data.topProducts && data.topProducts.length > 0 && (
+              <Section title="Top Products">
+                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', overflow: 'hidden', marginBottom: 12 }}>
+                  <div style={{ padding: '14px 22px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Top Products by Units Sold</span>
+                    <span style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface2)', padding: '3px 10px', borderRadius: 20 }}>Top 10 · in period</span>
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
+                        <th style={{ padding: '10px 22px', textAlign: 'left', fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 500 }}>#</th>
+                        <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 500 }}>MATNR</th>
+                        <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 500 }}>Brand</th>
+                        <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 500 }}>Units</th>
+                        <th style={{ padding: '10px 22px', textAlign: 'right', fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 500 }}>Revenue</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.topProducts.map((p, i) => {
+                        const maxUnits = data.topProducts[0]?.units || 1
+                        return (
+                          <tr key={p.matnr} style={{ borderBottom: i < data.topProducts.length - 1 ? '1px solid rgba(46,46,46,0.5)' : 'none' }}>
+                            <td style={{ padding: '11px 22px', fontFamily: "'DM Serif Display', serif", fontSize: 18, color: 'var(--muted)', minWidth: 40 }}>{i + 1}</td>
+                            <td style={{ padding: '11px 16px', fontFamily: 'monospace', fontSize: 12, color: 'var(--gold)', background: 'rgba(201,168,76,0.1)', paddingLeft: 8, paddingRight: 8, borderRadius: 3 }}>{p.matnr}</td>
+                            <td style={{ padding: '11px 16px', color: 'var(--text)' }}>{p.brand}</td>
+                            <td style={{ padding: '11px 16px', textAlign: 'right' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'flex-end' }}>
+                                <div style={{ width: 80, height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', width: `${Math.round((p.units / maxUnits) * 100)}%`, background: 'var(--gold)', borderRadius: 2 }} />
+                                </div>
+                                <span style={{ minWidth: 30, textAlign: 'right', color: 'var(--text)' }}>{p.units}</span>
+                              </div>
+                            </td>
+                            <td style={{ padding: '11px 22px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text)' }}>{fmt(p.revenue)}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </Section>
+            )}
+
             {/* Inventory */}
             <Section title="Inventory">
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16, marginBottom: 28 }}>
@@ -369,7 +441,7 @@ export default function Analytics() {
                 <KpiCard label="Inventory Value" value={fmt(data.inventory.value)} sub="At cost price" color="var(--gold)" />
               </div>
               {data.inventory.categoryStock.length > 0 && (
-                <div>
+                <div style={{ marginBottom: 20 }}>
                   <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>Stock by Category</div>
                   <BarChart
                     data={data.inventory.categoryStock}
@@ -377,6 +449,37 @@ export default function Analytics() {
                     valueKey="stock"
                     color="var(--blue)"
                   />
+                </div>
+              )}
+              {data.inventory.lowStock && data.inventory.lowStock.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>Low Stock Alerts (Available ≤ 3)</div>
+                  <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
+                          {['MATNR', 'Brand', 'Category', 'In Stock', 'Reserved', 'Available'].map((h, i) => (
+                            <th key={h} style={{ padding: '8px 14px', textAlign: i >= 3 ? 'right' : 'left', fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 500 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.inventory.lowStock.map((item, i) => {
+                          const avail = Math.max(0, (item.quantity || 0) - (item.reserved || 0))
+                          return (
+                            <tr key={item.matnr} style={{ borderBottom: i < data.inventory.lowStock.length - 1 ? '1px solid rgba(46,46,46,0.5)' : 'none' }}>
+                              <td style={{ padding: '9px 14px', fontFamily: 'monospace', color: 'var(--gold)' }}>{item.matnr}</td>
+                              <td style={{ padding: '9px 14px' }}>{item.brand || '—'}</td>
+                              <td style={{ padding: '9px 14px', color: 'var(--muted)' }}>{item.category || '—'}</td>
+                              <td style={{ padding: '9px 14px', textAlign: 'right' }}>{item.quantity || 0}</td>
+                              <td style={{ padding: '9px 14px', textAlign: 'right', color: 'var(--muted)' }}>{item.reserved || 0}</td>
+                              <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: avail === 0 ? 'var(--red)' : 'var(--rust)' }}>{avail}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </Section>
@@ -391,30 +494,37 @@ export default function Analytics() {
               {data.customers.topCustomers.length > 0 && (
                 <div>
                   <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>Top Customers by Revenue</div>
-                  <div style={{
-                    background: 'var(--surface)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 10,
-                    overflow: 'hidden',
-                  }}>
+                  <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', overflow: 'hidden' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                       <thead>
-                        <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                          <th style={{ padding: '10px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 600, fontSize: 11 }}>KUNNR</th>
-                          <th style={{ padding: '10px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 600, fontSize: 11 }}>NAME</th>
-                          <th style={{ padding: '10px 16px', textAlign: 'right', color: 'var(--muted)', fontWeight: 600, fontSize: 11 }}>REVENUE</th>
-                          <th style={{ padding: '10px 16px', textAlign: 'right', color: 'var(--muted)', fontWeight: 600, fontSize: 11 }}>ORDERS</th>
+                        <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
+                          <th style={{ padding: '10px 22px', textAlign: 'left', fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 500 }}>#</th>
+                          <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 500 }}>KUNNR</th>
+                          <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 500 }}>Name</th>
+                          <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 500 }}>Orders</th>
+                          <th style={{ padding: '10px 22px', textAlign: 'right', fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 500 }}>Revenue</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {data.customers.topCustomers.map((c, i) => (
-                          <tr key={c.kunnr} style={{ borderBottom: i < data.customers.topCustomers.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                            <td style={{ padding: '10px 16px', fontFamily: 'monospace', color: 'var(--gold)' }}>{c.kunnr}</td>
-                            <td style={{ padding: '10px 16px' }}>{c.name}</td>
-                            <td style={{ padding: '10px 16px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmt(c.revenue)}</td>
-                            <td style={{ padding: '10px 16px', textAlign: 'right', color: 'var(--muted)' }}>{c.orders}</td>
-                          </tr>
-                        ))}
+                        {data.customers.topCustomers.map((c, i) => {
+                          const maxRev = data.customers.topCustomers[0]?.revenue || 1
+                          return (
+                            <tr key={c.kunnr} style={{ borderBottom: i < data.customers.topCustomers.length - 1 ? '1px solid rgba(46,46,46,0.5)' : 'none' }}>
+                              <td style={{ padding: '11px 22px', fontFamily: "'DM Serif Display', serif", fontSize: 18, color: 'var(--muted)' }}>{i + 1}</td>
+                              <td style={{ padding: '11px 16px', fontFamily: 'monospace', color: 'var(--gold)' }}>{c.kunnr}</td>
+                              <td style={{ padding: '11px 16px', color: 'var(--text)' }}>{c.name}</td>
+                              <td style={{ padding: '11px 16px', textAlign: 'right', color: 'var(--muted)' }}>{c.orders}</td>
+                              <td style={{ padding: '11px 22px', textAlign: 'right' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'flex-end' }}>
+                                  <div style={{ width: 60, height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
+                                    <div style={{ height: '100%', width: `${Math.round((c.revenue / maxRev) * 100)}%`, background: 'var(--sage)', borderRadius: 2 }} />
+                                  </div>
+                                  <span style={{ minWidth: 60, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmt(c.revenue)}</span>
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>

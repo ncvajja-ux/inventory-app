@@ -469,3 +469,16 @@ tbody td { padding: 13px 16px; vertical-align: middle; }
 .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
 .empty-icon { font-size: 40px; margin-bottom: 12px; }
 .input-row { display: flex; gap: 12px; align-items: flex-end; }
+
+/* ── Status Badges ── */
+.badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; letter-spacing: 0.04em; }
+.badge-paid { background: #dcfce7; color: #15803d; }
+.badge-pending { background: #fef9c3; color: #854d0e; }
+.badge-partial { background: #dbeafe; color: #1d4ed8; }
+.badge-cancelled { background: #fee2e2; color: #dc2626; }
+.badge-sale { background: #dbeafe; color: #1d4ed8; }
+.badge-return { background: #fee2e2; color: #dc2626; }
+.badge-active { background: #dcfce7; color: #15803d; }
+.badge-created { background: #f1f5f9; color: #475569; }
+.badge-accepted { background: #fef9c3; color: #854d0e; }
+.badge-gr { background: #dcfce7; color: #15803d; }
