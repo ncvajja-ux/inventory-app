@@ -216,7 +216,7 @@ function AddTab({ onAdded }) {
             <label>Sub-Category</label>
             <select value={form.subcategory} onChange={setAndCascade('subcategory')} disabled={!form.category}>
               <option value="">Select category first…</option>
-              {subcats.map(s => <option key={s}>{s}</option>)}
+              {subcats.map(s => <option key={s.id} value={s.subcategory}>{s.subcategory}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -251,7 +251,7 @@ function AddTab({ onAdded }) {
             <label>Tax Category</label>
             <select value={form.tax_category} onChange={set('tax_category')}>
               <option value="">Select tax category…</option>
-              {gstConfig.map(g => <option key={g.category} value={g.category}>{g.category} ({g.rate}%)</option>)}
+              {gstConfig.map(g => <option key={g.id || g.tax_category} value={g.tax_category}>{g.tax_category} ({g.gst_rate}%)</option>)}
             </select>
           </div>
         </div>
@@ -497,7 +497,7 @@ function EditItemModal({ item, catData, categories, brands, colors, fits, gstCon
             <label>Sub-Category</label>
             <select value={form.subcategory} onChange={setAndCascade('subcategory')}>
               <option value="">Select category first…</option>
-              {subcats.map(s => <option key={s}>{s}</option>)}
+              {subcats.map(s => <option key={s.id} value={s.subcategory}>{s.subcategory}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -532,7 +532,7 @@ function EditItemModal({ item, catData, categories, brands, colors, fits, gstCon
             <label>Tax Category</label>
             <select value={form.tax_category} onChange={set('tax_category')}>
               <option value="">Select tax category…</option>
-              {gstConfig.map(g => <option key={g.category} value={g.category}>{g.category} ({g.rate}%)</option>)}
+              {gstConfig.map(g => <option key={g.id || g.tax_category} value={g.tax_category}>{g.tax_category} ({g.gst_rate}%)</option>)}
             </select>
           </div>
         </div>
@@ -561,7 +561,7 @@ function ConfigTab() {
   const [newColorHex, setNewColorHex] = useState('#808000')
   const [newFit, setNewFit] = useState('')
   const [newReturnReason, setNewReturnReason] = useState('')
-  const [newGst, setNewGst] = useState({ category: '', rate: '', valid_from: '', valid_to: '' })
+  const [newGst, setNewGst] = useState({ tax_category: '', gst_rate: '', valid_from: '', valid_to: '' })
   const [newCatName, setNewCatName] = useState('')
   const [newCatFirstSub, setNewCatFirstSub] = useState('')
   const [newSubCat, setNewSubCat] = useState('')
@@ -593,43 +593,44 @@ function ConfigTab() {
     if (!newBrand.trim()) return
     try { await api('/brands', 'POST', { name: newBrand.trim() }); setNewBrand(''); reloadBrands() } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
-  async function removeBrand(name) {
-    try { await api(`/brands/${encodeURIComponent(name)}`, 'DELETE', {}); reloadBrands() } catch (e) { showToast('❌ ' + e.message, 'error') }
+  async function removeBrand(id) {
+    try { await api(`/brands/${id}`, 'DELETE', {}); reloadBrands() } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   async function addColor() {
     if (!newColorName.trim()) return
     try { await api('/colors', 'POST', { name: newColorName.trim(), hex: newColorHex }); setNewColorName(''); reloadColors() } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
-  async function removeColor(name) {
-    try { await api(`/colors/${encodeURIComponent(name)}`, 'DELETE', {}); reloadColors() } catch (e) { showToast('❌ ' + e.message, 'error') }
+  async function removeColor(id) {
+    try { await api(`/colors/${id}`, 'DELETE', {}); reloadColors() } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   async function addFit() {
     if (!newFit.trim()) return
     try { await api('/fits', 'POST', { name: newFit.trim() }); setNewFit(''); reloadFits() } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
-  async function removeFit(name) {
-    try { await api(`/fits/${encodeURIComponent(name)}`, 'DELETE', {}); reloadFits() } catch (e) { showToast('❌ ' + e.message, 'error') }
+  async function removeFit(id) {
+    try { await api(`/fits/${id}`, 'DELETE', {}); reloadFits() } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   async function addReturnReason() {
     if (!newReturnReason.trim()) return
     try { await api('/return-reasons', 'POST', { reason: newReturnReason.trim() }); setNewReturnReason(''); loadReturnReasons() } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
-  async function removeReturnReason(reason) {
-    try { await api(`/return-reasons/${encodeURIComponent(reason)}`, 'DELETE', {}); loadReturnReasons() } catch (e) { showToast('❌ ' + e.message, 'error') }
+  async function removeReturnReason(id) {
+    try { await api(`/return-reasons/${id}`, 'DELETE', {}); loadReturnReasons() } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   async function addGst() {
-    if (!newGst.category || !newGst.rate) return showToast('Category name and rate required', 'error')
+    if (!newGst.tax_category || !newGst.gst_rate) return showToast('Category name and rate required', 'error')
     try {
       await api('/gst-config', 'POST', {
-        ...newGst,
-        rate: parseFloat(newGst.rate),
+        tax_category: newGst.tax_category,
+        gst_rate: parseFloat(newGst.gst_rate),
+        valid_from: newGst.valid_from || new Date().toISOString().split('T')[0],
         valid_to: newGst.valid_to || '12319999',
       })
-      setNewGst({ category: '', rate: '', valid_from: '', valid_to: '' })
+      setNewGst({ tax_category: '', gst_rate: '', valid_from: '', valid_to: '' })
       reloadGst()
     } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
@@ -691,7 +692,7 @@ function ConfigTab() {
           <div className="config-title">🏷️ Brands</div>
           <div className="config-sub">Add or remove brands used in inventory.</div>
           <div className="tag-list">
-            {brands.map(b => <Tag key={b.name || b} label={b.name || b} onRemove={() => removeBrand(b.name || b)} />)}
+            {brands.map(b => <Tag key={b.id} label={b.name} onRemove={() => removeBrand(b.id)} />)}
           </div>
           <div className="add-row">
             <input value={newBrand} onChange={e => setNewBrand(e.target.value)} placeholder="e.g. Calvin Klein" onKeyDown={e => e.key === 'Enter' && addBrand()} />
@@ -704,7 +705,7 @@ function ConfigTab() {
           <div className="config-title">🎨 Colors</div>
           <div className="config-sub">Name is required; color picker is optional.</div>
           <div className="tag-list">
-            {colors.map(c => <Tag key={c.name || c} label={c.name || c} color={c.hex} onRemove={() => removeColor(c.name || c)} />)}
+            {colors.map(c => <Tag key={c.id} label={c.name} color={c.hex} onRemove={() => removeColor(c.id)} />)}
           </div>
           <div className="add-row">
             <div className="color-input">
@@ -720,7 +721,7 @@ function ConfigTab() {
           <div className="config-title">👕 Fits</div>
           <div className="config-sub">Fit types available when adding products.</div>
           <div className="tag-list">
-            {fits.map(f => <Tag key={f.name || f} label={f.name || f} onRemove={() => removeFit(f.name || f)} />)}
+            {fits.map(f => <Tag key={f.id} label={f.name} onRemove={() => removeFit(f.id)} />)}
           </div>
           <div className="add-row">
             <input value={newFit} onChange={e => setNewFit(e.target.value)} placeholder="e.g. Athletic Fit" onKeyDown={e => e.key === 'Enter' && addFit()} />
@@ -734,8 +735,8 @@ function ConfigTab() {
           <div className="config-sub">Tax category with GST rate. Leave Valid To blank for open-ended.</div>
           <div style={{ marginBottom: 16 }}>
             {gstConfig.map(g => (
-              <div key={g.category} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
-                <span><strong>{g.category}</strong> — {g.rate}%</span>
+              <div key={g.id || g.tax_category} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+                <span><strong>{g.tax_category}</strong> — {g.gst_rate}%</span>
                 <span style={{ fontSize: 11, color: 'var(--muted)' }}>{g.valid_from} → {g.valid_to === '12319999' ? 'Open' : g.valid_to}</span>
               </div>
             ))}
@@ -743,11 +744,11 @@ function ConfigTab() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 1fr 1fr auto', gap: 8, alignItems: 'flex-end' }}>
             <div className="form-group" style={{ margin: 0 }}>
               <label>Category Name</label>
-              <input value={newGst.category} onChange={e => setNewGst(g => ({ ...g, category: e.target.value }))} placeholder="e.g. Leather Goods" />
+              <input value={newGst.tax_category} onChange={e => setNewGst(g => ({ ...g, tax_category: e.target.value }))} placeholder="e.g. Leather Goods" />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
               <label>Rate %</label>
-              <input type="number" value={newGst.rate} onChange={e => setNewGst(g => ({ ...g, rate: e.target.value }))} placeholder="12" min="0" max="100" step="0.5" />
+              <input type="number" value={newGst.gst_rate} onChange={e => setNewGst(g => ({ ...g, gst_rate: e.target.value }))} placeholder="12" min="0" max="100" step="0.5" />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
               <label>Valid From</label>
@@ -766,7 +767,7 @@ function ConfigTab() {
           <div className="config-title">↩️ Return Reasons</div>
           <div className="config-sub">Reasons available when creating a return order.</div>
           <div className="tag-list">
-            {returnReasons.map(r => <Tag key={r.reason || r} label={r.reason || r} onRemove={() => removeReturnReason(r.reason || r)} />)}
+            {returnReasons.map(r => <Tag key={r.id} label={r.reason} onRemove={() => removeReturnReason(r.id)} />)}
           </div>
           <div className="add-row">
             <input value={newReturnReason} onChange={e => setNewReturnReason(e.target.value)} placeholder="e.g. Exchange Request" onKeyDown={e => e.key === 'Enter' && addReturnReason()} />
@@ -783,7 +784,7 @@ function ConfigTab() {
               <div key={cat} style={{ marginBottom: 8 }}>
                 <div style={{ fontWeight: 600, fontSize: 13 }}>{cat}</div>
                 <div style={{ paddingLeft: 16, fontSize: 12, color: 'var(--muted)' }}>
-                  {(subs || []).join(', ') || '(no sub-categories)'}
+                  {(subs || []).map(s => s.subcategory || s).join(', ') || '(no sub-categories)'}
                 </div>
               </div>
             ))}
@@ -839,7 +840,7 @@ function ConfigTab() {
             <label>Sub-Category</label>
             <select value={newL3.subcategory} onChange={e => setNewL3(l => ({ ...l, subcategory: e.target.value }))} disabled={!newL3.category}>
               <option value="">Select category…</option>
-              {l3SubsForForm.map(s => <option key={s}>{s}</option>)}
+              {l3SubsForForm.map(s => <option key={s.id} value={s.subcategory}>{s.subcategory}</option>)}
             </select>
           </div>
           <div className="form-group" style={{ margin: 0 }}>
