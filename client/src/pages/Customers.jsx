@@ -73,8 +73,8 @@ function EditModal({ customer, onClose, onSaved }) {
             <input value={form.address} onChange={set('address')} placeholder="Street, City, State" />
           </div>
           <div className="form-group full">
-            <label>Notes</label>
-            <textarea value={form.notes} onChange={set('notes')} placeholder="Internal notes…" rows={2} style={{ width: '100%', resize: 'vertical' }} />
+            <label>Notes / Tags</label>
+            <input value={form.notes} onChange={set('notes')} placeholder="e.g. VIP, prefers casual…" />
           </div>
         </div>
         <div className="modal-actions">
@@ -172,8 +172,8 @@ function AddTab({ onAdded }) {
             <input value={form.address} onChange={set('address')} placeholder="Street, City, State" />
           </div>
           <div className="form-group full">
-            <label>Notes</label>
-            <textarea value={form.notes} onChange={set('notes')} placeholder="Internal notes…" rows={2} style={{ width: '100%', resize: 'vertical' }} />
+            <label>Notes / Tags</label>
+            <input value={form.notes} onChange={set('notes')} placeholder="e.g. VIP, prefers casual, allergic to wool…" />
           </div>
         </div>
         <div className="btn-row">

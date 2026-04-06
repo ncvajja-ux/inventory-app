@@ -456,19 +456,20 @@ function AllOrdersTab() {
       </div>
 
       <div className="toolbar">
-        <div className="form-group" style={{ flex: 1, minWidth: 200 }}>
+        <div className="form-group" style={{ minWidth: 220 }}>
           <label>Search</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <div className="search-wrap" style={{ flex: 1 }}>
-              <span className="search-icon">🔍</span>
-              <input placeholder="Order ID, KUNNR, name…" value={query} onChange={e => setQuery(e.target.value)} />
-            </div>
-            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding: '9px 14px', border: '1.5px solid var(--border)', borderRadius: 8, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: 'white' }}>
-              <option value="ALL">All Types</option>
-              <option value="S">Sales Only</option>
-              <option value="R">Returns Only</option>
-            </select>
+          <div className="search-wrap">
+            <span className="search-icon">🔍</span>
+            <input placeholder="Order ID, KUNNR, name…" value={query} onChange={e => setQuery(e.target.value)} />
           </div>
+        </div>
+        <div className="form-group">
+          <label>Type</label>
+          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding: '9px 14px', border: '1.5px solid var(--border)', borderRadius: 8, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: 'white' }}>
+            <option value="ALL">All Types</option>
+            <option value="S">Sales Only</option>
+            <option value="R">Returns Only</option>
+          </select>
         </div>
         <div className="form-group">
           <label>From</label>
@@ -1133,8 +1134,25 @@ export default function Sales() {
   return (
     <div className="page-layout">
       <Sidebar section="Sales" activeTab={tab} onTabChange={setTab} />
-      <div className="main" style={{ display: 'flex', flexDirection: 'column' }}>
-        <div className="content">
+      <div className="main" style={{ display: 'flex', flexDirection: 'column', padding: 0 }}>
+        <div className="topbar">
+          <div className="topbar-left">
+            <span className="page-title">Sales Order</span>
+          </div>
+        </div>
+        <div className="sales-tabbar">
+          {[
+            { id: 'new',     label: '🧾 New Order' },
+            { id: 'orders',  label: '📋 All Orders' },
+            { id: 'returns', label: '↩️ Returns' },
+            { id: 'pricing', label: '💰 Sales Pricing' },
+          ].map(t => (
+            <button key={t.id} className={`tab-btn${tab === t.id ? ' active' : ''}`} onClick={() => setTab(t.id)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ flex: 1, padding: '32px 40px', overflowX: 'hidden' }}>
           {tab === 'new' && <NewOrderTab />}
           {tab === 'orders' && <AllOrdersTab />}
           {tab === 'returns' && <ReturnsTab />}
