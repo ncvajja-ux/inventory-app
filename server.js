@@ -420,27 +420,31 @@ app.get("/categories/:category/subs", (req, res) => {
 app.post("/categories", (req, res) => {
     const { category, subcategory } = req.body;
     if (!category || !subcategory)
-        return res.status(400).json({ error: "category and subcategory required" });
+        return res.status(400).json({ error: "Both category and subcategory are required" });
     db.run(
-        `INSERT INTO categories (category, subcategory) VALUES (?, ?)`,
+        `INSERT OR IGNORE INTO categories (category, subcategory) VALUES (?, ?)`,
         [category, subcategory],
         function(err) {
             if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0)
+                return res.status(409).json({ error: `"${subcategory}" already exists under "${category}"` });
             res.json({ success: true, id: this.lastID });
         }
     );
 });
 
-// POST add new top-level category
+// POST add new top-level category (with its first subcategory)
 app.post("/categories/new", (req, res) => {
     const { category, subcategory } = req.body;
     if (!category || !subcategory)
-        return res.status(400).json({ error: "Both category and first subcategory required" });
+        return res.status(400).json({ error: "Category name and first subcategory are both required" });
     db.run(
-        `INSERT INTO categories (category, subcategory) VALUES (?, ?)`,
+        `INSERT OR IGNORE INTO categories (category, subcategory) VALUES (?, ?)`,
         [category, subcategory],
         function(err) {
             if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0)
+                return res.status(409).json({ error: `"${category} / ${subcategory}" already exists` });
             res.json({ success: true, id: this.lastID });
         }
     );

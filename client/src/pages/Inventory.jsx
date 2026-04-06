@@ -563,6 +563,7 @@ function ConfigTab() {
   const [newReturnReason, setNewReturnReason] = useState('')
   const [newGst, setNewGst] = useState({ category: '', rate: '', valid_from: '', valid_to: '' })
   const [newCatName, setNewCatName] = useState('')
+  const [newCatFirstSub, setNewCatFirstSub] = useState('')
   const [newSubCat, setNewSubCat] = useState('')
   const [newSubCatParent, setNewSubCatParent] = useState('')
   const [newL3, setNewL3] = useState({ category: '', subcategory: '', name: '', sizes: '' })
@@ -634,8 +635,14 @@ function ConfigTab() {
   }
 
   async function addCategory() {
-    if (!newCatName.trim()) return
-    try { await api('/categories', 'POST', { category: newCatName.trim() }); setNewCatName(''); reloadCats() } catch (e) { showToast('❌ ' + e.message, 'error') }
+    if (!newCatName.trim()) return showToast('Category name is required', 'error')
+    if (!newCatFirstSub.trim()) return showToast('First sub-category name is required', 'error')
+    try {
+      await api('/categories/new', 'POST', { category: newCatName.trim(), subcategory: newCatFirstSub.trim() })
+      setNewCatName('')
+      setNewCatFirstSub('')
+      reloadCats()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   async function addSubCategory() {
@@ -789,9 +796,28 @@ function ConfigTab() {
             </select>
             <button className="btn btn-primary" style={{ padding: '8px 12px', fontSize: 13 }} onClick={addSubCategory}>Add</button>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input value={newCatName} onChange={e => setNewCatName(e.target.value)} placeholder="New category name" />
-            <button className="btn btn-ghost" style={{ padding: '8px 12px', fontSize: 13 }} onClick={addCategory}>+ Category</button>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 4 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: 8 }}>
+              New Top-Level Category
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input
+                value={newCatName}
+                onChange={e => setNewCatName(e.target.value)}
+                placeholder="Category name (e.g. Footwear)"
+                style={{ flex: 1, minWidth: 140 }}
+              />
+              <input
+                value={newCatFirstSub}
+                onChange={e => setNewCatFirstSub(e.target.value)}
+                placeholder="First sub-category (required)"
+                style={{ flex: 1, minWidth: 160 }}
+                onKeyDown={e => e.key === 'Enter' && addCategory()}
+              />
+              <button className="btn btn-ghost" style={{ padding: '8px 12px', fontSize: 13, whiteSpace: 'nowrap' }} onClick={addCategory}>
+                + Add Category
+              </button>
+            </div>
           </div>
         </div>
       </div>
