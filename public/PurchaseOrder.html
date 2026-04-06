@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Purchase Orders</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --ink:#0f0f0f; --muted:#6b7280; --accent:#c8973a; --accent2:#f0e6d0;
+            --bg:#faf9f7; --card:#ffffff; --border:#e5e2db; --sidebar:#141414;
+            --danger:#dc2626; --success:#16a34a; --info:#0369a1; --warning:#d97706;
+        }
+        body { font-family:'DM Sans',sans-serif; background:var(--bg); display:flex; min-height:100vh; color:var(--ink); }
+
+        .sidebar { width:240px; min-height:100vh; background:var(--sidebar); color:#f5f5f5; display:flex; flex-direction:column; padding:32px 20px; gap:4px; position:sticky; top:0; height:100vh; overflow-y:auto; }
+        .sidebar-brand { font-family:'DM Serif Display',serif; font-size:22px; color:white; margin-bottom:8px; padding:0 8px; text-decoration:none; }
+        .sidebar-sub   { font-size:11px; letter-spacing:0.15em; text-transform:uppercase; color:var(--accent); padding:0 8px; margin-bottom:28px; }
+        .nav-item      { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:500; color:#9ca3af; transition:all 0.2s; text-decoration:none; border:none; background:none; width:100%; text-align:left; }
+        .nav-item:hover,.nav-item.active { background:#1f1f1f; color:white; }
+        .nav-item.active { color:var(--accent); }
+        .nav-section { font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:#4b5563; padding:16px 12px 6px; }
+        .sidebar-footer { margin-top:auto; padding-top:20px; border-top:1px solid #1f1f1f; }
+        .back-link { display:flex; align-items:center; gap:8px; padding:10px 12px; font-size:13px; color:#6b7280; text-decoration:none; border-radius:8px; transition:all 0.2s; }
+        .back-link:hover { color:white; background:#1f1f1f; }
+
+        .main { flex:1; display:flex; flex-direction:column; overflow-x:hidden; }
+        .topbar { background:white; border-bottom:1px solid var(--border); padding:0 40px; height:64px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:50; }
+        .page-title { font-family:'DM Serif Display',serif; font-size:22px; }
+        .buyer-chip { display:none; align-items:center; gap:8px; background:var(--accent2); border:1.5px solid #e8d0a0; border-radius:20px; padding:6px 14px; font-size:13px; font-weight:600; color:#92650a; }
+        .buyer-chip.visible { display:flex; }
+
+        .tabs { display:flex; gap:4px; padding:0 40px; background:white; border-bottom:1px solid var(--border); }
+        .tab-btn { padding:14px 20px; border:none; background:none; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; transition:all 0.2s; margin-bottom:-1px; }
+        .tab-btn.active { color:var(--accent); border-bottom-color:var(--accent); }
+
+        .content { flex:1; padding:32px 40px; }
+        .view { display:none; }
+        .view.active { display:block; }
+
+        /* Steps */
+        .steps { display:flex; align-items:center; margin-bottom:28px; }
+        .step { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--muted); }
+        .step.active { color:var(--accent); }
+        .step.done   { color:var(--success); }
+        .step-num { width:28px; height:28px; border-radius:50%; border:2px solid currentColor; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; }
+        .step.done .step-num   { background:var(--success); border-color:var(--success); color:white; }
+        .step.active .step-num { background:var(--accent);  border-color:var(--accent);  color:white; }
+        .step-line { flex:1; max-width:48px; height:2px; background:var(--border); margin:0 8px; }
+        .step-line.done { background:var(--success); }
+
+        .card { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:24px 28px; box-shadow:0 2px 12px rgba(0,0,0,0.04); margin-bottom:20px; }
+        .card-title { font-family:'DM Serif Display',serif; font-size:20px; margin-bottom:4px; }
+        .card-sub   { font-size:13px; color:var(--muted); margin-bottom:20px; }
+        .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+        .form-group { display:flex; flex-direction:column; gap:6px; }
+        .form-group.full { grid-column:1/-1; }
+        .form-group.three { grid-column:span 1; }
+        .section-label { font-size:11px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--accent); padding:8px 0 4px; border-bottom:1px solid var(--border); grid-column:1/-1; margin-top:4px; }
+        label { font-size:12px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--muted); }
+        input,select,textarea { padding:10px 14px; border:1.5px solid var(--border); border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; color:var(--ink); background:var(--bg); outline:none; transition:border-color 0.2s,box-shadow 0.2s; }
+        input:focus,select:focus,textarea:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent2); background:white; }
+        .btn { padding:10px 22px; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer; border:none; transition:all 0.2s; }
+        .btn-primary { background:var(--accent); color:white; }
+        .btn-primary:hover { background:#b5852e; transform:translateY(-1px); }
+        .btn-ghost  { background:transparent; color:var(--muted); border:1.5px solid var(--border); }
+        .btn-ghost:hover { border-color:var(--ink); color:var(--ink); }
+        .btn-success { background:var(--success); color:white; }
+        .btn-success:hover { background:#15803d; }
+        .btn-danger-sm { background:#fee2e2; color:var(--danger); padding:4px 10px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; border:none; }
+        .btn-danger-sm:hover { background:var(--danger); color:white; }
+
+        /* Live search */
+        .search-wrap-rel { position:relative; }
+        .search-dropdown { display:none; position:absolute; top:100%; left:0; right:0; background:white; border:1.5px solid var(--accent); border-top:none; border-radius:0 0 10px 10px; max-height:220px; overflow-y:auto; z-index:100; box-shadow:0 8px 24px rgba(0,0,0,0.1); }
+        .search-result-item { padding:10px 14px; cursor:pointer; border-bottom:1px solid var(--border); transition:background 0.15s; font-size:13px; }
+        .search-result-item:last-child { border-bottom:none; }
+        .search-result-item:hover { background:var(--accent2); }
+
+        /* Line items */
+        .line-table { width:100%; border-collapse:collapse; font-size:13px; }
+        .line-table th { padding:10px 12px; text-align:left; font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); background:var(--bg); }
+        .line-table td { padding:8px 12px; border-bottom:1px solid var(--border); vertical-align:middle; }
+        .line-table tr:last-child td { border-bottom:none; }
+        .line-input { padding:6px 10px; font-size:13px; width:100%; }
+        .line-total-cell { font-weight:700; color:var(--accent); text-align:right; }
+        .po-total { display:flex; justify-content:flex-end; margin-top:12px; }
+        .po-total-box { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:14px 20px; font-size:15px; font-weight:700; }
+
+        /* Status badges */
+        .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; }
+        .badge-pending   { background:#fef9c3; color:#854d0e; }
+        .badge-paid      { background:#dcfce7; color:#15803d; }
+        .badge-cancelled { background:#fee2e2; color:var(--danger); }
+        .badge-partially { background:#dbeafe; color:#1d4ed8; }
+        .badge-created   { background:#f1f5f9; color:#475569; }
+        .badge-accepted  { background:#dbeafe; color:#1d4ed8; }
+        .badge-gr        { background:#dcfce7; color:#15803d; }
+
+        /* All POs table */
+        .toolbar { display:flex; gap:12px; align-items:flex-end; margin-bottom:20px; flex-wrap:wrap; }
+        .table-card { background:var(--card); border:1px solid var(--border); border-radius:16px; overflow-x:auto; box-shadow:0 2px 12px rgba(0,0,0,0.04); }
+        table { width:100%; min-width:900px; border-collapse:collapse; font-size:13px; }
+        thead th { padding:12px 14px; text-align:left; font-size:11px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); background:var(--bg); white-space:nowrap; }
+        thead th.right, tbody td.right { text-align:right; }
+        tbody tr { border-bottom:1px solid var(--border); transition:background 0.15s; }
+        tbody tr:last-child { border-bottom:none; }
+        tbody tr:hover { background:#fdf8f2; }
+        tbody td { padding:11px 14px; vertical-align:middle; }
+        .mono { font-family:'Courier New',monospace; font-size:12px; background:var(--accent2); color:#92650a; padding:2px 7px; border-radius:4px; }
+        .action-btn { padding:4px 12px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; border:none; transition:all 0.15s; }
+        .btn-view-sm   { background:#e0f2fe; color:var(--info); }
+        .btn-view-sm:hover { background:var(--info); color:white; }
+        .btn-cancel-sm { background:#fee2e2; color:var(--danger); }
+        .btn-cancel-sm:hover { background:var(--danger); color:white; }
+        .state-row td { text-align:center; padding:48px; color:var(--muted); font-size:14px; }
+        .spinner { display:inline-block; width:18px; height:18px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 0.7s linear infinite; margin-right:8px; vertical-align:middle; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+
+        /* PO Detail Modal */
+        .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:100; align-items:center; justify-content:center; }
+        .modal-overlay.open { display:flex; }
+        .modal { background:white; border-radius:16px; padding:32px; width:800px; max-width:95vw; max-height:90vh; overflow-y:auto; box-shadow:0 24px 60px rgba(0,0,0,0.2); }
+        .modal-title { font-family:'DM Serif Display',serif; font-size:22px; margin-bottom:4px; }
+        .modal-sub   { font-size:13px; color:var(--muted); margin-bottom:20px; }
+        .detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:20px; padding:16px; background:var(--bg); border-radius:10px; }
+        .detail-field label { font-size:10px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); display:block; margin-bottom:2px; }
+        .detail-field span  { font-size:14px; }
+        .modal-actions { display:flex; gap:12px; margin-top:24px; justify-content:flex-end; flex-wrap:wrap; }
+
+        #toast { position:fixed; bottom:32px; right:32px; padding:14px 22px; border-radius:10px; font-size:14px; font-weight:500; color:white; opacity:0; transform:translateY(12px); transition:all 0.3s ease; z-index:999; pointer-events:none; }
+        #toast.show { opacity:1; transform:translateY(0); }
+        #toast.success { background:var(--success); }
+        #toast.error   { background:var(--danger); }
+        #toast.info    { background:var(--info); }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <a class="sidebar-brand" href="Landing_Page.html">Store CRM</a>
+    <div class="sidebar-sub">Purchasing</div>
+    <span class="nav-section">Purchase</span>
+    <button class="nav-item active" id="nav-new"  onclick="switchTab('new')">➕ New PO</button>
+    <button class="nav-item"        id="nav-all"  onclick="switchTab('all')">📋 All POs</button>
+    <span class="nav-section">Navigation</span>
+    <a class="nav-item" href="Buyer.html">🏢 Buyers</a>
+    <a class="nav-item" href="Inventory.html">🏷️ Inventory</a>
+    <a class="nav-item" href="Sales.html">🧾 Sales</a>
+    <div class="sidebar-footer">
+        <a class="back-link" href="Landing_Page.html">← Home</a>
+    </div>
+</div>
+
+<div class="main">
+    <div class="topbar">
+        <div style="display:flex;align-items:center;gap:16px;">
+            <span class="page-title" id="topTitle">Purchase Order</span>
+            <div class="buyer-chip" id="buyerChip">
+                <span>🏢</span>
+                <span id="chipBuyerId" style="font-family:'Courier New',monospace;font-size:12px;"></span>
+                <span id="chipBuyerName"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="tabs">
+        <button class="tab-btn active" id="tab-new" onclick="switchTab('new')">➕ New PO</button>
+        <button class="tab-btn"        id="tab-all" onclick="switchTab('all')">📋 All POs</button>
+    </div>
+
+    <div class="content">
+
+        <!-- ══ NEW PO ══ -->
+        <div class="view active" id="view-new">
+            <!-- Step indicator -->
+            <div class="steps">
+                <div class="step active" id="step1-ind"><div class="step-num">1</div><span>Buyer</span></div>
+                <div class="step-line" id="line-1"></div>
+                <div class="step" id="step2-ind"><div class="step-num">2</div><span>Line Items</span></div>
+                <div class="step-line" id="line-2"></div>
+                <div class="step" id="step3-ind"><div class="step-num">3</div><span>Review &amp; Confirm</span></div>
+            </div>
+
+            <!-- Step 1: Buyer -->
+            <div id="sub-buyer" class="sub-view">
+                <div class="card">
+                    <div class="card-title">Select Buyer</div>
+                    <div class="card-sub">Search by name, phone or Buyer ID.</div>
+                    <div class="form-group" style="max-width:400px;">
+                        <label>Search Buyer</label>
+                        <div class="search-wrap-rel">
+                            <input id="buyerSearch" placeholder="Name, phone, or Buyer ID…" oninput="searchBuyer()" autocomplete="off">
+                            <div class="search-dropdown" id="buyerResults"></div>
+                        </div>
+                    </div>
+                    <div id="buyerSelected" style="margin-top:20px;"></div>
+                </div>
+            </div>
+
+            <!-- Step 2: Line Items -->
+            <div id="sub-lines" class="sub-view" style="display:none;">
+                <div class="card">
+                    <div class="card-title">Add Products</div>
+                    <div class="card-sub">Search for products and add quantities and purchase prices.</div>
+
+                    <!-- Product search -->
+                    <div class="form-group" style="max-width:400px;margin-bottom:20px;">
+                        <label>Search Product</label>
+                        <div class="search-wrap-rel">
+                            <input id="prodSearch" placeholder="MATNR, brand, category…" oninput="searchProduct()" autocomplete="off">
+                            <div class="search-dropdown" id="prodResults"></div>
+                        </div>
+                    </div>
+
+                    <!-- Line items table -->
+                    <div style="overflow-x:auto;">
+                        <table class="line-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:50px;">Line</th>
+                                    <th>MATNR</th>
+                                    <th>Product</th>
+                                    <th style="width:120px;">Qty</th>
+                                    <th style="width:140px;">Unit Price (₹)</th>
+                                    <th style="width:120px;text-align:right;">Line Total</th>
+                                    <th style="width:40px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="lineBody">
+                                <tr id="emptyLine"><td colspan="7" style="text-align:center;padding:32px;color:var(--muted);">No products added yet. Search above to add.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="po-total">
+                        <div class="po-total-box">
+                            PO Total: <span id="poTotal">₹0.00</span>
+                        </div>
+                    </div>
+
+                    <div style="display:flex;gap:12px;margin-top:20px;">
+                        <button class="btn btn-ghost"   onclick="goToStep1()">← Back</button>
+                        <button class="btn btn-primary" onclick="goToStep3()" id="toStep3Btn" disabled>Continue → Review</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3: Review & Confirm -->
+            <div id="sub-review" class="sub-view" style="display:none;">
+                <div class="card" style="margin-bottom:16px;">
+                    <div class="card-title">Delivery & Order Details</div>
+                    <div class="card-sub">Shipping address defaults from buyer — edit if delivery is different.</div>
+                    <div class="form-grid">
+                        <div class="section-label">Receiver</div>
+                        <div class="form-group">
+                            <label>Receiver Name</label>
+                            <input id="rv-name" placeholder="Who receives the goods">
+                        </div>
+                        <div class="form-group">
+                            <label>Receiver Phone</label>
+                            <input id="rv-phone" placeholder="+91…">
+                        </div>
+
+                        <div class="section-label">Shipping Address</div>
+                        <div class="form-group full">
+                            <label>Address Line 1</label>
+                            <input id="rv-addr1">
+                        </div>
+                        <div class="form-group full">
+                            <label>Address Line 2</label>
+                            <input id="rv-addr2">
+                        </div>
+                        <div class="form-group">
+                            <label>City</label>
+                            <select id="rv-city"><option value="">Select…</option></select>
+                        </div>
+                        <div class="form-group">
+                            <label>State</label>
+                            <select id="rv-state"><option value="">Select…</option></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Country</label>
+                            <select id="rv-country"><option value="">Select…</option></select>
+                        </div>
+                        <div class="form-group">
+                            <label>ZIP</label>
+                            <input id="rv-zip">
+                        </div>
+                        <div class="form-group">
+                            <label>Shipping City</label>
+                            <select id="rv-ship_city"><option value="">Select…</option></select>
+                        </div>
+
+                        <div class="section-label">Order Details</div>
+                        <div class="form-group">
+                            <label>PO Date</label>
+                            <input type="date" id="rv-po_date">
+                        </div>
+                        <div class="form-group">
+                            <label>Payment Terms</label>
+                            <select id="rv-payment_terms">
+                                <option value="">Select…</option>
+                                <option>Immediate</option>
+                                <option>Net 7</option><option>Net 15</option><option>Net 30</option>
+                                <option>Net 45</option><option>Net 60</option><option>Net 90</option>
+                            </select>
+                        </div>
+                        <div class="form-group full">
+                            <label>Notes</label>
+                            <textarea id="rv-notes" rows="2" placeholder="Any additional notes…" style="resize:vertical;"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Summary -->
+                <div class="card">
+                    <div class="card-title">Order Summary</div>
+                    <div id="reviewSummary" style="margin-bottom:16px;"></div>
+                    <div style="overflow-x:auto;">
+                        <table class="line-table" id="reviewLineTable">
+                            <thead>
+                                <tr><th>Line</th><th>MATNR</th><th>Product</th><th class="right">Qty</th><th class="right">Unit Price</th><th class="right">Line Total</th></tr>
+                            </thead>
+                            <tbody id="reviewLineBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="po-total">
+                        <div class="po-total-box">PO Total: <span id="reviewTotal">₹0.00</span></div>
+                    </div>
+                </div>
+
+                <div style="display:flex;gap:12px;margin-top:8px;">
+                    <button class="btn btn-ghost"   onclick="goToStep2()">← Back to Lines</button>
+                    <button class="btn btn-success" onclick="confirmPO()">✅ Confirm Purchase Order</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ══ ALL POs ══ -->
+        <div class="view" id="view-all">
+            <div style="margin-bottom:20px;">
+                <h1 style="font-family:'DM Serif Display',serif;font-size:28px;">All Purchase Orders</h1>
+                <p style="font-size:13px;color:var(--muted);margin-top:4px;">Track and manage all purchase orders.</p>
+            </div>
+            <div class="toolbar">
+                <div class="form-group" style="margin:0;flex:1;min-width:200px;">
+                    <label>Search</label>
+                    <input id="poSearch" placeholder="PO ID, buyer name…" oninput="filterPOs()">
+                </div>
+                <div class="form-group" style="margin:0;">
+                    <label>From</label>
+                    <input type="date" id="poFrom" onchange="loadAllPOs()" style="font-size:13px;">
+                </div>
+                <div class="form-group" style="margin:0;">
+                    <label>To</label>
+                    <input type="date" id="poTo" onchange="loadAllPOs()" style="font-size:13px;">
+                </div>
+                <button class="btn btn-ghost" style="align-self:flex-end;" onclick="loadAllPOs()">↺ Refresh</button>
+            </div>
+            <div class="table-card">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>PO ID</th>
+                            <th>Buyer</th>
+                            <th>PO Date</th>
+                            <th>Payment Terms</th>
+                            <th>Payment Status</th>
+                            <th>Lines</th>
+                            <th class="right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="poTableBody">
+                        <tr class="state-row"><td colspan="7"><span class="spinner"></span> Loading…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- PO Detail Modal -->
+<div class="modal-overlay" id="poModal">
+    <div class="modal">
+        <div class="modal-title">Purchase Order Details</div>
+        <div class="modal-sub" id="poModalSub"></div>
+        <div class="detail-grid" id="poDetailGrid"></div>
+        <div style="overflow-x:auto;margin-bottom:16px;">
+            <table class="line-table" id="poModalLineTable">
+                <thead>
+                    <tr>
+                        <th>Line</th><th>MATNR</th><th>Product</th>
+                        <th class="right">Qty</th><th class="right">Unit Price</th>
+                        <th class="right">Line Total</th><th>Status</th><th></th>
+                    </tr>
+                </thead>
+                <tbody id="poModalLines"></tbody>
+            </table>
+        </div>
+        <div class="po-total" style="margin-bottom:16px;">
+            <div class="po-total-box" style="min-width:240px;">
+                <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);padding-bottom:6px;border-bottom:1px solid var(--border);margin-bottom:6px;">
+                    <span>Subtotal (ex-GST)</span><span id="poModalSubtotal">₹0.00</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);padding-bottom:6px;border-bottom:1px solid var(--border);margin-bottom:6px;">
+                    <span>GST</span><span id="poModalGst">₹0.00</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;">
+                    <span>PO Total</span><span id="poModalTotal">₹0.00</span>
+                </div>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <select id="poPaymentStatus" style="font-size:13px;padding:8px 12px;">
+                <option value="">Update Payment Status…</option>
+                <option value="PENDING">Pending</option>
+                <option value="PAID">Paid</option>
+                <option value="PARTIALLY_PAID">Partially Paid</option>
+                <option value="CANCELLED">Cancelled</option>
+            </select>
+            <button class="btn btn-primary" onclick="updatePOPayment()" style="font-size:13px;padding:9px 16px;">Update Payment</button>
+            <button class="btn btn-ghost"   onclick="closePOModal()" style="font-size:13px;">Close</button>
+        </div>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── Reference Data ────────────────────────────────────────────────────────────
+const INDIAN_STATES = [
+    "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh",
+    "Goa","Gujarat","Haryana","Himachal Pradesh","Jharkhand","Karnataka",
+    "Kerala","Madhya Pradesh","Maharashtra","Manipur","Meghalaya","Mizoram",
+    "Nagaland","Odisha","Punjab","Rajasthan","Sikkim","Tamil Nadu","Telangana",
+    "Tripura","Uttar Pradesh","Uttarakhand","West Bengal",
+    "Andaman and Nicobar Islands","Chandigarh","Dadra and Nagar Haveli and Daman and Diu",
+    "Delhi","Jammu and Kashmir","Ladakh","Lakshadweep","Puducherry"
+];
+const INDIAN_CITIES = [
+    "Ahmedabad","Bengaluru","Bhopal","Chennai","Coimbatore","Delhi",
+    "Faridabad","Ghaziabad","Hyderabad","Indore","Jaipur","Kanpur",
+    "Kochi","Kolkata","Lucknow","Ludhiana","Meerut","Mumbai","Nagpur",
+    "Nashik","Patna","Pune","Rajkot","Surat","Thane","Vadodara",
+    "Varanasi","Visakhapatnam","Agra","Aurangabad","Amritsar",
+    "Chandigarh","Gurgaon","Noida","Secunderabad"
+];
+const COUNTRIES = [
+    "India","United Arab Emirates","United States","United Kingdom",
+    "Singapore","China","Bangladesh","Sri Lanka","Nepal","Bhutan",
+    "Hong Kong","Japan","South Korea","Germany","France","Italy",
+    "Australia","Canada","Turkey","Vietnam"
+];
+
+function populateSelect(id, values, currentVal='') {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = '<option value="">Select…</option>' +
+        values.map(v => `<option value="${v}" ${v===currentVal?'selected':''}>${v}</option>`).join('');
+}
+function populateLocationDropdowns(prefix, vals={}) {
+    populateSelect(`${prefix}city`,      INDIAN_CITIES, vals.city||'');
+    populateSelect(`${prefix}state`,     INDIAN_STATES, vals.state||'');
+    populateSelect(`${prefix}country`,   COUNTRIES,     vals.country||'India');
+    populateSelect(`${prefix}ship_city`, INDIAN_CITIES, vals.ship_city||'');
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let currentBuyer  = null;
+let lineItems     = [];   // [{matnr,brand,category,subcategory,size,qty,unit_price}]
+let allPOs        = [];
+let currentPOId   = null;
+let buyerTimer    = null;
+let prodTimer     = null;
+let allProducts   = [];
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
+function showToast(msg, type='success') {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.className = `show ${type}`;
+    setTimeout(() => t.className = '', 3200);
+}
+function fmt(n) { return '₹' + parseFloat(n||0).toFixed(2); }
+function fmtDate(s) { return s ? new Date(s).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—'; }
+
+function statusBadge(s) {
+    const map = {
+        'PENDING':'badge-pending','PAID':'badge-paid','CANCELLED':'badge-cancelled',
+        'PARTIALLY_PAID':'badge-partially',
+        'Created':'badge-created','Accepted':'badge-accepted','Goods Receipt':'badge-gr'
+    };
+    const label = s === 'PARTIALLY_PAID' ? 'Partial' : s;
+    return `<span class="badge ${map[s]||''}">${label}</span>`;
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function switchTab(tab) {
+    ['new','all'].forEach(t => {
+        document.getElementById(`tab-${t}`).classList.toggle('active', t===tab);
+        document.getElementById(`view-${t}`).classList.toggle('active', t===tab);
+        document.getElementById(`nav-${t}`).classList.toggle('active', t===tab);
+    });
+    document.getElementById('topTitle').textContent = tab === 'new' ? 'Purchase Order' : 'All Purchase Orders';
+    if (tab === 'all') loadAllPOs();
+}
+
+// ── Steps ─────────────────────────────────────────────────────────────────────
+function setStep(n) {
+    [1,2,3].forEach(i => {
+        document.getElementById(`step${i}-ind`).className = 'step'+(i<n?' done':i===n?' active':'');
+        if (i<3) document.getElementById(`line-${i}`).className = 'step-line'+(i<n?' done':'');
+    });
+}
+function showSub(name) {
+    ['buyer','lines','review'].forEach(s => {
+        document.getElementById(`sub-${s}`).style.display = s===name ? 'block' : 'none';
+    });
+}
+
+function goToStep1() {
+    currentBuyer = null; lineItems = [];
+    document.getElementById('buyerSearch').value = '';
+    document.getElementById('buyerResults').style.display = 'none';
+    document.getElementById('buyerSelected').innerHTML = '';
+    document.getElementById('buyerChip').classList.remove('visible');
+    setStep(1); showSub('buyer');
+}
+
+function goToStep2() {
+    if (!currentBuyer) return showToast('Select a buyer first', 'error');
+    setStep(2); showSub('lines');
+    loadProductsForSearch();
+    renderLines();
+}
+
+function goToStep3() {
+    if (!lineItems.length) return showToast('Add at least one product', 'error');
+    setStep(3); showSub('review');
+    // Pre-fill from buyer
+    populateLocationDropdowns('rv-', {
+        city: currentBuyer.city, state: currentBuyer.state,
+        country: currentBuyer.country||'India', ship_city: currentBuyer.ship_city
+    });
+    document.getElementById('rv-addr1').value         = currentBuyer.addr1 || '';
+    document.getElementById('rv-addr2').value         = currentBuyer.addr2 || '';
+    document.getElementById('rv-zip').value           = currentBuyer.zip   || '';
+    document.getElementById('rv-payment_terms').value = currentBuyer.payment_terms || '';
+    document.getElementById('rv-po_date').value       = new Date().toISOString().split('T')[0];
+    renderReview();
+}
+
+// ── Buyer search ──────────────────────────────────────────────────────────────
+function searchBuyer() {
+    clearTimeout(buyerTimer);
+    const q = document.getElementById('buyerSearch').value.trim();
+    const box = document.getElementById('buyerResults');
+    if (q.length < 2) { box.style.display='none'; return; }
+    buyerTimer = setTimeout(async () => {
+        try {
+            const res     = await fetch(`/buyers/search?q=${encodeURIComponent(q)}`);
+            const results = await res.json();
+            if (!results.length) { box.innerHTML='<div class="search-result-item" style="color:var(--muted);">No buyers found</div>'; box.style.display='block'; return; }
+            box.innerHTML = results.map(b => `
+                <div class="search-result-item" onclick='selectBuyer(${JSON.stringify(b).replace(/'/g,"&apos;")})'>
+                    <strong>${b.name}</strong> <span class="mono" style="font-size:11px;">${b.buyer_id}</span>
+                    <div style="font-size:12px;color:var(--muted);">${[b.city,b.state].filter(Boolean).join(', ')}</div>
+                </div>`).join('');
+            box.style.display = 'block';
+        } catch {}
+    }, 250);
+}
+
+function selectBuyer(buyer) {
+    currentBuyer = buyer;
+    document.getElementById('buyerSearch').value = buyer.name;
+    document.getElementById('buyerResults').style.display = 'none';
+    document.getElementById('chipBuyerId').textContent   = buyer.buyer_id;
+    document.getElementById('chipBuyerName').textContent = buyer.name;
+    document.getElementById('buyerChip').classList.add('visible');
+    document.getElementById('buyerSelected').innerHTML = `
+        <div style="background:var(--accent2);border:1.5px solid #e8d0a0;border-radius:10px;padding:16px 20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+            <div>
+                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#92650a;margin-bottom:4px;">Buyer Selected</div>
+                <div style="font-size:18px;font-weight:700;">${buyer.name}</div>
+                <div style="font-size:12px;color:#92650a;font-family:'Courier New',monospace;">ID: ${buyer.buyer_id}</div>
+            </div>
+            ${buyer.phone ? `<div style="font-size:13px;color:var(--muted);">📞 ${buyer.phone}</div>` : ''}
+            ${buyer.city  ? `<div style="font-size:13px;color:var(--muted);">📍 ${buyer.city}, ${buyer.state||''}</div>` : ''}
+            <button class="btn btn-ghost" style="font-size:13px;" onclick="goToStep1()">✕ Change</button>
+            <button class="btn btn-primary" style="margin-left:auto;" onclick="goToStep2()">Continue → Add Products</button>
+        </div>`;
+}
+
+document.addEventListener('click', e => {
+    if (!e.target.closest('#buyerResults') && !e.target.closest('#buyerSearch'))
+        document.getElementById('buyerResults').style.display = 'none';
+    if (!e.target.closest('#prodResults') && !e.target.closest('#prodSearch'))
+        document.getElementById('prodResults').style.display = 'none';
+});
+
+// ── Product search ────────────────────────────────────────────────────────────
+async function loadProductsForSearch() {
+    try {
+        const res   = await fetch('/inventory');
+        allProducts = await res.json();
+    } catch {}
+}
+
+function searchProduct() {
+    clearTimeout(prodTimer);
+    const q   = document.getElementById('prodSearch').value.trim().toLowerCase();
+    const box = document.getElementById('prodResults');
+    if (q.length < 2) { box.style.display='none'; return; }
+    prodTimer = setTimeout(() => {
+        const matches = allProducts.filter(p =>
+            p.matnr.toLowerCase().includes(q) ||
+            (p.brand||'').toLowerCase().includes(q) ||
+            (p.category||'').toLowerCase().includes(q)
+        ).slice(0,8);
+        if (!matches.length) { box.innerHTML='<div class="search-result-item" style="color:var(--muted);">No products found</div>'; box.style.display='block'; return; }
+        box.innerHTML = matches.map(p => `
+            <div class="search-result-item" onclick='addLine(${JSON.stringify(p).replace(/'/g,"&apos;")})'>
+                <strong>${p.brand||'—'}</strong> <span class="mono" style="font-size:11px;">${p.matnr}</span>
+                <div style="font-size:12px;color:var(--muted);">${[p.category,p.subcategory,p.size,p.color].filter(Boolean).join(' · ')} · Stock: ${p.quantity}</div>
+            </div>`).join('');
+        box.style.display = 'block';
+    }, 200);
+}
+
+// ── Line items ────────────────────────────────────────────────────────────────
+function addLine(prod) {
+    // Check if already in list
+    if (lineItems.find(l => l.matnr === prod.matnr)) {
+        showToast('Product already in PO — update quantity in the table', 'info');
+        document.getElementById('prodSearch').value = '';
+        document.getElementById('prodResults').style.display = 'none';
+        return;
+    }
+    lineItems.push({
+        matnr:      prod.matnr,
+        brand:      prod.brand || '—',
+        category:   prod.category || '',
+        subcategory:prod.subcategory || '',
+        size:       prod.size || '',
+        color:      prod.color || '',
+        quantity:   1,
+        unit_price: 0
+    });
+    document.getElementById('prodSearch').value = '';
+    document.getElementById('prodResults').style.display = 'none';
+    renderLines();
+}
+
+function renderLines() {
+    const tbody = document.getElementById('lineBody');
+    if (!lineItems.length) {
+        tbody.innerHTML = '<tr id="emptyLine"><td colspan="7" style="text-align:center;padding:32px;color:var(--muted);">No products added yet.</td></tr>';
+        document.getElementById('toStep3Btn').disabled = true;
+        document.getElementById('poTotal').textContent = '₹0.00';
+        return;
+    }
+    document.getElementById('toStep3Btn').disabled = false;
+    let total = 0;
+    tbody.innerHTML = lineItems.map((item, idx) => {
+        const lineTotal = (item.quantity||0) * (item.unit_price||0);
+        total += lineTotal;
+        return `<tr>
+            <td style="color:var(--muted);font-size:12px;">${(idx+1)*10}</td>
+            <td><span class="mono">${item.matnr}</span></td>
+            <td><strong>${item.brand}</strong> <span style="font-size:12px;color:var(--muted);">${[item.category,item.subcategory,item.size,item.color].filter(Boolean).join(' · ')}</span></td>
+            <td><input type="number" class="line-input" min="1" value="${item.quantity}"
+                oninput="updateLine(${idx},'quantity',this.value)" style="width:80px;"></td>
+            <td><input type="number" class="line-input" min="0" step="0.01" value="${item.unit_price||''}"
+                placeholder="0.00" oninput="updateLine(${idx},'unit_price',this.value)" style="width:110px;"></td>
+            <td class="line-total-cell" id="lt-${idx}">${fmt(lineTotal)}</td>
+            <td><button class="btn-danger-sm" onclick="removeLine(${idx})">✕</button></td>
+        </tr>`;
+    }).join('');
+    document.getElementById('poTotal').textContent = fmt(total);
+}
+
+function updateLine(idx, field, val) {
+    lineItems[idx][field] = parseFloat(val) || 0;
+    const lt = (lineItems[idx].quantity||0) * (lineItems[idx].unit_price||0);
+    const el = document.getElementById(`lt-${idx}`);
+    if (el) el.textContent = fmt(lt);
+    const total = lineItems.reduce((s,l) => s + (l.quantity||0)*(l.unit_price||0), 0);
+    document.getElementById('poTotal').textContent = fmt(total);
+}
+
+function removeLine(idx) {
+    lineItems.splice(idx, 1);
+    renderLines();
+}
+
+function renderReview() {
+    document.getElementById('reviewSummary').innerHTML = `
+        <div style="padding:12px 16px;background:var(--accent2);border-radius:8px;font-size:14px;">
+            <strong>${currentBuyer.name}</strong>
+            <span class="mono" style="margin-left:8px;">${currentBuyer.buyer_id}</span>
+            <span style="color:var(--muted);margin-left:8px;">${lineItems.length} line item${lineItems.length!==1?'s':''}</span>
+        </div>`;
+    let total = 0;
+    document.getElementById('reviewLineBody').innerHTML = lineItems.map((item, idx) => {
+        const lt = (item.quantity||0)*(item.unit_price||0);
+        total += lt;
+        return `<tr>
+            <td style="color:var(--muted);font-size:12px;">${(idx+1)*10}</td>
+            <td><span class="mono">${item.matnr}</span></td>
+            <td><strong>${item.brand}</strong></td>
+            <td class="right">${item.quantity}</td>
+            <td class="right">${fmt(item.unit_price)}</td>
+            <td class="right"><strong>${fmt(lt)}</strong></td>
+        </tr>`;
+    }).join('');
+    document.getElementById('reviewTotal').textContent = fmt(total);
+}
+
+// ── Confirm PO ────────────────────────────────────────────────────────────────
+async function confirmPO() {
+    if (!lineItems.length) return showToast('No line items', 'error');
+
+    const body = {
+        buyer_id:       currentBuyer.buyer_id,
+        po_date:        document.getElementById('rv-po_date').value,
+        payment_terms:  document.getElementById('rv-payment_terms').value,
+        receiver_name:  document.getElementById('rv-name').value.trim(),
+        receiver_phone: document.getElementById('rv-phone').value.trim(),
+        receiver_email: document.getElementById('rv-email').value.trim(),
+        receiver_gstin: document.getElementById('rv-gstin').value.trim(),
+        tax_id:         document.getElementById('rv-tax_id').value.trim(),
+        export_id:      document.getElementById('rv-export_id').value.trim(),
+        addr1:          document.getElementById('rv-addr1').value.trim(),
+        addr2:          document.getElementById('rv-addr2').value.trim(),
+        city:           document.getElementById('rv-city').value,
+        state:          document.getElementById('rv-state').value,
+        country:        document.getElementById('rv-country').value || 'India',
+        zip:            document.getElementById('rv-zip').value.trim(),
+        ship_city:      document.getElementById('rv-ship_city').value,
+        notes:          document.getElementById('rv-notes').value.trim(),
+        items: lineItems.map((item, idx) => ({
+            matnr:      item.matnr,
+            quantity:   item.quantity  || 1,
+            unit_price: item.unit_price|| 0,
+        }))
+    };
+
+    try {
+        const res  = await fetch('/purchase-orders', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+        showToast(`✅ Purchase Order ${data.po_id} confirmed!`);
+        setTimeout(() => { goToStep1(); switchTab('all'); }, 800);
+    } catch(err) { showToast(`❌ ${err.message}`, 'error'); }
+}
+
+// ── All POs ───────────────────────────────────────────────────────────────────
+async function loadAllPOs() {
+    document.getElementById('poTableBody').innerHTML =
+        '<tr class="state-row"><td colspan="7"><span class="spinner"></span> Loading…</td></tr>';
+    const from = document.getElementById('poFrom').value;
+    const to   = document.getElementById('poTo').value;
+    let url    = '/purchase-orders';
+    const p    = [];
+    if (from) p.push(`from=${from}`);
+    if (to)   p.push(`to=${to}`);
+    if (p.length) url += '?' + p.join('&');
+    try {
+        const res = await fetch(url);
+        allPOs    = await res.json();
+        renderPOTable(allPOs);
+    } catch {
+        document.getElementById('poTableBody').innerHTML =
+            '<tr class="state-row"><td colspan="7">❌ Could not load purchase orders.</td></tr>';
+    }
+}
+
+function renderPOTable(data) {
+    const tbody = document.getElementById('poTableBody');
+    if (!data.length) { tbody.innerHTML = '<tr class="state-row"><td colspan="7">No purchase orders found.</td></tr>'; return; }
+    tbody.innerHTML = data.map(po => `
+        <tr>
+            <td><span class="mono">${po.po_id}</span></td>
+            <td><strong>${po.buyer_name||po.buyer_id}</strong></td>
+            <td style="font-size:13px;color:var(--muted);">${fmtDate(po.po_date)}</td>
+            <td>${po.payment_terms||'—'}</td>
+            <td>${statusBadge(po.payment_status||'PENDING')}</td>
+            <td style="font-size:12px;color:var(--muted);">${po.line_count !== undefined ? po.line_count + ' line' + (po.line_count!==1?'s':'') : '—'}</td>
+            <td class="right">
+                <div style="display:flex;gap:6px;justify-content:flex-end;">
+                    <button class="action-btn btn-view-sm"   onclick="viewPO('${po.po_id}')">View</button>
+                    <button class="action-btn btn-cancel-sm" onclick="deletePO('${po.po_id}')">Delete</button>
+                </div>
+            </td>
+        </tr>`).join('');
+}
+
+function filterPOs() {
+    const q = document.getElementById('poSearch').value.toLowerCase();
+    renderPOTable(allPOs.filter(o =>
+        o.po_id.toLowerCase().includes(q) ||
+        (o.buyer_name||'').toLowerCase().includes(q) ||
+        (o.buyer_id||'').toLowerCase().includes(q)
+    ));
+}
+
+// ── View PO Modal ─────────────────────────────────────────────────────────────
+async function viewPO(po_id) {
+    currentPOId = po_id;
+    try {
+        const res  = await fetch(`/purchase-orders/${po_id}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        document.getElementById('poModalSub').textContent = `PO Date: ${fmtDate(data.po_date)} · ${statusBadge(data.payment_status||'PENDING')}`;
+        document.getElementById('poDetailGrid').innerHTML = `
+            <div class="detail-field"><label>PO ID</label><span class="mono">${data.po_id}</span></div>
+            <div class="detail-field"><label>Buyer</label><span>${data.buyer_name||data.buyer_id}</span></div>
+            <div class="detail-field"><label>Payment Terms</label><span>${data.payment_terms||'—'}</span></div>
+            <div class="detail-field"><label>Payment Status</label>${statusBadge(data.payment_status||'PENDING')}</div>
+            ${data.receiver_name ? `<div class="detail-field"><label>Receiver</label><span>${data.receiver_name}</span></div>` : ''}
+            ${data.addr1 ? `<div class="detail-field" style="grid-column:1/-1"><label>Ship To</label><span>${[data.addr1,data.addr2,data.city,data.state,data.zip].filter(Boolean).join(', ')}</span></div>` : ''}
+            ${data.notes ? `<div class="detail-field" style="grid-column:1/-1"><label>Notes</label><span>${data.notes}</span></div>` : ''}
+        `;
+
+        let subtotal = 0, totalGst = 0;
+        document.getElementById('poModalLines').innerHTML = data.items.map(item => {
+            // line_total already includes GST if set, otherwise just unit_price * qty
+            const lineTotal = item.line_total || (item.unit_price * item.quantity);
+            subtotal += (item.unit_price||0) * (item.quantity||0);
+            totalGst += lineTotal - ((item.unit_price||0) * (item.quantity||0));
+            const statusOpts = ['Created','Accepted','Goods Receipt'].map(s =>
+                `<option value="${s}" ${item.status===s?'selected':''}>${s}</option>`
+            ).join('');
+            return `<tr>
+                <td style="font-size:12px;color:var(--muted);">${item.line_no}</td>
+                <td><span class="mono">${item.matnr}</span></td>
+                <td><strong>${item.brand||'—'}</strong> <span style="font-size:12px;color:var(--muted);">${[item.category,item.subcategory,item.size].filter(Boolean).join(' · ')}</span></td>
+                <td class="right">${item.quantity}</td>
+                <td class="right">${fmt(item.unit_price)}</td>
+                <td class="right"><strong>${fmt(item.line_total)}</strong></td>
+                <td>${statusBadge(item.status||'Created')}</td>
+                <td>
+                    <select onchange="updateLineStatus('${po_id}',${item.line_no},this.value)"
+                            style="font-size:11px;padding:3px 6px;border-radius:6px;border:1px solid var(--border);">
+                        ${statusOpts}
+                    </select>
+                </td>
+            </tr>`;
+        }).join('');
+
+        const grandTotal = subtotal + totalGst;
+        if (document.getElementById('poModalSubtotal')) document.getElementById('poModalSubtotal').textContent = fmt(subtotal);
+        if (document.getElementById('poModalGst'))      document.getElementById('poModalGst').textContent      = fmt(totalGst);
+        document.getElementById('poModalTotal').textContent = fmt(grandTotal);
+        document.getElementById('poPaymentStatus').value   = data.payment_status || 'PENDING';
+        document.getElementById('poModal').classList.add('open');
+    } catch(err) { showToast(`❌ ${err.message}`, 'error'); }
+}
+
+async function updateLineStatus(po_id, line_no, status) {
+    try {
+        const res  = await fetch(`/purchase-orders/${po_id}/line/${line_no}/status`, {
+            method:'PUT', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({status})
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        const msg = status === 'Goods Receipt'
+            ? `✅ Goods Receipt confirmed — stock updated`
+            : `✅ Line ${line_no} → ${status}`;
+        showToast(msg);
+        // Refresh the modal
+        viewPO(po_id);
+    } catch(err) { showToast(`❌ ${err.message}`, 'error'); }
+}
+
+async function updatePOPayment() {
+    const status = document.getElementById('poPaymentStatus').value;
+    if (!status) return showToast('Select a payment status', 'error');
+    try {
+        const res  = await fetch(`/purchase-orders/${currentPOId}/payment`, {
+            method:'PUT', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({payment_status: status})
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        showToast(`✅ Payment status updated to ${status}`);
+        loadAllPOs();
+        closePOModal();
+    } catch(err) { showToast(`❌ ${err.message}`, 'error'); }
+}
+
+async function deletePO(po_id) {
+    if (!confirm(`Delete PO ${po_id}? This cannot be undone.`)) return;
+    try {
+        const res  = await fetch(`/purchase-orders/${po_id}`, {method:'DELETE'});
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        showToast(`🗑️ PO ${po_id} deleted`);
+        loadAllPOs();
+    } catch(err) { showToast(`❌ ${err.message}`, 'error'); }
+}
+
+function closePOModal() {
+    document.getElementById('poModal').classList.remove('open');
+    currentPOId = null;
+}
+document.getElementById('poModal').addEventListener('click', function(e) {
+    if (e.target === this) closePOModal();
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+populateLocationDropdowns('rv-', {country:'India'});
+goToStep1();
+</script>
+</body>
+</html>

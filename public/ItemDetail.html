@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Item Detail</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --ink:#0f0f0f; --muted:#6b7280; --accent:#c8973a; --accent2:#f0e6d0;
+            --bg:#faf9f7; --card:#ffffff; --border:#e5e2db;
+            --danger:#dc2626; --success:#16a34a; --info:#0369a1;
+        }
+        body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--ink); min-height:100vh; }
+
+        /* ── Top bar ── */
+        .topbar { background:white; border-bottom:1px solid var(--border); padding:0 40px; height:64px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:50; }
+        .topbar-left { display:flex; align-items:center; gap:16px; }
+        .back-btn { display:flex; align-items:center; gap:8px; padding:8px 14px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; font-weight:600; color:var(--muted); cursor:pointer; background:white; text-decoration:none; transition:all 0.2s; }
+        .back-btn:hover { border-color:var(--ink); color:var(--ink); }
+        .matnr-badge { font-family:'Courier New',monospace; font-size:13px; background:var(--accent2); color:#92650a; border:1px solid #e8d0a0; border-radius:6px; padding:4px 10px; font-weight:700; }
+
+        /* ── Content ── */
+        .content { max-width:1100px; margin:0 auto; padding:32px 40px; }
+
+        /* ── Product header ── */
+        .product-header { display:flex; align-items:flex-start; gap:24px; margin-bottom:28px; flex-wrap:wrap; }
+        .product-title { flex:1; }
+        .product-brand { font-family:'DM Serif Display',serif; font-size:32px; }
+        .product-sub { font-size:15px; color:var(--muted); margin-top:4px; }
+        .stock-pills { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+        .stock-pill { padding:8px 16px; border-radius:10px; font-size:13px; font-weight:600; display:flex; flex-direction:column; align-items:center; gap:2px; min-width:80px; text-align:center; }
+        .stock-pill label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; opacity:0.7; }
+        .pill-stock     { background:#dcfce7; color:#15803d; }
+        .pill-reserved  { background:#fef9c3; color:#854d0e; }
+        .pill-available { background:#dbeafe; color:#1d4ed8; }
+        .pill-cost      { background:#f1f5f9; color:#475569; }
+        .pill-mrp       { background:var(--accent2); color:#92650a; }
+
+        /* ── Grid layout ── */
+        .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px; }
+        .grid-1 { margin-bottom:20px; }
+
+        /* ── Cards ── */
+        .card { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:22px 26px; box-shadow:0 2px 8px rgba(0,0,0,0.04); }
+        .card-title { font-size:11px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); margin-bottom:16px; display:flex; align-items:center; gap:8px; }
+        .card-title span { font-size:16px; }
+
+        /* ── Field grid ── */
+        .field-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+        .field { display:flex; flex-direction:column; gap:3px; }
+        .field label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); }
+        .field span  { font-size:14px; }
+        .field.full  { grid-column:1/-1; }
+        .mono { font-family:'Courier New',monospace; font-size:12px; background:var(--accent2); color:#92650a; padding:2px 7px; border-radius:4px; }
+
+        /* ── Tables ── */
+        .table-wrap { overflow-x:auto; }
+        table { width:100%; border-collapse:collapse; font-size:13px; min-width:500px; }
+        thead th { padding:10px 12px; text-align:left; font-size:11px; font-weight:600; letter-spacing:0.07em; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); background:var(--bg); white-space:nowrap; }
+        thead th.right { text-align:right; }
+        tbody tr { border-bottom:1px solid var(--border); transition:background 0.15s; }
+        tbody tr:last-child { border-bottom:none; }
+        tbody tr:hover { background:#fdf8f2; }
+        tbody td { padding:10px 12px; vertical-align:middle; }
+        tbody td.right { text-align:right; }
+        .state-row td { text-align:center; padding:32px; color:var(--muted); font-size:13px; }
+        .spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 0.7s linear infinite; margin-right:6px; vertical-align:middle; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+
+        /* ── Badges ── */
+        .badge { display:inline-block; padding:2px 9px; border-radius:20px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; }
+        .badge-paid     { background:#dcfce7; color:#15803d; }
+        .badge-pending  { background:#fef9c3; color:#854d0e; }
+        .badge-cancelled{ background:#fee2e2; color:var(--danger); }
+        .badge-partial  { background:#dbeafe; color:#1d4ed8; }
+        .badge-s        { background:#dcfce7; color:#15803d; }
+        .badge-r        { background:#fee2e2; color:var(--danger); }
+        .badge-gr       { background:#dcfce7; color:#15803d; }
+        .badge-accepted { background:#dbeafe; color:#1d4ed8; }
+        .badge-created  { background:#f1f5f9; color:#475569; }
+        .badge-open     { background:#f1f5f9; color:#6b7280; }
+
+        /* ── Pricing card ── */
+        .price-row { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border); font-size:13px; }
+        .price-row:last-child { border-bottom:none; }
+        .price-active { background:var(--accent2); border-radius:8px; padding:10px 12px; margin:0 -12px; }
+
+        /* ── Toast ── */
+        #toast { position:fixed; bottom:32px; right:32px; padding:14px 22px; border-radius:10px; font-size:14px; font-weight:500; color:white; opacity:0; transform:translateY(12px); transition:all 0.3s; z-index:999; pointer-events:none; }
+        #toast.show { opacity:1; transform:translateY(0); }
+        #toast.success { background:var(--success); }
+        #toast.error   { background:var(--danger); }
+
+        /* ── Loading/error state ── */
+        .center-state { text-align:center; padding:80px; color:var(--muted); }
+        .center-state .icon { font-size:48px; margin-bottom:16px; }
+    </style>
+</head>
+<body>
+
+<div class="topbar">
+    <div class="topbar-left">
+        <a class="back-btn" href="Inventory.html">← Inventory</a>
+        <span class="matnr-badge" id="topMatnr">—</span>
+        <span style="font-family:'DM Serif Display',serif;font-size:18px;" id="topBrand">Item Detail</span>
+    </div>
+    <div style="display:flex;gap:10px;">
+        <a class="back-btn" id="editLink" href="#">✏️ Edit Product</a>
+    </div>
+</div>
+
+<div class="content" id="loadingState">
+    <div class="center-state">
+        <span class="spinner"></span>
+        <p style="margin-top:12px;">Loading product…</p>
+    </div>
+</div>
+
+<div class="content" id="mainContent" style="display:none;">
+
+    <!-- Product header -->
+    <div class="product-header">
+        <div class="product-title">
+            <div class="product-brand" id="hBrand">—</div>
+            <div class="product-sub" id="hSub">—</div>
+            <div class="stock-pills">
+                <div class="stock-pill pill-stock">
+                    <label>In Stock</label>
+                    <span id="sQty">—</span>
+                </div>
+                <div class="stock-pill pill-reserved">
+                    <label>Reserved</label>
+                    <span id="sReserved">—</span>
+                </div>
+                <div class="stock-pill pill-available">
+                    <label>Available</label>
+                    <span id="sAvail">—</span>
+                </div>
+                <div class="stock-pill pill-cost">
+                    <label>Cost Price</label>
+                    <span id="sCost">—</span>
+                </div>
+                <div class="stock-pill pill-mrp">
+                    <label>Sales Price</label>
+                    <span id="sMrp">—</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Product info + Pricing -->
+    <div class="grid-2">
+
+        <!-- Product Details -->
+        <div class="card">
+            <div class="card-title"><span>📋</span> Product Details</div>
+            <div class="field-grid">
+                <div class="field"><label>MATNR</label><span class="mono" id="dMatnr">—</span></div>
+                <div class="field"><label>Brand</label><span id="dBrand">—</span></div>
+                <div class="field"><label>Brand Family</label><span id="dBrandfamily">—</span></div>
+                <div class="field"><label>Gender</label><span id="dGender">—</span></div>
+                <div class="field"><label>Category</label><span id="dCategory">—</span></div>
+                <div class="field"><label>Sub-Category</label><span id="dSubcategory">—</span></div>
+                <div class="field"><label>L3</label><span id="dSubsubcategory">—</span></div>
+                <div class="field"><label>Size</label><span id="dSize">—</span></div>
+                <div class="field"><label>Color</label><span id="dColor">—</span></div>
+                <div class="field"><label>Fit</label><span id="dFit">—</span></div>
+                <div class="field"><label>Tax Category</label><span id="dTaxCat">—</span></div>
+            </div>
+        </div>
+
+        <!-- Pricing Records -->
+        <div class="card">
+            <div class="card-title"><span>💰</span> Sales Pricing</div>
+            <div id="pricingContent">
+                <div class="state-row"><td><span class="spinner"></span></td></div>
+            </div>
+            <div style="margin-top:12px;">
+                <a href="#" id="addPriceLink" style="font-size:13px;color:var(--accent);font-weight:600;text-decoration:none;">+ Add / Update Price →</a>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Sales History -->
+    <div class="card grid-1">
+        <div class="card-title"><span>🧾</span> Sales History <span style="font-weight:400;font-size:11px;color:var(--muted);margin-left:8px;" id="salesCount"></span></div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr>
+                    <th>Order ID</th>
+                    <th>Type</th>
+                    <th>Customer</th>
+                    <th>Date</th>
+                    <th class="right">Qty</th>
+                    <th class="right">MRP</th>
+                    <th class="right">GST%</th>
+                    <th class="right">Line Total</th>
+                    <th>Payment</th>
+                </tr></thead>
+                <tbody id="salesBody">
+                    <tr class="state-row"><td colspan="9"><span class="spinner"></span></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Purchase Order History -->
+    <div class="card grid-1">
+        <div class="card-title"><span>📦</span> Purchase History <span style="font-weight:400;font-size:11px;color:var(--muted);margin-left:8px;" id="poCount"></span></div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr>
+                    <th>PO ID</th>
+                    <th>Buyer</th>
+                    <th>Date</th>
+                    <th class="right">Qty</th>
+                    <th class="right">Unit Price</th>
+                    <th class="right">Line Total</th>
+                    <th>GR Status</th>
+                    <th>Payment</th>
+                </tr></thead>
+                <tbody id="poBody">
+                    <tr class="state-row"><td colspan="8"><span class="spinner"></span></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+    const fmt  = n  => '₹' + parseFloat(n||0).toFixed(2);
+    const fmtD = s  => s ? new Date(s).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+    const dash = v  => v || '—';
+
+    function showToast(msg, type='success') {
+        const t = document.getElementById('toast');
+        t.textContent = msg; t.className = `show ${type}`;
+        setTimeout(() => t.className = '', 3000);
+    }
+
+    function payBadge(ps) {
+        const map = {PAID:'paid',PENDING:'pending',CANCELLED:'cancelled',PARTIALLY_PAID:'partial'};
+        const lbl = ps === 'PARTIALLY_PAID' ? 'Partial' : (ps||'—');
+        return `<span class="badge badge-${map[ps]||''}">${lbl}</span>`;
+    }
+
+    function grBadge(s) {
+        const map = {'Goods Receipt':'gr','Accepted':'accepted','Created':'created'};
+        return `<span class="badge badge-${map[s]||'created'}">${s||'—'}</span>`;
+    }
+
+    // ── Load everything ───────────────────────────────────────────────────────
+    async function loadAll() {
+        const params = new URLSearchParams(window.location.search);
+        const matnr  = params.get('matnr');
+
+        if (!matnr) {
+            document.getElementById('loadingState').innerHTML =
+                '<div class="center-state"><div class="icon">❌</div><p>No MATNR provided.</p><a href="Inventory.html" style="color:var(--accent);font-weight:600;margin-top:12px;display:inline-block;">← Back to Inventory</a></div>';
+            return;
+        }
+
+        document.title = 'Item ' + matnr;
+        document.getElementById('topMatnr').textContent = matnr;
+        document.getElementById('editLink').href = 'Inventory.html';
+        document.getElementById('addPriceLink').href = 'Sales.html?tab=pricing&matnr=' + matnr;
+
+        try {
+            const [prodRes, salesRes, poRes, pricingRes] = await Promise.all([
+                fetch('/inventory/' + matnr),
+                fetch('/inventory/' + matnr + '/sales-history'),
+                fetch('/inventory/' + matnr + '/po-history'),
+                fetch('/inventory/' + matnr + '/pricing'),
+            ]);
+
+            const prod    = await prodRes.json();
+            const sales   = await salesRes.json();
+            const pos     = await poRes.json();
+            const pricing = await pricingRes.json();
+
+            if (!prod || prodRes.status === 404) throw new Error('Product not found');
+
+            renderProduct(prod, pricing);
+            renderPricing(pricing, matnr);
+            renderSales(sales);
+            renderPOs(pos);
+
+            document.getElementById('loadingState').style.display = 'none';
+            document.getElementById('mainContent').style.display  = 'block';
+
+        } catch(err) {
+            document.getElementById('loadingState').innerHTML =
+                '<div class="center-state"><div class="icon">😕</div><p>' + err.message + '</p></div>';
+        }
+    }
+
+    function renderProduct(p, pricingRows) {
+        document.getElementById('topBrand').textContent = p.brand || 'Unknown';
+        document.getElementById('hBrand').textContent  = p.brand || '—';
+        document.getElementById('hSub').textContent    = [p.brandfamily, p.gender, p.category, p.subcategory, p.subsubcategory, p.size, p.color, p.fit].filter(Boolean).join(' · ');
+
+        // Use active sales price as MRP if mara.mrp is 0
+        const today      = new Date().toISOString().split('T')[0];
+        const activePrice = pricingRows && pricingRows.find(r =>
+            r.valid_from <= today && (!r.valid_to || r.valid_to >= today || r.valid_to === '12319999')
+        );
+        const displayMrp = parseFloat(p.mrp) || (activePrice ? parseFloat(activePrice.unit_price) : 0);
+
+        const avail = (p.quantity||0) - (p.reserved||0);
+        document.getElementById('sQty').textContent      = p.quantity  || 0;
+        document.getElementById('sReserved').textContent = p.reserved  || 0;
+        document.getElementById('sAvail').textContent    = avail < 0 ? 0 : avail;
+        document.getElementById('sCost').textContent     = fmt(p.cost_price);
+        document.getElementById('sMrp').textContent      = fmt(displayMrp);
+
+        document.getElementById('dMatnr').textContent         = p.matnr;
+        document.getElementById('dBrand').textContent         = dash(p.brand);
+        document.getElementById('dBrandfamily').textContent   = dash(p.brandfamily);
+        document.getElementById('dGender').textContent        = dash(p.gender);
+        document.getElementById('dCategory').textContent      = dash(p.category);
+        document.getElementById('dSubcategory').textContent   = dash(p.subcategory);
+        document.getElementById('dSubsubcategory').textContent= dash(p.subsubcategory);
+        document.getElementById('dSize').textContent          = dash(p.size);
+        document.getElementById('dColor').textContent         = dash(p.color);
+        document.getElementById('dFit').textContent           = dash(p.fit);
+        document.getElementById('dTaxCat').textContent        = dash(p.tax_category);
+    }
+
+    function renderPricing(rows, matnr) {
+        const el    = document.getElementById('pricingContent');
+        const today = new Date().toISOString().split('T')[0];
+
+        if (!rows.length) {
+            el.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0;">No sales prices defined yet.</div>';
+            return;
+        }
+
+        el.innerHTML = rows.map(r => {
+            const isActive = r.valid_from <= today && (!r.valid_to || r.valid_to >= today || r.valid_to === '12319999');
+            return '<div class="price-row' + (isActive ? ' price-active' : '') + '">' +
+                '<div>' +
+                    '<div style="font-weight:600;font-size:14px;">' + fmt(r.unit_price) +
+                        (isActive ? ' <span style="background:#15803d;color:white;border-radius:10px;font-size:10px;padding:1px 7px;font-weight:700;vertical-align:middle;">ACTIVE</span>' : '') +
+                    '</div>' +
+                    '<div style="font-size:12px;color:var(--muted);margin-top:2px;">' + (r.valid_from||'') + ' → ' + (r.valid_to === '12319999' ? 'Open' : (r.valid_to||'Open')) + '</div>' +
+                '</div>' +
+                '</div>';
+        }).join('');
+    }
+
+    function renderSales(rows) {
+        const tbody = document.getElementById('salesBody');
+        document.getElementById('salesCount').textContent = rows.length ? rows.length + ' records' : '';
+
+        if (!rows.length) {
+            tbody.innerHTML = '<tr class="state-row"><td colspan="9">No sales history for this product.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = rows.map(r => {
+            const isReturn = r.order_type === 'R';
+            return '<tr>' +
+                '<td><a href="Invoice.html?order_id=' + r.order_id + '" style="font-family:monospace;font-size:12px;color:var(--accent);font-weight:700;text-decoration:none;">' + r.order_id + '</a></td>' +
+                '<td><span class="badge badge-' + (isReturn?'r':'s') + '">' + (isReturn?'RETURN':'SALE') + '</span></td>' +
+                '<td style="font-size:13px;">' + (r.customer_name||r.kunnr) + '</td>' +
+                '<td style="font-size:12px;color:var(--muted);">' + fmtD(r.created_at) + '</td>' +
+                '<td class="right">' + (r.quantity||0) + '</td>' +
+                '<td class="right">' + fmt(r.mrp) + '</td>' +
+                '<td class="right"><span style="background:#dcfce7;color:#15803d;border-radius:10px;padding:1px 6px;font-size:11px;font-weight:600;">' + (r.gst_rate||0) + '%</span></td>' +
+                '<td class="right"><strong>' + fmt(r.line_total) + '</strong></td>' +
+                '<td>' + payBadge(r.payment_status) + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    function renderPOs(rows) {
+        const tbody = document.getElementById('poBody');
+        document.getElementById('poCount').textContent = rows.length ? rows.length + ' records' : '';
+
+        if (!rows.length) {
+            tbody.innerHTML = '<tr class="state-row"><td colspan="8">No purchase history for this product.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = rows.map(r => '<tr>' +
+            '<td><span style="font-family:monospace;font-size:12px;font-weight:700;color:#92650a;">' + r.po_id + '</span></td>' +
+            '<td style="font-size:13px;">' + (r.buyer_name||r.buyer_id) + '</td>' +
+            '<td style="font-size:12px;color:var(--muted);">' + fmtD(r.po_date) + '</td>' +
+            '<td class="right">' + (r.quantity||0) + '</td>' +
+            '<td class="right">' + fmt(r.unit_price) + '</td>' +
+            '<td class="right"><strong>' + fmt(r.line_total) + '</strong></td>' +
+            '<td>' + grBadge(r.status) + '</td>' +
+            '<td>' + payBadge(r.payment_status) + '</td>' +
+            '</tr>'
+        ).join('');
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+    loadAll();
+</script>
+</body>
+</html>

@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer Detail</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --ink:#0f0f0f; --muted:#6b7280; --accent:#c8973a; --accent2:#f0e6d0;
+            --bg:#faf9f7; --card:#ffffff; --border:#e5e2db;
+            --danger:#dc2626; --success:#16a34a; --info:#0369a1;
+        }
+        body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--ink); min-height:100vh; }
+
+        .topbar { background:white; border-bottom:1px solid var(--border); padding:0 40px; height:64px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:50; }
+        .topbar-left { display:flex; align-items:center; gap:16px; }
+        .back-btn { display:flex; align-items:center; gap:8px; padding:8px 14px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; font-weight:600; color:var(--muted); text-decoration:none; background:white; transition:all 0.2s; }
+        .back-btn:hover { border-color:var(--ink); color:var(--ink); }
+        .kunnr-badge { font-family:'Courier New',monospace; font-size:13px; background:var(--accent2); color:#92650a; border:1px solid #e8d0a0; border-radius:6px; padding:4px 10px; font-weight:700; }
+
+        .content { max-width:1100px; margin:0 auto; padding:32px 40px; }
+
+        /* ── Customer header ── */
+        .customer-header { margin-bottom:28px; }
+        .customer-name { font-family:'DM Serif Display',serif; font-size:32px; margin-bottom:4px; }
+        .customer-sub  { font-size:15px; color:var(--muted); margin-bottom:16px; }
+        .stat-pills { display:flex; gap:12px; flex-wrap:wrap; }
+        .stat-pill { padding:12px 18px; border-radius:12px; display:flex; flex-direction:column; gap:3px; min-width:110px; }
+        .stat-pill label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; opacity:0.7; }
+        .stat-pill span  { font-size:20px; font-weight:700; }
+        .pill-orders   { background:#dbeafe; color:#1d4ed8; }
+        .pill-revenue  { background:#dcfce7; color:#15803d; }
+        .pill-returns  { background:#fee2e2; color:var(--danger); }
+        .pill-pending  { background:#fef9c3; color:#854d0e; }
+        .pill-discount { background:var(--accent2); color:#92650a; }
+
+        /* ── Layout ── */
+        .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px; }
+        .grid-1 { margin-bottom:20px; }
+
+        /* ── Cards ── */
+        .card { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:22px 26px; box-shadow:0 2px 8px rgba(0,0,0,0.04); }
+        .card-title { font-size:11px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); margin-bottom:16px; display:flex; align-items:center; gap:8px; }
+        .card-title span { font-size:16px; }
+
+        .field-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+        .field { display:flex; flex-direction:column; gap:3px; }
+        .field label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); }
+        .field span  { font-size:14px; }
+        .field.full  { grid-column:1/-1; }
+        .mono { font-family:'Courier New',monospace; font-size:12px; background:var(--accent2); color:#92650a; padding:2px 7px; border-radius:4px; }
+
+        /* ── Tables ── */
+        .table-wrap { overflow-x:auto; }
+        table { width:100%; border-collapse:collapse; font-size:13px; min-width:550px; }
+        thead th { padding:10px 12px; text-align:left; font-size:11px; font-weight:600; letter-spacing:0.07em; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); background:var(--bg); white-space:nowrap; }
+        thead th.right { text-align:right; }
+        tbody tr { border-bottom:1px solid var(--border); transition:background 0.15s; }
+        tbody tr:last-child { border-bottom:none; }
+        tbody tr:hover { background:#fdf8f2; }
+        tbody td { padding:10px 12px; vertical-align:middle; }
+        tbody td.right { text-align:right; }
+        .state-row td { text-align:center; padding:32px; color:var(--muted); font-size:13px; }
+        .spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 0.7s linear infinite; margin-right:6px; vertical-align:middle; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+
+        /* ── Badges ── */
+        .badge { display:inline-block; padding:2px 9px; border-radius:20px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; }
+        .badge-paid      { background:#dcfce7; color:#15803d; }
+        .badge-pending   { background:#fef9c3; color:#854d0e; }
+        .badge-cancelled { background:#fee2e2; color:var(--danger); }
+        .badge-partial   { background:#dbeafe; color:#1d4ed8; }
+        .badge-sale      { background:#dcfce7; color:#15803d; }
+        .badge-return    { background:#fee2e2; color:var(--danger); }
+        .badge-open      { background:#f1f5f9; color:#6b7280; }
+        .badge-active    { background:#15803d; color:white; }
+
+        /* ── Discount card ── */
+        .discount-row { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border); font-size:13px; }
+        .discount-row:last-child { border-bottom:none; }
+        .discount-active { background:var(--accent2); border-radius:8px; padding:10px 12px; margin:0 -12px; }
+
+        /* ── New order button ── */
+        .btn-primary { background:var(--accent); color:white; padding:9px 20px; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:600; border:none; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:6px; transition:all 0.2s; }
+        .btn-primary:hover { background:#b5852e; }
+
+        /* ── Loading/error ── */
+        .center-state { text-align:center; padding:80px; color:var(--muted); }
+        .center-state .icon { font-size:48px; margin-bottom:16px; }
+    </style>
+</head>
+<body>
+
+<div class="topbar">
+    <div class="topbar-left">
+        <a class="back-btn" href="Customer.html">← Customers</a>
+        <span class="kunnr-badge" id="topKunnr">—</span>
+        <span style="font-family:'DM Serif Display',serif;font-size:18px;" id="topName">Customer Detail</span>
+    </div>
+    <a class="btn-primary" id="newOrderBtn" href="Sales.html">🧾 New Order</a>
+</div>
+
+<div class="content" id="loadingState">
+    <div class="center-state">
+        <span class="spinner"></span>
+        <p style="margin-top:12px;">Loading customer…</p>
+    </div>
+</div>
+
+<div class="content" id="mainContent" style="display:none;">
+
+    <!-- Customer header with stat pills -->
+    <div class="customer-header">
+        <div class="customer-name" id="hName">—</div>
+        <div class="customer-sub" id="hSub">—</div>
+        <div class="stat-pills">
+            <div class="stat-pill pill-orders">
+                <label>Total Orders</label>
+                <span id="sTotalOrders">—</span>
+            </div>
+            <div class="stat-pill pill-revenue">
+                <label>Revenue</label>
+                <span id="sRevenue">—</span>
+            </div>
+            <div class="stat-pill pill-pending">
+                <label>Pending</label>
+                <span id="sPending">—</span>
+            </div>
+            <div class="stat-pill pill-returns">
+                <label>Returns</label>
+                <span id="sReturns">—</span>
+            </div>
+            <div class="stat-pill pill-discount">
+                <label>Active Discount</label>
+                <span id="sDiscount">—</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Customer info + Discounts -->
+    <div class="grid-2">
+
+        <!-- Profile -->
+        <div class="card">
+            <div class="card-title"><span>👤</span> Customer Profile</div>
+            <div class="field-grid">
+                <div class="field"><label>KUNNR</label><span class="mono" id="dKunnr">—</span></div>
+                <div class="field"><label>Name</label><span id="dName">—</span></div>
+                <div class="field"><label>Phone</label><span id="dPhone">—</span></div>
+                <div class="field"><label>Email</label><span id="dEmail">—</span></div>
+                <div class="field"><label>GSTIN</label><span id="dGstin">—</span></div>
+                <div class="field full"><label>Address</label><span id="dAddress">—</span></div>
+            </div>
+        </div>
+
+        <!-- Discounts -->
+        <div class="card">
+            <div class="card-title"><span>🏷️</span> Discount Records</div>
+            <div id="discountContent">
+                <div class="state-row"><span class="spinner"></span></div>
+            </div>
+            <div style="margin-top:12px;">
+                <a href="#" id="addDiscountLink" style="font-size:13px;color:var(--accent);font-weight:600;text-decoration:none;">+ Add / Update Discount →</a>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Order History -->
+    <div class="card grid-1">
+        <div class="card-title">
+            <span>🧾</span> Order History
+            <span style="font-weight:400;font-size:11px;color:var(--muted);margin-left:8px;" id="ordersCount"></span>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr>
+                    <th>Order ID</th>
+                    <th>Type</th>
+                    <th>Date</th>
+                    <th class="right">Lines</th>
+                    <th class="right">Order Total</th>
+                    <th>Payment</th>
+                    <th></th>
+                </tr></thead>
+                <tbody id="ordersBody">
+                    <tr class="state-row"><td colspan="7"><span class="spinner"></span></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    const fmt  = n  => '₹' + parseFloat(n||0).toFixed(2);
+    const fmtD = s  => s ? new Date(s).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+    const dash = v  => v || '—';
+
+    function payBadge(ps) {
+        const map = {PAID:'paid', PENDING:'pending', CANCELLED:'cancelled', PARTIALLY_PAID:'partial'};
+        const lbl = ps === 'PARTIALLY_PAID' ? 'Partial' : (ps||'—');
+        return `<span class="badge badge-${map[ps]||''}">${lbl}</span>`;
+    }
+
+    // ── Load all data ─────────────────────────────────────────────────────────
+    async function loadAll() {
+        const params = new URLSearchParams(window.location.search);
+        const kunnr  = params.get('kunnr');
+
+        if (!kunnr) {
+            document.getElementById('loadingState').innerHTML =
+                '<div class="center-state"><div class="icon">❌</div><p>No KUNNR provided.</p><a href="Customer.html" style="color:var(--accent);font-weight:600;margin-top:12px;display:inline-block;">← Back to Customers</a></div>';
+            return;
+        }
+
+        document.title = 'Customer ' + kunnr;
+        document.getElementById('topKunnr').textContent = kunnr;
+        document.getElementById('addDiscountLink').href = 'Sales.html?tab=pricing';
+        document.getElementById('newOrderBtn').href     = 'Sales.html';
+
+        try {
+            const [custRes, ordersRes, discRes, statsRes] = await Promise.all([
+                fetch('/customers/' + kunnr),
+                fetch('/customers/' + kunnr + '/orders'),
+                fetch('/customers/' + kunnr + '/discounts'),
+                fetch('/customers/' + kunnr + '/stats'),
+            ]);
+
+            const cust     = await custRes.json();
+            const orders   = await ordersRes.json();
+            const discounts= await discRes.json();
+            const stats    = await statsRes.json();
+
+            if (!cust || custRes.status === 404) throw new Error('Customer not found');
+
+            renderProfile(cust, stats, discounts);
+            renderDiscounts(discounts);
+            renderOrders(orders);
+
+            document.getElementById('loadingState').style.display = 'none';
+            document.getElementById('mainContent').style.display  = 'block';
+
+        } catch(err) {
+            document.getElementById('loadingState').innerHTML =
+                '<div class="center-state"><div class="icon">😕</div><p>' + err.message + '</p><a href="Customer.html" style="color:var(--accent);font-weight:600;margin-top:12px;display:inline-block;">← Back</a></div>';
+        }
+    }
+
+    function renderProfile(c, stats, discounts) {
+        document.getElementById('topName').textContent = c.name || 'Unknown';
+        document.getElementById('hName').textContent   = c.name || '—';
+        document.getElementById('hSub').textContent    = [c.number, c.email].filter(Boolean).join(' · ');
+
+        // Stats pills
+        const today = new Date().toISOString().split('T')[0];
+        const activeDisc = discounts.find(d =>
+            d.valid_from <= today && (!d.valid_to || d.valid_to >= today || d.valid_to === '12319999')
+        );
+
+        document.getElementById('sTotalOrders').textContent = stats.total_orders || 0;
+        document.getElementById('sRevenue').textContent     = fmt(stats.total_revenue || 0);
+        document.getElementById('sPending').textContent     = stats.pending_orders || 0;
+        document.getElementById('sReturns').textContent     = stats.total_returns  || 0;
+        document.getElementById('sDiscount').textContent    = activeDisc ? activeDisc.discount_pct + '%' : '—';
+
+        // Profile fields
+        document.getElementById('dKunnr').textContent   = c.kunnr;
+        document.getElementById('dName').textContent    = dash(c.name);
+        document.getElementById('dPhone').textContent   = dash(c.number);
+        document.getElementById('dEmail').textContent   = dash(c.email);
+        document.getElementById('dGstin').textContent   = dash(c.gstin);
+        document.getElementById('dAddress').textContent = dash(c.address);
+    }
+
+    function renderDiscounts(rows) {
+        const el    = document.getElementById('discountContent');
+        const today = new Date().toISOString().split('T')[0];
+
+        if (!rows.length) {
+            el.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0;">No discounts defined for this customer.</div>';
+            return;
+        }
+
+        el.innerHTML = rows.map(r => {
+            const isActive = r.valid_from <= today && (!r.valid_to || r.valid_to >= today || r.valid_to === '12319999');
+            return '<div class="discount-row' + (isActive ? ' discount-active' : '') + '">' +
+                '<div>' +
+                    '<div style="font-weight:600;font-size:16px;">' + parseFloat(r.discount_pct).toFixed(1) + '% off' +
+                        (isActive ? ' <span class="badge badge-active" style="font-size:10px;">ACTIVE</span>' : '') +
+                    '</div>' +
+                    '<div style="font-size:12px;color:var(--muted);margin-top:2px;">' +
+                        (r.valid_from||'') + ' → ' + (r.valid_to === '12319999' ? 'Open' : (r.valid_to||'Open')) +
+                    '</div>' +
+                '</div>' +
+                '</div>';
+        }).join('');
+    }
+
+    function renderOrders(rows) {
+        const tbody = document.getElementById('ordersBody');
+        document.getElementById('ordersCount').textContent = rows.length ? rows.length + ' records' : '';
+
+        if (!rows.length) {
+            tbody.innerHTML = '<tr class="state-row"><td colspan="7">No orders found for this customer.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = rows.map(r => {
+            const isReturn = r.order_type === 'R';
+            const total    = parseFloat(r.order_total || 0);
+            return '<tr>' +
+                '<td><a href="Invoice.html?order_id=' + r.order_id + '" style="font-family:monospace;font-size:12px;color:var(--accent);font-weight:700;text-decoration:none;">' + r.order_id + '</a></td>' +
+                '<td><span class="badge badge-' + (isReturn?'return':'sale') + '">' + (isReturn?'Return':'Sale') + '</span></td>' +
+                '<td style="font-size:12px;color:var(--muted);">' + fmtD(r.created_at) + '</td>' +
+                '<td class="right">' + (r.line_count||0) + '</td>' +
+                '<td class="right"><strong>' + fmt(total) + '</strong></td>' +
+                '<td>' + payBadge(r.payment_status) + '</td>' +
+                '<td><a href="Invoice.html?order_id=' + r.order_id + '" style="font-size:12px;color:var(--info);font-weight:600;text-decoration:none;">View →</a></td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+    loadAll();
+</script>
+</body>
+</html>

@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buyers</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --ink:#0f0f0f; --muted:#6b7280; --accent:#c8973a; --accent2:#f0e6d0;
+            --bg:#faf9f7; --card:#ffffff; --border:#e5e2db; --sidebar:#141414;
+            --danger:#dc2626; --success:#16a34a;
+        }
+        body { font-family:'DM Sans',sans-serif; background:var(--bg); display:flex; min-height:100vh; color:var(--ink); }
+
+        .sidebar { width:240px; min-height:100vh; background:var(--sidebar); color:#f5f5f5; display:flex; flex-direction:column; padding:32px 20px; gap:4px; position:sticky; top:0; height:100vh; overflow-y:auto; }
+        .sidebar-brand { font-family:'DM Serif Display',serif; font-size:22px; color:white; margin-bottom:8px; padding:0 8px; text-decoration:none; }
+        .sidebar-sub   { font-size:11px; letter-spacing:0.15em; text-transform:uppercase; color:var(--accent); padding:0 8px; margin-bottom:28px; }
+        .nav-item      { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:500; color:#9ca3af; transition:all 0.2s; text-decoration:none; border:none; background:none; width:100%; text-align:left; }
+        .nav-item:hover,.nav-item.active { background:#1f1f1f; color:white; }
+        .nav-item.active { color:var(--accent); }
+        .nav-section { font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:#4b5563; padding:16px 12px 6px; }
+        .sidebar-footer { margin-top:auto; padding-top:20px; border-top:1px solid #1f1f1f; }
+        .back-link { display:flex; align-items:center; gap:8px; padding:10px 12px; font-size:13px; color:#6b7280; text-decoration:none; border-radius:8px; transition:all 0.2s; }
+        .back-link:hover { color:white; background:#1f1f1f; }
+
+        .main { flex:1; padding:36px 40px; overflow-x:auto; }
+        .tabs { display:flex; gap:4px; margin-bottom:28px; background:white; border:1px solid var(--border); border-radius:10px; padding:4px; width:fit-content; }
+        .tab { padding:8px 20px; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; border:none; background:transparent; color:var(--muted); transition:all 0.2s; }
+        .tab.active { background:var(--accent); color:white; }
+        .section { display:none; }
+        .section.active { display:block; }
+        .page-title { font-family:'DM Serif Display',serif; font-size:30px; margin-bottom:4px; }
+        .page-sub { color:var(--muted); font-size:14px; margin-bottom:24px; }
+
+        .card { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:28px 32px; box-shadow:0 2px 12px rgba(0,0,0,0.04); margin-bottom:20px; }
+        .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+        .form-grid.three { grid-template-columns:1fr 1fr 1fr; }
+        .form-group { display:flex; flex-direction:column; gap:6px; }
+        .form-group.full { grid-column:1/-1; }
+        .form-group.span2 { grid-column:span 2; }
+        .section-label { font-size:11px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--accent); padding:8px 0 4px; border-bottom:1px solid var(--border); grid-column:1/-1; margin-top:8px; }
+        label { font-size:12px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--muted); }
+        input,select { padding:10px 14px; border:1.5px solid var(--border); border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; color:var(--ink); background:var(--bg); outline:none; transition:border-color 0.2s,box-shadow 0.2s; }
+        input:focus,select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent2); background:white; }
+        .btn-row { display:flex; gap:12px; margin-top:24px; }
+        .btn { padding:10px 22px; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer; border:none; transition:all 0.2s; }
+        .btn-primary { background:var(--accent); color:white; }
+        .btn-primary:hover { background:#b5852e; transform:translateY(-1px); }
+        .btn-ghost { background:transparent; color:var(--muted); border:1.5px solid var(--border); }
+        .btn-ghost:hover { border-color:var(--ink); color:var(--ink); }
+
+        .id-badge { display:inline-flex; align-items:center; background:var(--accent2); color:#92650a; border:1.5px solid #e8d0a0; border-radius:8px; padding:10px 16px; font-family:'Courier New',monospace; font-size:15px; font-weight:700; min-width:110px; justify-content:center; }
+
+        .toolbar { display:flex; gap:12px; align-items:center; margin-bottom:20px; flex-wrap:wrap; }
+        .search-wrap { position:relative; }
+        .search-wrap input { padding:9px 14px 9px 36px; width:240px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; background:white; }
+        .search-icon { position:absolute; left:11px; top:50%; transform:translateY(-50%); pointer-events:none; }
+        .stats { display:flex; gap:16px; margin-bottom:20px; }
+        .stat-pill { background:white; border:1px solid var(--border); border-radius:10px; padding:10px 18px; font-size:13px; color:var(--muted); display:flex; gap:8px; align-items:center; }
+        .stat-pill strong { color:var(--ink); font-size:16px; }
+
+        .table-card { background:var(--card); border:1px solid var(--border); border-radius:16px; overflow-x:auto; box-shadow:0 2px 12px rgba(0,0,0,0.04); }
+        table { width:100%; min-width:900px; border-collapse:collapse; font-size:13px; }
+        thead th { padding:12px 14px; text-align:left; font-size:11px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); background:var(--bg); white-space:nowrap; }
+        tbody tr { border-bottom:1px solid var(--border); transition:background 0.15s; }
+        tbody tr:last-child { border-bottom:none; }
+        tbody tr:hover { background:#fdf8f2; }
+        tbody td { padding:11px 14px; vertical-align:middle; }
+        .mono { font-family:'Courier New',monospace; font-size:12px; background:var(--accent2); color:#92650a; padding:2px 7px; border-radius:4px; }
+        .action-btn { padding:4px 12px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; border:none; transition:all 0.15s; }
+        .btn-edit   { background:#e0f2fe; color:#0369a1; }
+        .btn-edit:hover   { background:#0369a1; color:white; }
+        .btn-delete { background:#fee2e2; color:var(--danger); }
+        .btn-delete:hover { background:var(--danger); color:white; }
+        .state-row td { text-align:center; padding:48px; color:var(--muted); font-size:14px; }
+        .spinner { display:inline-block; width:18px; height:18px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 0.7s linear infinite; margin-right:8px; vertical-align:middle; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+
+        .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:100; align-items:center; justify-content:center; }
+        .modal-overlay.open { display:flex; }
+        .modal { background:white; border-radius:16px; padding:32px; width:700px; max-width:95vw; max-height:90vh; overflow-y:auto; box-shadow:0 24px 60px rgba(0,0,0,0.2); }
+        .modal-title { font-family:'DM Serif Display',serif; font-size:22px; margin-bottom:4px; }
+        .modal-sub   { font-size:13px; color:var(--muted); margin-bottom:20px; }
+        .modal-actions { display:flex; gap:12px; margin-top:24px; justify-content:flex-end; }
+
+        #toast { position:fixed; bottom:32px; right:32px; padding:14px 22px; border-radius:10px; font-size:14px; font-weight:500; color:white; opacity:0; transform:translateY(12px); transition:all 0.3s ease; z-index:999; pointer-events:none; }
+        #toast.show { opacity:1; transform:translateY(0); }
+        #toast.success { background:var(--success); }
+        #toast.error   { background:var(--danger); }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <a class="sidebar-brand" href="Landing_Page.html">Store CRM</a>
+    <div class="sidebar-sub">Buyers</div>
+    <span class="nav-section">Buyers</span>
+    <button class="nav-item active" id="nav-add"  onclick="switchTab('add')">➕ Add Buyer</button>
+    <button class="nav-item"        id="nav-view" onclick="switchTab('view')">🏢 View Buyers</button>
+    <span class="nav-section">Navigation</span>
+    <a class="nav-item" href="PurchaseOrder.html">📦 Purchase Orders</a>
+    <a class="nav-item" href="Customer.html">👤 Customers</a>
+    <a class="nav-item" href="Inventory.html">🏷️ Inventory</a>
+    <div class="sidebar-footer">
+        <a class="back-link" href="Landing_Page.html">← Home</a>
+    </div>
+</div>
+
+<div class="main">
+    <div class="tabs">
+        <button class="tab active" id="tab-add"  onclick="switchTab('add')">➕ Add Buyer</button>
+        <button class="tab"        id="tab-view" onclick="switchTab('view')">🏢 View Buyers</button>
+    </div>
+
+    <!-- ══ ADD BUYER ══ -->
+    <div class="section active" id="section-add">
+        <h1 class="page-title">Add Buyer</h1>
+        <p class="page-sub">Register a new vendor or supplier — Buyer ID assigned automatically.</p>
+        <div class="card">
+            <div style="margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid var(--border);">
+                <label>Auto-Assigned Buyer ID</label>
+                <div style="margin-top:8px;display:flex;align-items:center;gap:12px;">
+                    <div class="id-badge" id="buyerIdBadge">—</div>
+                    <span style="font-size:12px;color:var(--muted);">Assigned automatically on save</span>
+                </div>
+            </div>
+
+            <div class="form-grid">
+                <div class="section-label">Basic Information</div>
+                <div class="form-group span2">
+                    <label>Company / Vendor Name *</label>
+                    <input id="name" placeholder="e.g. Levi Strauss & Co.">
+                </div>
+                <div class="form-group">
+                    <label>Phone Number</label>
+                    <input id="phone" placeholder="+91 98765 43210" type="tel">
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input id="email" placeholder="vendor@company.com" type="email">
+                </div>
+                <div class="form-group">
+                    <label>GSTIN</label>
+                    <input id="gstin" placeholder="GST number">
+                </div>
+                <div class="form-group">
+                    <label>Tax ID</label>
+                    <input id="tax_id" placeholder="PAN / Tax ID">
+                </div>
+                <div class="form-group">
+                    <label>Export ID</label>
+                    <input id="export_id" placeholder="IEC / Export code">
+                </div>
+                <div class="form-group">
+                    <label>Payment Terms</label>
+                    <select id="payment_terms">
+                        <option value="">Select…</option>
+                        <option>Immediate</option>
+                        <option>Net 7</option>
+                        <option>Net 15</option>
+                        <option>Net 30</option>
+                        <option>Net 45</option>
+                        <option>Net 60</option>
+                        <option>Net 90</option>
+                    </select>
+                </div>
+
+                <div class="section-label">Billing Address</div>
+                <div class="form-group full">
+                    <label>Address Line 1</label>
+                    <input id="addr1" placeholder="Street address">
+                </div>
+                <div class="form-group full">
+                    <label>Address Line 2</label>
+                    <input id="addr2" placeholder="Building, floor, landmark">
+                </div>
+                <div class="form-group">
+                    <label>City</label>
+                    <select id="city"><option value="">Select city…</option></select>
+                </div>
+                <div class="form-group">
+                    <label>State</label>
+                    <select id="state"><option value="">Select state…</option></select>
+                </div>
+                <div class="form-group">
+                    <label>Country</label>
+                    <select id="country"><option value="">Select country…</option></select>
+                </div>
+                <div class="form-group">
+                    <label>ZIP / Pincode</label>
+                    <input id="zip" placeholder="500001">
+                </div>
+
+                <div class="section-label">Shipping</div>
+                <div class="form-group">
+                    <label>Default Shipping City</label>
+                    <select id="ship_city"><option value="">Select city…</option></select>
+                </div>
+            </div>
+
+            <div class="btn-row">
+                <button class="btn btn-primary" onclick="addBuyer()">Add Buyer</button>
+                <button class="btn btn-ghost"   onclick="resetForm()">Clear</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══ VIEW BUYERS ══ -->
+    <div class="section" id="section-view">
+        <h1 class="page-title">All Buyers</h1>
+        <p class="page-sub">All registered vendors and suppliers.</p>
+        <div class="toolbar">
+            <div class="search-wrap">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="searchInput" placeholder="Search by name, ID, city…" oninput="filterTable()">
+            </div>
+            <button class="btn btn-ghost" onclick="loadData()">↺ Refresh</button>
+        </div>
+        <div class="stats">
+            <div class="stat-pill">Total Buyers <strong id="totalCount">—</strong></div>
+        </div>
+        <div class="table-card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Buyer ID</th>
+                        <th>Company Name</th>
+                        <th>Phone</th>
+                        <th>Email</th>
+                        <th>City</th>
+                        <th>State</th>
+                        <th>GSTIN</th>
+                        <th>Payment Terms</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <tr class="state-row"><td colspan="9">Switch to View Buyers to load.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-overlay" id="editModal">
+    <div class="modal">
+        <div class="modal-title">Edit Buyer</div>
+        <div class="modal-sub" id="editModalSub"></div>
+        <input type="hidden" id="edit-buyer_id">
+        <div class="form-grid">
+            <div class="section-label">Basic Information</div>
+            <div class="form-group span2">
+                <label>Company / Vendor Name *</label>
+                <input id="edit-name" placeholder="Vendor name">
+            </div>
+            <div class="form-group">
+                <label>Phone</label>
+                <input id="edit-phone">
+            </div>
+            <div class="form-group">
+                <label>Email</label>
+                <input id="edit-email" type="email">
+            </div>
+            <div class="form-group">
+                <label>GSTIN</label>
+                <input id="edit-gstin">
+            </div>
+            <div class="form-group">
+                <label>Tax ID</label>
+                <input id="edit-tax_id">
+            </div>
+            <div class="form-group">
+                <label>Export ID</label>
+                <input id="edit-export_id">
+            </div>
+            <div class="form-group">
+                <label>Payment Terms</label>
+                <select id="edit-payment_terms">
+                    <option value="">Select…</option>
+                    <option>Immediate</option>
+                    <option>Net 7</option><option>Net 15</option><option>Net 30</option>
+                    <option>Net 45</option><option>Net 60</option><option>Net 90</option>
+                </select>
+            </div>
+            <div class="section-label">Address</div>
+            <div class="form-group full">
+                <label>Address Line 1</label>
+                <input id="edit-addr1">
+            </div>
+            <div class="form-group full">
+                <label>Address Line 2</label>
+                <input id="edit-addr2">
+            </div>
+            <div class="form-group">
+                <label>City</label>
+                <select id="edit-city"><option value="">Select…</option></select>
+            </div>
+            <div class="form-group">
+                <label>State</label>
+                <select id="edit-state"><option value="">Select…</option></select>
+            </div>
+            <div class="form-group">
+                <label>Country</label>
+                <select id="edit-country"><option value="">Select…</option></select>
+            </div>
+            <div class="form-group">
+                <label>ZIP</label>
+                <input id="edit-zip">
+            </div>
+            <div class="form-group">
+                <label>Shipping City</label>
+                <select id="edit-ship_city"><option value="">Select…</option></select>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-ghost"   onclick="closeModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveEdit()">Save Changes</button>
+        </div>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── Reference Data ────────────────────────────────────────────────────────────
+const INDIAN_STATES = [
+    "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh",
+    "Goa","Gujarat","Haryana","Himachal Pradesh","Jharkhand","Karnataka",
+    "Kerala","Madhya Pradesh","Maharashtra","Manipur","Meghalaya","Mizoram",
+    "Nagaland","Odisha","Punjab","Rajasthan","Sikkim","Tamil Nadu","Telangana",
+    "Tripura","Uttar Pradesh","Uttarakhand","West Bengal",
+    "Andaman and Nicobar Islands","Chandigarh","Dadra and Nagar Haveli and Daman and Diu",
+    "Delhi","Jammu and Kashmir","Ladakh","Lakshadweep","Puducherry"
+];
+
+const INDIAN_CITIES = [
+    "Ahmedabad","Bengaluru","Bhopal","Chennai","Coimbatore","Delhi",
+    "Faridabad","Ghaziabad","Hyderabad","Indore","Jaipur","Kanpur",
+    "Kochi","Kolkata","Lucknow","Ludhiana","Meerut","Mumbai","Nagpur",
+    "Nashik","Patna","Pune","Rajkot","Surat","Thane","Vadodara",
+    "Varanasi","Visakhapatnam","Agra","Aurangabad","Amritsar",
+    "Chandigarh","Gurgaon","Noida","Secunderabad"
+];
+
+const COUNTRIES = [
+    "India","United Arab Emirates","United States","United Kingdom",
+    "Singapore","China","Bangladesh","Sri Lanka","Nepal","Bhutan",
+    "Hong Kong","Japan","South Korea","Germany","France","Italy",
+    "Australia","Canada","Turkey","Vietnam"
+];
+
+let allData = [];
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
+function showToast(msg, type='success') {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.className = `show ${type}`;
+    setTimeout(() => t.className = '', 3200);
+}
+
+function populateSelect(id, values, currentVal='') {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = '<option value="">Select…</option>' +
+        values.map(v => `<option value="${v}" ${v===currentVal?'selected':''}>${v}</option>`).join('');
+}
+
+function populateAllDropdowns(prefix='', vals={}) {
+    populateSelect(`${prefix}city`,      INDIAN_CITIES, vals.city);
+    populateSelect(`${prefix}state`,     INDIAN_STATES, vals.state);
+    populateSelect(`${prefix}country`,   COUNTRIES,     vals.country||'India');
+    populateSelect(`${prefix}ship_city`, INDIAN_CITIES, vals.ship_city);
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function switchTab(tab) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.nav-item[id]').forEach(n => n.classList.remove('active'));
+    document.getElementById(`tab-${tab}`).classList.add('active');
+    document.getElementById(`section-${tab}`).classList.add('active');
+    document.getElementById(`nav-${tab}`).classList.add('active');
+    if (tab === 'view') loadData();
+}
+
+// ── Load next Buyer ID ────────────────────────────────────────────────────────
+async function loadNextBuyerId() {
+    try {
+        const res  = await fetch('/next-buyer-id');
+        const data = await res.json();
+        document.getElementById('buyerIdBadge').textContent = data.buyer_id || '—';
+    } catch { document.getElementById('buyerIdBadge').textContent = 'Auto'; }
+}
+
+// ── Add Buyer ─────────────────────────────────────────────────────────────────
+async function addBuyer() {
+    const name = document.getElementById('name').value.trim();
+    if (!name) return showToast('Company name is required', 'error');
+
+    const body = {
+        name,
+        phone:         document.getElementById('phone').value.trim(),
+        email:         document.getElementById('email').value.trim(),
+        gstin:         document.getElementById('gstin').value.trim(),
+        tax_id:        document.getElementById('tax_id').value.trim(),
+        export_id:     document.getElementById('export_id').value.trim(),
+        payment_terms: document.getElementById('payment_terms').value,
+        addr1:         document.getElementById('addr1').value.trim(),
+        addr2:         document.getElementById('addr2').value.trim(),
+        city:          document.getElementById('city').value,
+        state:         document.getElementById('state').value,
+        country:       document.getElementById('country').value || 'India',
+        zip:           document.getElementById('zip').value.trim(),
+        ship_city:     document.getElementById('ship_city').value,
+    };
+
+    try {
+        const res  = await fetch('/buyers', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+        showToast(`✅ ${name} added! Buyer ID: ${data.buyer_id}`);
+        resetForm();
+        switchTab('view');
+    } catch(err) { showToast(`❌ ${err.message}`, 'error'); }
+}
+
+function resetForm() {
+    ['name','phone','email','gstin','tax_id','export_id','addr1','addr2','zip'].forEach(id => {
+        document.getElementById(id).value = '';
+    });
+    ['payment_terms','city','state','country','ship_city'].forEach(id => {
+        document.getElementById(id).value = '';
+    });
+    loadNextBuyerId();
+}
+
+// ── View Buyers ───────────────────────────────────────────────────────────────
+async function loadData() {
+    const tbody = document.getElementById('tableBody');
+    tbody.innerHTML = '<tr class="state-row"><td colspan="9"><span class="spinner"></span> Loading…</td></tr>';
+    try {
+        const res = await fetch('/buyers');
+        allData   = await res.json();
+        document.getElementById('totalCount').textContent = allData.length;
+        renderTable(allData);
+    } catch {
+        tbody.innerHTML = '<tr class="state-row"><td colspan="9">❌ Could not connect to server.</td></tr>';
+    }
+}
+
+function renderTable(data) {
+    const tbody = document.getElementById('tableBody');
+    if (!data.length) { tbody.innerHTML = '<tr class="state-row"><td colspan="9">No buyers found.</td></tr>'; return; }
+    tbody.innerHTML = data.map(row => `
+        <tr>
+            <td><span class="mono">${row.buyer_id}</span></td>
+            <td><strong>${row.name||'—'}</strong></td>
+            <td>${row.phone||'—'}</td>
+            <td>${row.email||'—'}</td>
+            <td>${row.city||'—'}</td>
+            <td>${row.state||'—'}</td>
+            <td style="font-size:12px;">${row.gstin||'—'}</td>
+            <td>${row.payment_terms||'—'}</td>
+            <td>
+                <div style="display:flex;gap:6px;">
+                    <button class="action-btn btn-edit"   onclick="openEdit('${row.buyer_id}')">Edit</button>
+                    <button class="action-btn btn-delete" onclick="deleteBuyer('${row.buyer_id}','${(row.name||'').replace(/'/g,"\\'")}')">Delete</button>
+                </div>
+            </td>
+        </tr>`).join('');
+}
+
+function filterTable() {
+    const q = document.getElementById('searchInput').value.toLowerCase();
+    renderTable(allData.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(q))));
+}
+
+async function deleteBuyer(id, name) {
+    if (!confirm(`Delete "${name}" (${id})? This cannot be undone.`)) return;
+    try {
+        const res  = await fetch(`/buyers/${id}`, {method:'DELETE'});
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        showToast(`🗑️ ${name} deleted`);
+        loadData();
+    } catch(err) { showToast(`❌ ${err.message}`, 'error'); }
+}
+
+// ── Edit Modal ────────────────────────────────────────────────────────────────
+function openEdit(buyer_id) {
+    const row = allData.find(r => r.buyer_id === buyer_id);
+    if (!row) return;
+
+    populateAllDropdowns('edit-', row);
+
+    document.getElementById('editModalSub').textContent = `Editing Buyer ID: ${buyer_id}`;
+    document.getElementById('edit-buyer_id').value      = row.buyer_id;
+    document.getElementById('edit-name').value          = row.name          || '';
+    document.getElementById('edit-phone').value         = row.phone         || '';
+    document.getElementById('edit-email').value         = row.email         || '';
+    document.getElementById('edit-gstin').value         = row.gstin         || '';
+    document.getElementById('edit-tax_id').value        = row.tax_id        || '';
+    document.getElementById('edit-export_id').value     = row.export_id     || '';
+    document.getElementById('edit-payment_terms').value = row.payment_terms || '';
+    document.getElementById('edit-addr1').value         = row.addr1         || '';
+    document.getElementById('edit-addr2').value         = row.addr2         || '';
+    document.getElementById('edit-zip').value           = row.zip           || '';
+
+    document.getElementById('editModal').classList.add('open');
+}
+
+function closeModal() { document.getElementById('editModal').classList.remove('open'); }
+document.getElementById('editModal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+});
+
+async function saveEdit() {
+    const buyer_id = document.getElementById('edit-buyer_id').value;
+    const name     = document.getElementById('edit-name').value.trim();
+    if (!name) return showToast('Company name is required', 'error');
+
+    const body = {
+        name,
+        phone:         document.getElementById('edit-phone').value.trim(),
+        email:         document.getElementById('edit-email').value.trim(),
+        gstin:         document.getElementById('edit-gstin').value.trim(),
+        tax_id:        document.getElementById('edit-tax_id').value.trim(),
+        export_id:     document.getElementById('edit-export_id').value.trim(),
+        payment_terms: document.getElementById('edit-payment_terms').value,
+        addr1:         document.getElementById('edit-addr1').value.trim(),
+        addr2:         document.getElementById('edit-addr2').value.trim(),
+        city:          document.getElementById('edit-city').value,
+        state:         document.getElementById('edit-state').value,
+        country:       document.getElementById('edit-country').value || 'India',
+        zip:           document.getElementById('edit-zip').value.trim(),
+        ship_city:     document.getElementById('edit-ship_city').value,
+    };
+
+    try {
+        const res  = await fetch(`/buyers/${buyer_id}`, {
+            method:'PUT', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Update failed');
+        showToast(`✅ ${name} updated!`);
+        closeModal();
+        loadData();
+    } catch(err) { showToast(`❌ ${err.message}`, 'error'); }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+populateAllDropdowns('', {country:'India'});
+loadNextBuyerId();
+</script>
+</body>
+</html>

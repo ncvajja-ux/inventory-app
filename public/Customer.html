@@ -119,6 +119,28 @@
         .modal-grid .form-group.full { grid-column: 1 / -1; }
         .modal-actions { display: flex; gap: 12px; margin-top: 24px; justify-content: flex-end; }
 
+
+        /* ── Mass Upload ── */
+        .upload-zone { border:2px dashed var(--border); border-radius:12px; padding:40px; text-align:center; cursor:pointer; transition:all 0.2s; background:white; }
+        .upload-zone:hover, .upload-zone.drag-over { border-color:var(--accent); background:var(--accent2); }
+        .upload-zone .upload-icon { font-size:36px; margin-bottom:12px; }
+        .upload-zone p { font-size:14px; color:var(--muted); }
+        .upload-zone strong { color:var(--ink); }
+        .upload-log { margin-top:20px; background:#0f0f0f; border-radius:10px; padding:16px; font-family:'Courier New',monospace; font-size:12px; max-height:280px; overflow-y:auto; display:none; }
+        .upload-log.active { display:block; }
+        .log-line { padding:2px 0; }
+        .log-ok   { color:#4ade80; }
+        .log-err  { color:#f87171; }
+        .log-info { color:#94a3b8; }
+        .log-head { color:#c8973a; font-weight:700; }
+        .upload-summary { display:none; margin-top:16px; padding:14px 20px; border-radius:10px; font-size:14px; font-weight:600; }
+        .upload-summary.show { display:block; }
+        .upload-summary.success { background:#dcfce7; color:#15803d; }
+        .upload-summary.partial { background:#fef9c3; color:#854d0e; }
+        .template-btn { display:inline-flex; align-items:center; gap:8px; padding:9px 18px; background:white; border:1.5px solid var(--border); border-radius:8px; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:600; cursor:pointer; color:var(--ink); text-decoration:none; transition:all 0.2s; }
+        .template-btn:hover { border-color:var(--accent); color:var(--accent); }
+        .download-btn { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; background:white; border:1.5px solid var(--border); border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; color:var(--ink); transition:all 0.2s; border:none; }
+        .download-btn:hover { color:var(--success); }
         /* ── Toast ── */
         #toast { position: fixed; bottom: 32px; right: 32px; padding: 14px 22px; border-radius: 10px; font-size: 14px; font-weight: 500; color: white; opacity: 0; transform: translateY(12px); transition: all 0.3s ease; z-index: 999; pointer-events: none; }
         #toast.show { opacity: 1; transform: translateY(0); }
@@ -133,7 +155,8 @@
     <div class="sidebar-sub">Customers</div>
     <span class="nav-section">Customers</span>
     <button class="nav-item active" id="nav-add"  onclick="switchTab('add')">➕ Add Customer</button>
-    <button class="nav-item"        id="nav-view" onclick="switchTab('view')">👥 View Customers</button>
+    <button class="nav-item"        id="nav-view"   onclick="switchTab('view')">👥 View Customers</button>
+    <button class="nav-item"        id="nav-upload" onclick="switchTab('upload')">📥 Mass Upload</button>
     <span class="nav-section">Navigation</span>
     <a class="nav-item" href="Inventory.html">🏷️ Inventory</a>
     <div class="sidebar-footer">
@@ -144,7 +167,8 @@
 <div class="main">
     <div class="tabs">
         <button class="tab active" id="tab-add"  onclick="switchTab('add')">➕ Add Customer</button>
-        <button class="tab"        id="tab-view" onclick="switchTab('view')">👥 View Customers</button>
+        <button class="tab"        id="tab-view"   onclick="switchTab('view')">👥 View Customers</button>
+        <button class="tab"        id="tab-upload" onclick="switchTab('upload')">📥 Mass Upload</button>
     </div>
 
     <!-- ADD CUSTOMER -->
@@ -183,6 +207,18 @@
                     <label>Address</label>
                     <input id="address" placeholder="Street, City, State">
                 </div>
+                <div class="form-group">
+                    <label>Date of Birth</label>
+                    <input id="dob" type="date">
+                </div>
+                <div class="form-group">
+                    <label>Anniversary Date</label>
+                    <input id="anniversary" type="date">
+                </div>
+                <div class="form-group full">
+                    <label>Notes / Tags</label>
+                    <input id="notes" placeholder="e.g. VIP, prefers casual, allergic to wool…">
+                </div>
             </div>
 
             <div class="btn-row">
@@ -203,6 +239,7 @@
                 <input type="text" id="searchInput" placeholder="Search by name, KUNNR, email…" oninput="filterTable()">
             </div>
             <button class="btn btn-ghost" onclick="loadData()">↺ Refresh</button>
+            <button class="download-btn" onclick="downloadCustomers()">⬇️ Download CSV</button>
         </div>
 
         <div class="stats">
@@ -218,16 +255,46 @@
                         <th>Phone</th>
                         <th>Email</th>
                         <th>Address</th>
-                        <th>GSTIN</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody id="tableBody">
-                    <tr class="state-row"><td colspan="7">Switch to "View Customers" to load.</td></tr>
+                    <tr class="state-row"><td colspan="6">Switch to "View Customers" to load.</td></tr>
                 </tbody>
             </table>
         </div>
     </div>
+    <!-- MASS UPLOAD -->
+    <div class="section" id="section-upload">
+        <h1 class="page-title">Mass Upload</h1>
+        <p class="page-sub">Upload multiple customers at once using a CSV or TSV file.</p>
+
+        <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+                <div>
+                    <div style="font-weight:700;font-size:15px;margin-bottom:4px;">📋 Template Format</div>
+                    <div style="font-size:13px;color:var(--muted);">Download the template, fill it in, then upload.</div>
+                </div>
+                <button class="template-btn" onclick="downloadCustomerTemplate()">⬇️ Download Template</button>
+            </div>
+
+            <div style="background:var(--bg);border-radius:8px;padding:14px 16px;font-family:'Courier New',monospace;font-size:12px;color:var(--muted);margin-bottom:24px;overflow-x:auto;">
+                name &nbsp;&nbsp;&nbsp; phone &nbsp;&nbsp;&nbsp; email &nbsp;&nbsp;&nbsp; address &nbsp;&nbsp;&nbsp; gstin
+            </div>
+
+            <div class="upload-zone" id="custUploadZone">
+                <div class="upload-icon">📂</div>
+                <p><strong>Click to browse</strong> or drag and drop your file here</p>
+                <p style="margin-top:4px;font-size:12px;">CSV or TSV · Max 500 rows</p>
+                <input type="file" id="custFileInput" accept=".csv,.tsv,.txt" style="display:none;">
+            </div>
+
+            <div class="upload-log" id="custUploadLog"></div>
+            <div class="upload-summary" id="custUploadSummary"></div>
+        </div>
+    </div>
+
+
 </div>
 
 <!-- Edit Modal -->
@@ -257,6 +324,18 @@
                 <label>Address</label>
                 <input id="edit-address" placeholder="Street, City, State">
             </div>
+            <div class="form-group">
+                <label>Date of Birth</label>
+                <input id="edit-dob" type="date">
+            </div>
+            <div class="form-group">
+                <label>Anniversary Date</label>
+                <input id="edit-anniversary" type="date">
+            </div>
+            <div class="form-group full">
+                <label>Notes / Tags</label>
+                <input id="edit-notes" placeholder="e.g. VIP, prefers casual…">
+            </div>
         </div>
         <div class="modal-actions">
             <button class="btn btn-ghost"   onclick="closeModal()">Cancel</button>
@@ -284,7 +363,8 @@
         document.getElementById(`tab-${tab}`).classList.add('active');
         document.getElementById(`section-${tab}`).classList.add('active');
         document.getElementById(`nav-${tab}`).classList.add('active');
-        if (tab === 'view') loadData();
+        if (tab === 'view')   loadData();
+        if (tab === 'upload') setupCustomerUpload();
     }
 
     // Load next KUNNR preview on page load
@@ -299,7 +379,7 @@
     }
 
     function resetForm() {
-        ['name','number','email','address','gstin'].forEach(id => {
+        ['name','number','email','address','gstin','dob','anniversary','notes'].forEach(id => {
             document.getElementById(id).value = '';
         });
         loadNextKunnr();
@@ -311,7 +391,10 @@
         const number  = document.getElementById('number').value.trim();
         const email   = document.getElementById('email').value.trim();
         const address = document.getElementById('address').value.trim();
-        const gstin   = document.getElementById('gstin').value.trim();
+        const gstin       = document.getElementById('gstin').value.trim();
+        const dob         = document.getElementById('dob').value;
+        const anniversary = document.getElementById('anniversary').value;
+        const notes       = document.getElementById('notes').value.trim();
 
         if (!name) return showToast('Name is required', 'error');
 
@@ -319,7 +402,7 @@
             const res  = await fetch('/addcustomer', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, number, email, address, gstin })
+                body: JSON.stringify({ name, number, email, address, gstin, dob, anniversary, notes })
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Failed to add customer');
@@ -333,7 +416,7 @@
 
     async function loadData() {
         const tbody = document.getElementById('tableBody');
-        tbody.innerHTML = '<tr class="state-row"><td colspan="7"><span class="spinner"></span> Loading customers…</td></tr>';
+        tbody.innerHTML = '<tr class="state-row"><td colspan="6"><span class="spinner"></span> Loading customers…</td></tr>';
         try {
             const res = await fetch('/customers');
             if (!res.ok) throw new Error('Server error');
@@ -341,24 +424,23 @@
             document.getElementById('totalCount').textContent = allData.length;
             renderTable(allData);
         } catch {
-            tbody.innerHTML = '<tr class="state-row"><td colspan="7">❌ Could not connect to server.</td></tr>';
+            tbody.innerHTML = '<tr class="state-row"><td colspan="6">❌ Could not connect to server.</td></tr>';
         }
     }
 
     function renderTable(data) {
         const tbody = document.getElementById('tableBody');
         if (data.length === 0) {
-            tbody.innerHTML = '<tr class="state-row"><td colspan="7">No customers found.</td></tr>';
+            tbody.innerHTML = '<tr class="state-row"><td colspan="6">No customers found.</td></tr>';
             return;
         }
         tbody.innerHTML = data.map(row => `
             <tr>
-                <td><span class="mono">${row.kunnr || '—'}</span></td>
-                <td><strong>${row.name || '—'}</strong></td>
+                <td><a href="CustomerDetail.html?kunnr=${row.kunnr}" class="mono" style="text-decoration:none;color:#92650a;" title="View detail">${row.kunnr || '—'}</a></td>
+                <td><a href="CustomerDetail.html?kunnr=${row.kunnr}" style="text-decoration:none;color:var(--ink);font-weight:600;">${row.name || '—'}</a></td>
                 <td>${row.number  || '—'}</td>
                 <td>${row.email   || '—'}</td>
                 <td>${row.address || '—'}</td>
-                <td>${row.gstin   || '—'}</td>
                 <td>
                     <div class="actions">
                         <button class="action-btn btn-edit"   onclick="openEdit('${row.kunnr}')">Edit</button>
@@ -398,7 +480,10 @@
         document.getElementById('edit-number').value  = row.number  || '';
         document.getElementById('edit-email').value   = row.email   || '';
         document.getElementById('edit-address').value = row.address || '';
-        document.getElementById('edit-gstin').value   = row.gstin   || '';
+        document.getElementById('edit-gstin').value       = row.gstin       || '';
+        document.getElementById('edit-dob').value         = row.dob         || '';
+        document.getElementById('edit-anniversary').value = row.anniversary || '';
+        document.getElementById('edit-notes').value       = row.notes       || '';
         document.getElementById('editModal').classList.add('open');
     }
 
@@ -416,7 +501,10 @@
         const number  = document.getElementById('edit-number').value.trim();
         const email   = document.getElementById('edit-email').value.trim();
         const address = document.getElementById('edit-address').value.trim();
-        const gstin   = document.getElementById('edit-gstin').value.trim();
+        const gstin       = document.getElementById('edit-gstin').value.trim();
+        const dob         = document.getElementById('edit-dob').value;
+        const anniversary = document.getElementById('edit-anniversary').value;
+        const notes       = document.getElementById('edit-notes').value.trim();
 
         if (!name) return showToast('Name is required', 'error');
 
@@ -424,7 +512,7 @@
             const res  = await fetch(`/customers/${kunnr}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, number, email, address, gstin })
+                body: JSON.stringify({ name, number, email, address, gstin, dob, anniversary, notes })
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Update failed');
@@ -434,6 +522,96 @@
         } catch (err) {
             showToast(`❌ ${err.message}`, 'error');
         }
+    }
+
+
+    // ── Mass Upload Utilities ──────────────────────────────────────────────────
+    function downloadCSV(filename, headers, rows) {
+        const lines = [headers.join('\t'), ...rows.map(r => r.join('\t'))];
+        const blob  = new Blob([lines.join('\n')], {type:'text/tab-separated-values'});
+        const a     = Object.assign(document.createElement('a'), {href:URL.createObjectURL(blob),download:filename});
+        a.click(); URL.revokeObjectURL(a.href);
+    }
+    function parseFile(text) {
+        const lines = text.trim().split('\n').filter(l=>l.trim());
+        if (lines.length < 2) return {headers:[],rows:[]};
+        const sep     = lines[0].includes('\t') ? '\t' : ',';
+        const headers = lines[0].split(sep).map(h=>h.trim().toLowerCase().replace(/\s+/g,'_'));
+        const rows    = lines.slice(1).map(line => {
+            const vals = line.split(sep).map(v=>v.trim().replace(/^"|"$/g,''));
+            return Object.fromEntries(headers.map((h,i)=>[h,vals[i]||'']));
+        });
+        return {headers,rows};
+    }
+    function logLine(logId, msg, type='info') {
+        const log = document.getElementById(logId);
+        if (!log) return;
+        log.classList.add('active');
+        const div = Object.assign(document.createElement('div'),{className:`log-line log-${type}`,textContent:msg});
+        log.appendChild(div); log.scrollTop=log.scrollHeight;
+    }
+    function showSummary(id, ok, fail) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.className = `upload-summary show ${fail===0?'success':'partial'}`;
+        el.textContent = fail===0 ? `✅ All ${ok} records uploaded successfully!` : `⚠️ ${ok} succeeded, ${fail} failed — check the log above.`;
+    }
+    function readFile(file) {
+        return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=e=>res(e.target.result); r.onerror=rej; r.readAsText(file); });
+    }
+
+    // ── Customer Template & Upload ─────────────────────────────────────────────
+    function downloadCustomerTemplate() {
+        downloadCSV('customer_template.tsv',
+            ['name','phone','email','address','gstin'],
+            [['Naveen Choudary Vajja','+918179431448','naveen@example.com','Plot 55 Samatha Nagar Hyderabad','29XXXXX']]
+        );
+    }
+
+    function downloadCustomers() {
+        if (!allData.length) return showToast('No customers to download','error');
+        downloadCSV('customers.tsv',
+            ['name','phone','email','address','gstin'],
+            allData.map(r=>[r.name||'',r.number||'',r.email||'',r.address||'',r.gstin||''])
+        );
+        showToast('✅ Downloaded customers.tsv');
+    }
+
+    function setupCustomerUpload() {
+        const zone  = document.getElementById('custUploadZone');
+        const input = document.getElementById('custFileInput');
+        if (!zone || zone.dataset.setup) return;
+        zone.dataset.setup = '1';
+        zone.onclick = () => input.click();
+        zone.ondragover  = e => { e.preventDefault(); zone.classList.add('drag-over'); };
+        zone.ondragleave = () => zone.classList.remove('drag-over');
+        zone.ondrop = e => { e.preventDefault(); zone.classList.remove('drag-over'); if(e.dataTransfer.files[0]) processCustomerFile(e.dataTransfer.files[0]); };
+        input.onchange = () => { if(input.files[0]) processCustomerFile(input.files[0]); };
+    }
+
+    async function processCustomerFile(file) {
+        const logId = 'custUploadLog';
+        const sumId = 'custUploadSummary';
+        document.getElementById(logId).innerHTML = '';
+        document.getElementById(sumId).className = 'upload-summary';
+        logLine(logId, `📂 Reading ${file.name}…`, 'head');
+        const text    = await readFile(file);
+        const {rows}  = parseFile(text);
+        if (!rows.length) return logLine(logId, '❌ No data rows found.', 'err');
+        logLine(logId, `Found ${rows.length} rows. Uploading…`, 'info');
+        let ok=0, fail=0;
+        for (let i=0; i<rows.length; i++) {
+            const r = rows[i];
+            if (!r.name) { logLine(logId, `Row ${i+2}: ❌ Skipped — name is required`, 'err'); fail++; continue; }
+            try {
+                const res  = await fetch('/addcustomer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:r.name,number:r.phone||r.number||'',email:r.email||'',address:r.address||'',gstin:r.gstin||''})});
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                logLine(logId, `Row ${i+2}: ✅ ${r.name} → KUNNR ${data.kunnr}`, 'ok'); ok++;
+            } catch(err) { logLine(logId, `Row ${i+2}: ❌ ${r.name} — ${err.message}`, 'err'); fail++; }
+        }
+        showSummary(sumId, ok, fail);
+        if (ok > 0) loadNextKunnr();
     }
 
     // Init

@@ -69,18 +69,18 @@
         }
 
         .cards {
-            display: flex;
-            gap: 20px;
+            display: grid;
+            grid-template-columns: repeat(5, 150px);
+            gap: 16px;
             justify-content: center;
-            flex-wrap: wrap;
         }
 
         .nav-card {
             background: var(--card);
             border: 1px solid var(--border);
             border-radius: 16px;
-            padding: 36px 32px;
-            width: 200px;
+            padding: 24px 16px;
+            width: 150px;
             cursor: pointer;
             transition: all 0.25s ease;
             text-decoration: none;
@@ -98,18 +98,18 @@
         }
 
         .nav-card .icon {
-            font-size: 32px;
+            font-size: 24px;
         }
 
         .nav-card .label {
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 600;
             color: var(--ink);
             letter-spacing: 0.02em;
         }
 
         .nav-card .desc {
-            font-size: 12px;
+            font-size: 11px;
             color: var(--muted);
             font-weight: 300;
         }
@@ -125,9 +125,9 @@
 </head>
 <body>
 <div class="wrapper">
-    <p class="eyebrow">Clothing Store</p>
-    <h1>Store Manager</h1>
-    <p class="subtitle">CRM &amp; Inventory in one place</p>
+    <p class="eyebrow">Store Manager</p>
+    <h1>Fat Closet</h1>
+    <p class="subtitle">Endless Options. One Closet</p>
     <div class="divider"></div>
 
     <div class="cards">
@@ -145,6 +145,16 @@
             <span class="icon">🧾</span>
             <span class="label">Sales</span>
             <span class="desc">Create sales orders</span>
+        </a>
+        <a class="nav-card" href="Buyer.html">
+            <span class="icon">🏢</span>
+            <span class="label">Buyers</span>
+            <span class="desc">Vendors &amp; suppliers</span>
+        </a>
+        <a class="nav-card" href="PurchaseOrder.html">
+            <span class="icon">📦</span>
+            <span class="label">Purchase Orders</span>
+            <span class="desc">Buy &amp; restock</span>
         </a>
     </div>
 </div>

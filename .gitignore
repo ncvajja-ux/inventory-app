@@ -1,6 +1,8 @@
 node_modules/
-inventory.db
 *.db
 *.db.bak
 *.db.broken
+*.db-shm
+*.db-wal
 .DS_Store
+files.zip
