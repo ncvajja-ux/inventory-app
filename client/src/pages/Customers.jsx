@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
 
@@ -10,6 +11,9 @@ function EditModal({ customer, onClose, onSaved }) {
     email: customer.email || '',
     address: customer.address || '',
     gstin: customer.gstin || '',
+    dob: customer.dob || '',
+    anniversary: customer.anniversary || '',
+    notes: customer.notes || '',
   })
 
   function set(field) {
@@ -36,7 +40,7 @@ function EditModal({ customer, onClose, onSaved }) {
 
   return (
     <div className="modal-overlay open" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+      <div className="modal" style={{ maxWidth: 600 }}>
         <div className="modal-title">Edit Customer</div>
         <div className="modal-sub">Editing KUNNR: {customer.kunnr}</div>
         <div className="modal-grid">
@@ -56,9 +60,21 @@ function EditModal({ customer, onClose, onSaved }) {
             <label>GSTIN</label>
             <input value={form.gstin} onChange={set('gstin')} placeholder="GST number" />
           </div>
+          <div className="form-group">
+            <label>Date of Birth</label>
+            <input value={form.dob} onChange={set('dob')} type="date" />
+          </div>
+          <div className="form-group">
+            <label>Anniversary</label>
+            <input value={form.anniversary} onChange={set('anniversary')} type="date" />
+          </div>
           <div className="form-group full">
             <label>Address</label>
             <input value={form.address} onChange={set('address')} placeholder="Street, City, State" />
+          </div>
+          <div className="form-group full">
+            <label>Notes</label>
+            <textarea value={form.notes} onChange={set('notes')} placeholder="Internal notes…" rows={2} style={{ width: '100%', resize: 'vertical' }} />
           </div>
         </div>
         <div className="modal-actions">
@@ -73,7 +89,9 @@ function EditModal({ customer, onClose, onSaved }) {
 function AddTab({ onAdded }) {
   const showToast = useToast()
   const [nextKunnr, setNextKunnr] = useState('—')
-  const [form, setForm] = useState({ name: '', number: '', email: '', address: '', gstin: '' })
+  const [form, setForm] = useState({
+    name: '', number: '', email: '', address: '', gstin: '', dob: '', anniversary: '', notes: '',
+  })
 
   const loadNextKunnr = useCallback(async () => {
     try {
@@ -90,7 +108,7 @@ function AddTab({ onAdded }) {
   function set(field) { return e => setForm(f => ({ ...f, [field]: e.target.value })) }
 
   function reset() {
-    setForm({ name: '', number: '', email: '', address: '', gstin: '' })
+    setForm({ name: '', number: '', email: '', address: '', gstin: '', dob: '', anniversary: '', notes: '' })
     loadNextKunnr()
   }
 
@@ -126,7 +144,7 @@ function AddTab({ onAdded }) {
         </div>
         <div className="form-grid">
           <div className="form-group">
-            <label>Full Name</label>
+            <label>Full Name *</label>
             <input value={form.name} onChange={set('name')} placeholder="Customer name" />
           </div>
           <div className="form-group">
@@ -141,9 +159,21 @@ function AddTab({ onAdded }) {
             <label>GSTIN</label>
             <input value={form.gstin} onChange={set('gstin')} placeholder="GST number (optional)" />
           </div>
+          <div className="form-group">
+            <label>Date of Birth</label>
+            <input value={form.dob} onChange={set('dob')} type="date" />
+          </div>
+          <div className="form-group">
+            <label>Anniversary</label>
+            <input value={form.anniversary} onChange={set('anniversary')} type="date" />
+          </div>
           <div className="form-group full">
             <label>Address</label>
             <input value={form.address} onChange={set('address')} placeholder="Street, City, State" />
+          </div>
+          <div className="form-group full">
+            <label>Notes</label>
+            <textarea value={form.notes} onChange={set('notes')} placeholder="Internal notes…" rows={2} style={{ width: '100%', resize: 'vertical' }} />
           </div>
         </div>
         <div className="btn-row">
@@ -190,8 +220,24 @@ function ViewTab() {
     }
   }
 
+  function downloadCSV() {
+    if (!allData.length) return
+    const headers = ['KUNNR', 'Name', 'Phone', 'Email', 'Address', 'GSTIN', 'DOB', 'Anniversary', 'Notes']
+    const rows = allData.map(r => [
+      r.kunnr, r.name, r.number, r.email, r.address, r.gstin, r.dob, r.anniversary, r.notes,
+    ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+    const csv = [headers.join(','), ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `customers_${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const filtered = query
-    ? allData.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(query.toLowerCase())))
+    ? allData.filter(r => Object.values(r).some(v => String(v ?? '').toLowerCase().includes(query.toLowerCase())))
     : allData
 
   return (
@@ -205,10 +251,12 @@ function ViewTab() {
           <input placeholder="Search by name, KUNNR, email…" value={query} onChange={e => setQuery(e.target.value)} />
         </div>
         <button className="btn btn-ghost" onClick={loadData}>↺ Refresh</button>
+        <button className="btn btn-ghost" onClick={downloadCSV}>⬇ Download CSV</button>
       </div>
 
       <div className="stats">
         <div className="stat-pill">Total Customers <strong>{allData.length}</strong></div>
+        {query && <div className="stat-pill">Showing <strong>{filtered.length}</strong></div>}
       </div>
 
       <div className="table-card">
@@ -225,8 +273,16 @@ function ViewTab() {
               <tr className="state-row"><td colSpan={7}>No customers found.</td></tr>
             ) : filtered.map(row => (
               <tr key={row.kunnr}>
-                <td><span className="mono">{row.kunnr || '—'}</span></td>
-                <td><strong>{row.name || '—'}</strong></td>
+                <td>
+                  <Link to={`/customers/${row.kunnr}`} className="table-link mono">
+                    {row.kunnr || '—'}
+                  </Link>
+                </td>
+                <td>
+                  <Link to={`/customers/${row.kunnr}`} className="table-link">
+                    <strong>{row.name || '—'}</strong>
+                  </Link>
+                </td>
                 <td>{row.number || '—'}</td>
                 <td>{row.email || '—'}</td>
                 <td>{row.address || '—'}</td>
@@ -254,6 +310,164 @@ function ViewTab() {
   )
 }
 
+function UploadTab() {
+  const showToast = useToast()
+  const [dragging, setDragging] = useState(false)
+  const [logs, setLogs] = useState([])
+  const [summary, setSummary] = useState(null)
+  const [uploading, setUploading] = useState(false)
+  const dropRef = useRef(null)
+
+  function addLog(msg, type = 'info') {
+    setLogs(l => [...l, { msg, type, ts: Date.now() }])
+  }
+
+  function downloadTemplate() {
+    const tsv = 'name\tnumber\temail\taddress\tgstin\tdob\tanniversary\tnotes\nJohn Doe\t9876543210\tjohn@example.com\t123 Main St\t\t\t\t'
+    const blob = new Blob([tsv], { type: 'text/tab-separated-values' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'customers_template.tsv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async function processFile(file) {
+    if (!file) return
+    setLogs([])
+    setSummary(null)
+    setUploading(true)
+    addLog(`📂 Reading: ${file.name}`)
+
+    const text = await file.text()
+    const sep = file.name.endsWith('.tsv') || text.includes('\t') ? '\t' : ','
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+    if (lines.length < 2) {
+      addLog('❌ File must have a header + at least one data row.', 'error')
+      setUploading(false)
+      return
+    }
+
+    const headers = lines[0].split(sep).map(h => h.trim().toLowerCase())
+    const rows = lines.slice(1)
+    addLog(`✅ Found ${rows.length} rows, ${headers.length} columns`)
+
+    let ok = 0, fail = 0
+    for (let i = 0; i < rows.length; i++) {
+      const cols = rows[i].split(sep)
+      const obj = {}
+      headers.forEach((h, idx) => { obj[h] = (cols[idx] || '').trim() })
+      if (!obj.name) {
+        addLog(`Row ${i + 2}: ⚠️ Skipped — missing name`, 'warn')
+        fail++
+        continue
+      }
+      try {
+        const res = await fetch('/addcustomer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(obj),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Server error')
+        addLog(`Row ${i + 2}: ✅ Added ${obj.name} (${data.kunnr})`, 'success')
+        ok++
+      } catch (err) {
+        addLog(`Row ${i + 2}: ❌ ${obj.name} — ${err.message}`, 'error')
+        fail++
+      }
+    }
+
+    setSummary({ ok, fail, total: rows.length })
+    setUploading(false)
+    showToast(`Upload complete: ${ok} added, ${fail} failed`)
+  }
+
+  function onDrop(e) {
+    e.preventDefault()
+    setDragging(false)
+    const file = e.dataTransfer.files[0]
+    if (file) processFile(file)
+  }
+
+  function onFileChange(e) {
+    const file = e.target.files[0]
+    if (file) processFile(file)
+  }
+
+  return (
+    <>
+      <h1 className="page-title">Mass Upload</h1>
+      <p className="page-sub">Upload a TSV or CSV file to add customers in bulk.</p>
+
+      <div className="card">
+        <div
+          ref={dropRef}
+          className={`drop-zone${dragging ? ' drag-over' : ''}`}
+          onDragOver={e => { e.preventDefault(); setDragging(true) }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+          onClick={() => document.getElementById('cu-file-input').click()}
+          style={{
+            border: '2px dashed var(--border)',
+            borderRadius: 12,
+            padding: '48px 24px',
+            textAlign: 'center',
+            cursor: 'pointer',
+            background: dragging ? 'var(--card-hover, rgba(0,0,0,0.03))' : 'transparent',
+            transition: 'all 0.2s',
+          }}
+        >
+          <div style={{ fontSize: 36, marginBottom: 12 }}>📥</div>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Drop your TSV / CSV here</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>or click to browse</div>
+          <input id="cu-file-input" type="file" accept=".tsv,.csv,.txt" style={{ display: 'none' }} onChange={onFileChange} />
+        </div>
+
+        <div className="btn-row" style={{ marginTop: 16 }}>
+          <button className="btn btn-ghost" onClick={downloadTemplate}>⬇ Download Template</button>
+        </div>
+
+        {summary && (
+          <div className={`upload-summary ${summary.fail === 0 ? 'success' : 'warn'}`} style={{
+            marginTop: 20,
+            padding: '12px 16px',
+            borderRadius: 8,
+            background: summary.fail === 0 ? 'rgba(34,197,94,0.1)' : 'rgba(234,179,8,0.1)',
+            border: `1px solid ${summary.fail === 0 ? '#22c55e' : '#eab308'}`,
+          }}>
+            <strong>Upload Complete:</strong> {summary.ok} added, {summary.fail} failed out of {summary.total} rows
+          </div>
+        )}
+
+        {logs.length > 0 && (
+          <div style={{
+            marginTop: 16,
+            background: '#0f1117',
+            borderRadius: 8,
+            padding: '12px 16px',
+            maxHeight: 260,
+            overflowY: 'auto',
+            fontFamily: 'monospace',
+            fontSize: 12,
+          }}>
+            {logs.map((log, i) => (
+              <div key={i} style={{
+                color: log.type === 'error' ? '#f87171' : log.type === 'warn' ? '#fbbf24' : log.type === 'success' ? '#4ade80' : '#94a3b8',
+                marginBottom: 2,
+              }}>
+                {log.msg}
+              </div>
+            ))}
+            {uploading && <div style={{ color: '#60a5fa', marginTop: 4 }}>⏳ Processing…</div>}
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
 export default function Customers() {
   const [tab, setTab] = useState('add')
   const [refreshKey, setRefreshKey] = useState(0)
@@ -265,14 +479,11 @@ export default function Customers() {
 
   return (
     <div className="page-layout">
-      <Sidebar section="Customers" activeTab={tab} onTabChange={setTab} />
+      <Sidebar section="Customers" activeTab={tab} onTabChange={t => { setTab(t); if (t === 'view') setRefreshKey(k => k + 1) }} />
       <div className="main">
-        <div className="tabs">
-          <button className={`tab ${tab === 'add' ? 'active' : ''}`} onClick={() => setTab('add')}>➕ Add Customer</button>
-          <button className={`tab ${tab === 'view' ? 'active' : ''}`} onClick={() => setTab('view')}>👥 View Customers</button>
-        </div>
         {tab === 'add' && <AddTab onAdded={goToView} />}
         {tab === 'view' && <ViewTab key={refreshKey} />}
+        {tab === 'upload' && <UploadTab />}
       </div>
     </div>
   )

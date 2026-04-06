@@ -1,17 +1,17 @@
-import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
 
-const TAX_RATE = 0.18
 const fmt = n => '₹' + parseFloat(n || 0).toFixed(2)
+const fmtD = s => s ? new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 
-// ── Step indicator ──────────────────────────────────────────────────────────
-function StepBar({ step }) {
+// ── Step indicator ────────────────────────────────────────────────────────────
+function StepBar({ step, labels }) {
   return (
     <div className="steps">
-      {[1, 2, 3].map((n, i) => {
-        const label = ['Customer', 'Add Products', 'Cart & Place Order'][i]
+      {labels.map((label, i) => {
+        const n = i + 1
         const cls = n < step ? 'step done' : n === step ? 'step active' : 'step'
         return (
           <span key={n} style={{ display: 'contents' }}>
@@ -19,7 +19,7 @@ function StepBar({ step }) {
               <div className="step-num">{n < step ? '✓' : n}</div>
               <span>{label}</span>
             </div>
-            {n < 3 && <div className={`step-line${n < step ? ' done' : ''}`} />}
+            {n < labels.length && <div className={`step-line${n < step ? ' done' : ''}`} />}
           </span>
         )
       })}
@@ -27,344 +27,1118 @@ function StepBar({ step }) {
   )
 }
 
-// ── Step 1: Customer lookup ─────────────────────────────────────────────────
-function CustomerView({ onCustomerSet }) {
-  const showToast = useToast()
-  const [kunnrInput, setKunnrInput] = useState('')
-  const [result, setResult] = useState(null)
+// ── Live search dropdown ──────────────────────────────────────────────────────
+function SearchDropdown({ placeholder, onSearch, onSelect, renderItem, width = 340 }) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState([])
+  const [open, setOpen] = useState(false)
+  const [selectedLabel, setSelectedLabel] = useState('')
+  const debounceRef = useRef(null)
+  const wrapRef = useRef(null)
 
-  async function lookup() {
-    const kunnr = kunnrInput.trim()
-    if (!kunnr) return
-    try {
-      const res = await fetch(`/customers/${kunnr}`)
-      if (!res.ok) { setResult(null); return showToast('Customer not found', 'error') }
-      const data = await res.json()
-      setResult(data)
-    } catch {
-      showToast('Server error', 'error')
-    }
+  useEffect(() => {
+    function handler(e) { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  function handleInput(e) {
+    const val = e.target.value
+    setQuery(val)
+    setSelectedLabel('')
+    clearTimeout(debounceRef.current)
+    if (!val.trim()) { setResults([]); setOpen(false); return }
+    debounceRef.current = setTimeout(async () => {
+      const items = await onSearch(val)
+      setResults(items || [])
+      setOpen(true)
+    }, 250)
+  }
+
+  function select(item) {
+    const label = renderItem ? null : String(item)
+    setSelectedLabel(label)
+    setQuery('')
+    setResults([])
+    setOpen(false)
+    onSelect(item)
   }
 
   return (
-    <div className="card">
-      <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, marginBottom: 4 }}>Enter Customer ID</div>
-      <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>Enter the 6-digit KUNNR to start a new sales order.</div>
-      <div className="input-row">
-        <div className="form-group">
-          <label>KUNNR</label>
-          <input
-            value={kunnrInput}
-            onChange={e => setKunnrInput(e.target.value)}
-            placeholder="e.g. 100001"
-            maxLength={6}
-            style={{ width: 180 }}
-            onKeyDown={e => e.key === 'Enter' && lookup()}
-          />
-        </div>
-        <button className="btn btn-primary" onClick={lookup}>Look Up →</button>
-      </div>
-      {result && (
-        <div style={{ marginTop: 20, padding: 20, background: 'var(--bg)', borderRadius: 12, border: '1px solid var(--border)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 16 }}>{result.name}</div>
-              <div style={{ color: 'var(--muted)', fontSize: 13, marginTop: 4 }}>
-                KUNNR: <span className="mono">{result.kunnr}</span>
-                {result.number && ` · ${result.number}`}
-                {result.email && ` · ${result.email}`}
-              </div>
-              {result.gstin && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>GSTIN: {result.gstin}</div>}
+    <div ref={wrapRef} style={{ position: 'relative', width }}>
+      <input
+        value={selectedLabel || query}
+        onChange={handleInput}
+        onFocus={() => { if (results.length) setOpen(true) }}
+        placeholder={placeholder}
+        autoComplete="off"
+        style={{ width: '100%' }}
+      />
+      {open && results.length > 0 && (
+        <div className="search-results">
+          {results.map((item, i) => (
+            <div key={i} className="search-result-item" onMouseDown={() => select(item)}>
+              {renderItem ? renderItem(item) : item}
             </div>
-            <button className="btn btn-primary" onClick={() => onCustomerSet(result)}>
-              Select &amp; Continue →
-            </button>
-          </div>
+          ))}
         </div>
       )}
     </div>
   )
 }
 
-// ── Step 2: Product selection ───────────────────────────────────────────────
-function ProductsView({ kunnr, cartItems, onCartUpdated }) {
+// ── New Order ─────────────────────────────────────────────────────────────────
+function NewOrderTab() {
   const showToast = useToast()
-  const [brands, setBrands] = useState([])
-  const [filterBrand, setFilterBrand] = useState('')
-  const [matnrFilter, setMatnrFilter] = useState('')
+  const navigate = useNavigate()
+  const [step, setStep] = useState(1)
+  const [customer, setCustomer] = useState(null)
   const [products, setProducts] = useState([])
+  const [allInventory, setAllInventory] = useState([])
   const [selectedProduct, setSelectedProduct] = useState(null)
   const [addQty, setAddQty] = useState(1)
+  const [cart, setCart] = useState([])
+  const [filterCat, setFilterCat] = useState('')
+  const [filterBrand, setFilterBrand] = useState('')
+  const [productSearch, setProductSearch] = useState('')
+  const [categories, setCategories] = useState({})
+  const [brands, setBrands] = useState([])
+  const [orderForm, setOrderForm] = useState({ payment_method: '', discount: '', salesperson: '', notes: '' })
 
   useEffect(() => {
-    fetch('/inventory/meta/brands').then(r => r.json()).then(setBrands).catch(() => {})
+    fetch('/categories').then(r => r.json()).then(setCategories).catch(() => {})
+    fetch('/brands').then(r => r.json()).then(setBrands).catch(() => {})
   }, [])
 
-  const loadProducts = useCallback(async () => {
-    const params = new URLSearchParams()
-    if (filterBrand) params.set('brand', filterBrand)
-    const res = await fetch(`/inventory/meta/items?${params}`)
-    setProducts(await res.json())
-    setSelectedProduct(null)
-  }, [filterBrand])
+  async function searchCustomers(q) {
+    try {
+      const res = await fetch(`/customers/search?q=${encodeURIComponent(q)}`)
+      return await res.json()
+    } catch { return [] }
+  }
 
-  useEffect(() => { loadProducts() }, [loadProducts])
+  function selectCustomer(c) {
+    setCustomer(c)
+    setStep(2)
+    loadProducts()
+  }
 
-  const filtered = matnrFilter
-    ? products.filter(p => p.matnr.toLowerCase().includes(matnrFilter.toLowerCase()))
-    : products
+  async function loadProducts() {
+    try {
+      const res = await fetch('/inventory')
+      const data = await res.json()
+      setAllInventory(data)
+      setProducts(data)
+    } catch { showToast('Could not load products', 'error') }
+  }
 
-  async function addToCart() {
+  useEffect(() => {
+    if (!allInventory.length) return
+    let filtered = allInventory
+    if (filterCat) filtered = filtered.filter(p => p.category === filterCat)
+    if (filterBrand) filtered = filtered.filter(p => p.brand === filterBrand)
+    if (productSearch) {
+      const q = productSearch.toLowerCase()
+      filtered = filtered.filter(p => Object.values(p).some(v => String(v ?? '').toLowerCase().includes(q)))
+    }
+    setProducts(filtered)
+  }, [filterCat, filterBrand, productSearch, allInventory])
+
+  function addToCart() {
     if (!selectedProduct) return showToast('Select a product first', 'error')
     const qty = parseInt(addQty) || 1
+    if (qty < 1) return showToast('Quantity must be at least 1', 'error')
+
+    setCart(prev => {
+      const idx = prev.findIndex(i => i.matnr === selectedProduct.matnr)
+      if (idx >= 0) {
+        const updated = [...prev]
+        updated[idx] = { ...updated[idx], quantity: updated[idx].quantity + qty }
+        return updated
+      }
+      return [...prev, { ...selectedProduct, quantity: qty }]
+    })
+    showToast(`✅ ${selectedProduct.brand} added to cart`)
+    setSelectedProduct(null)
+    setAddQty(1)
+  }
+
+  function updateCartQty(matnr, delta) {
+    setCart(prev => prev.map(item =>
+      item.matnr === matnr ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item
+    ))
+  }
+
+  function removeFromCart(matnr) {
+    setCart(prev => prev.filter(i => i.matnr !== matnr))
+  }
+
+  const cartTotals = cart.reduce((acc, item) => {
+    const mrp = parseFloat(item.mrp || item.sales_price || 0)
+    const gst = parseFloat(item.gst_rate || 0) / 100
+    const base = mrp / (1 + gst)
+    acc.subtotal += base * item.quantity
+    acc.tax += (mrp - base) * item.quantity
+    acc.gross += mrp * item.quantity
+    return acc
+  }, { subtotal: 0, tax: 0, gross: 0 })
+
+  const discountAmt = parseFloat(orderForm.discount) || 0
+  const grandTotal = cartTotals.gross - discountAmt
+
+  async function placeOrder() {
+    if (!cart.length) return showToast('Cart is empty', 'error')
+    const body = {
+      kunnr: customer.kunnr,
+      items: cart.map(i => ({ matnr: i.matnr, quantity: i.quantity, mrp: i.mrp || i.sales_price || 0, gst_rate: i.gst_rate || 0 })),
+      payment_method: orderForm.payment_method,
+      discount: discountAmt,
+      salesperson: orderForm.salesperson,
+      notes: orderForm.notes,
+    }
     try {
-      const res = await fetch(`/order/temp/${kunnr}/add`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ matnr: selectedProduct.matnr, quantity: qty, price: selectedProduct.price }),
-      })
-      if (!res.ok) throw new Error('Failed to add to cart')
-      showToast(`✅ ${selectedProduct.brand} added to cart`)
-      setSelectedProduct(null)
-      setAddQty(1)
-      onCartUpdated()
+      const res = await fetch('/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed')
+      showToast(`✅ Order ${data.order_id} placed!`)
+      navigate(`/invoice?order_id=${data.order_id}`)
     } catch (err) {
       showToast(`❌ ${err.message}`, 'error')
     }
   }
 
-  return (
-    <>
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, marginBottom: 4 }}>Add Products</div>
-        <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>Filter by brand, then select a product to add to cart.</div>
-        <div className="filter-row">
+  function startNewOrder() {
+    setStep(1); setCustomer(null); setCart([]); setSelectedProduct(null)
+    setOrderForm({ payment_method: '', discount: '', salesperson: '', notes: '' })
+  }
+
+  if (step === 1) {
+    return (
+      <>
+        <StepBar step={1} labels={['Customer', 'Add Products', 'Cart & Checkout']} />
+        <div className="card">
+          <div className="card-title">Find Customer</div>
+          <div className="card-sub">Search by name, phone number, or KUNNR.</div>
           <div className="form-group">
-            <label>Brand</label>
-            <select value={filterBrand} onChange={e => setFilterBrand(e.target.value)}>
-              <option value="">All Brands</option>
-              {brands.map(b => <option key={b}>{b}</option>)}
-            </select>
+            <label>Search Customer</label>
+            <SearchDropdown
+              placeholder="Name, phone, or KUNNR…"
+              onSearch={searchCustomers}
+              onSelect={selectCustomer}
+              renderItem={c => (
+                <div>
+                  <div className="sri-name">{c.name} <span className="sri-kunnr">{c.kunnr}</span></div>
+                  <div className="sri-detail">{[c.number, c.email].filter(Boolean).join(' · ')}</div>
+                </div>
+              )}
+            />
           </div>
-          <div className="form-group" style={{ flex: 1 }}>
-            <label>Filter by MATNR</label>
-            <div className="search-wrap" style={{ flex: 1 }}>
-              <span className="search-icon">🔍</span>
-              <input value={matnrFilter} onChange={e => setMatnrFilter(e.target.value)} placeholder="Type MATNR to filter…" style={{ width: '100%', paddingLeft: 36 }} />
+        </div>
+      </>
+    )
+  }
+
+  if (step === 2) {
+    return (
+      <>
+        <StepBar step={2} labels={['Customer', 'Add Products', 'Cart & Checkout']} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--accent2)', border: '1.5px solid #e8d0a0', borderRadius: 20, padding: '6px 14px', fontSize: 13, fontWeight: 600, color: '#92650a' }}>
+            <span>👤</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{customer?.kunnr}</span>
+            <span>{customer?.name}</span>
+          </div>
+          <button className="btn btn-ghost" onClick={() => setStep(3)} disabled={!cart.length}>
+            🛒 View Cart ({cart.reduce((s, i) => s + i.quantity, 0)})
+          </button>
+          <button className="btn btn-ghost" style={{ marginLeft: 'auto', color: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={startNewOrder}>✕ Cancel</button>
+        </div>
+
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-title">Add Products</div>
+          <div className="card-sub">Filter by category and brand, then click a product to select it.</div>
+          <div className="filter-row">
+            <div className="form-group">
+              <label>Category</label>
+              <select value={filterCat} onChange={e => setFilterCat(e.target.value)}>
+                <option value="">All Categories</option>
+                {Object.keys(categories).map(c => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Brand</label>
+              <select value={filterBrand} onChange={e => setFilterBrand(e.target.value)}>
+                <option value="">All Brands</option>
+                {brands.map(b => <option key={b.name || b} value={b.name || b}>{b.name || b}</option>)}
+              </select>
+            </div>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label>Search</label>
+              <div className="search-wrap">
+                <span className="search-icon">🔍</span>
+                <input placeholder="MATNR, brand, size…" value={productSearch} onChange={e => setProductSearch(e.target.value)} />
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {filtered.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-icon">📦</div>
-          <p>No products found.</p>
-        </div>
-      ) : (
-        <div className="product-grid">
-          {filtered.map(p => (
+        <div className="product-grid" style={{ marginBottom: 90 }}>
+          {products.length === 0 ? (
+            <div className="empty-state" style={{ gridColumn: '1/-1' }}>
+              <div className="empty-icon">📦</div>
+              <p>No products found.</p>
+            </div>
+          ) : products.map(p => (
             <div
               key={p.matnr}
-              className={`product-card ${selectedProduct?.matnr === p.matnr ? 'selected' : ''}`}
+              className={`product-card${selectedProduct?.matnr === p.matnr ? ' selected' : ''}`}
               onClick={() => setSelectedProduct(selectedProduct?.matnr === p.matnr ? null : p)}
             >
-              {selectedProduct?.matnr === p.matnr && <div className="selected-tick">✓</div>}
-              <span className="p-matnr">{p.matnr}</span>
-              <div className="p-brand">{p.brand || '—'}</div>
-              <div className="p-meta">{[p.brandfamily, p.size, p.gender].filter(Boolean).join(' · ')}</div>
-              <div className="p-price">{fmt(p.price)}</div>
-              <div className="p-qty">Stock: {p.quantity ?? 0}</div>
+              <div className="selected-tick">✓</div>
+              <div className="p-matnr">{p.matnr}</div>
+              <div className="p-brand">{p.brand}</div>
+              <div className="p-meta">{[p.category, p.size, p.color].filter(Boolean).join(' · ')}</div>
+              <div className="p-price">{fmt(p.mrp || p.sales_price)}</div>
+              <div className="p-stock">{p.quantity || 0} in stock</div>
             </div>
           ))}
         </div>
-      )}
 
-      <div className="add-bar">
-        <div className="selected-info">
-          {selectedProduct
-            ? <><strong>{selectedProduct.brand}</strong> — {selectedProduct.brandfamily} {selectedProduct.size} — {fmt(selectedProduct.price)}</>
-            : 'No product selected'}
+        <div className="add-bar">
+          <div className="selected-info">
+            {selectedProduct ? `${selectedProduct.brand} — ${selectedProduct.matnr}` : 'No product selected'}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)' }}>Qty</span>
+            <input className="qty-input" type="number" min="1" value={addQty} onChange={e => setAddQty(e.target.value)} style={{ margin: 0 }} />
+          </div>
+          <button className="btn btn-primary" onClick={addToCart}>Add to Cart 🛒</button>
         </div>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label>Qty</label>
-          <input className="qty-input" type="number" min="1" value={addQty} onChange={e => setAddQty(e.target.value)} />
+      </>
+    )
+  }
+
+  // Step 3: Cart
+  return (
+    <>
+      <StepBar step={3} labels={['Customer', 'Add Products', 'Cart & Checkout']} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+        <button className="btn btn-ghost" onClick={() => setStep(2)}>← Back to Products</button>
+        <h1 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 26, flex: 1 }}>Your Cart</h1>
+        <button className="btn btn-ghost" onClick={() => setStep(2)}>+ Add More</button>
+        <button className="btn btn-ghost" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={startNewOrder}>✕ Clear Order</button>
+      </div>
+
+      <div className="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>MATNR</th><th>Brand</th><th>Details</th>
+              <th className="right">MRP</th><th className="right">GST %</th><th className="right">Qty</th>
+              <th className="right">Line Total</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {cart.length === 0 ? (
+              <tr className="state-row"><td colSpan={8}>Your cart is empty.</td></tr>
+            ) : cart.map(item => {
+              const mrp = parseFloat(item.mrp || item.sales_price || 0)
+              const gst = parseFloat(item.gst_rate || 0)
+              return (
+                <tr key={item.matnr}>
+                  <td><span className="mono">{item.matnr}</span></td>
+                  <td><strong>{item.brand}</strong></td>
+                  <td style={{ fontSize: 12, color: 'var(--muted)' }}>{[item.category, item.size, item.color].filter(Boolean).join(' · ')}</td>
+                  <td className="right">{fmt(mrp)}</td>
+                  <td className="right"><span className="gst-badge">{gst}%</span></td>
+                  <td className="right">
+                    <div className="qty-cell">
+                      <button className="qty-stepper" onClick={() => updateCartQty(item.matnr, -1)}>−</button>
+                      <span className="qty-display">{item.quantity}</span>
+                      <button className="qty-stepper" onClick={() => updateCartQty(item.matnr, 1)}>+</button>
+                    </div>
+                  </td>
+                  <td className="right"><strong>{fmt(mrp * item.quantity)}</strong></td>
+                  <td><button className="action-btn btn-delete" onClick={() => removeFromCart(item.matnr)}>Remove</button></td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {[
+              { label: 'Payment Method', key: 'payment_method', type: 'select', options: ['Cash', 'Card', 'UPI', 'Bank Transfer'] },
+              { label: 'Discount (₹)', key: 'discount', type: 'number', placeholder: '0.00' },
+              { label: 'Salesperson', key: 'salesperson', type: 'text', placeholder: 'Name' },
+              { label: 'Notes', key: 'notes', type: 'text', placeholder: 'Any order notes…' },
+            ].map(f => (
+              <div key={f.key} className="form-group">
+                <label>{f.label}</label>
+                {f.type === 'select' ? (
+                  <select value={orderForm[f.key]} onChange={e => setOrderForm(o => ({ ...o, [f.key]: e.target.value }))}>
+                    <option value="">Select…</option>
+                    {f.options.map(o => <option key={o}>{o}</option>)}
+                  </select>
+                ) : (
+                  <input type={f.type} value={orderForm[f.key]} onChange={e => setOrderForm(o => ({ ...o, [f.key]: e.target.value }))} placeholder={f.placeholder} min={f.type === 'number' ? 0 : undefined} step={f.type === 'number' ? '0.01' : undefined} />
+                )}
+              </div>
+            ))}
+          </div>
         </div>
-        <button className="btn btn-primary" onClick={addToCart}>Add to Cart 🛒</button>
+        <div className="totals-card">
+          <div className="totals-row"><span>Subtotal</span><span>{fmt(cartTotals.gross)}</span></div>
+          <div className="totals-row tax"><span>Discount</span><span style={{ color: 'var(--success)' }}>−{fmt(discountAmt)}</span></div>
+          <div className="totals-row tax"><span>GST (incl.)</span><span>{fmt(cartTotals.tax)}</span></div>
+          <div className="totals-row grand"><span>Total</span><span>{fmt(grandTotal)}</span></div>
+          <button className="place-order-btn" onClick={placeOrder}>✅ Place Order</button>
+          <button onClick={startNewOrder} style={{ marginTop: 8, width: '100%', padding: 10, borderRadius: 8, border: '1.5px solid var(--border)', background: 'white', fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--muted)' }}>
+            🗑️ Clear Cart & Start Over
+          </button>
+        </div>
       </div>
     </>
   )
 }
 
-// ── Step 3: Cart ────────────────────────────────────────────────────────────
-function CartView({ kunnr, cartItems, onBack, onOrderPlaced, onCartUpdated }) {
+// ── All Orders ────────────────────────────────────────────────────────────────
+function AllOrdersTab() {
   const showToast = useToast()
+  const navigate = useNavigate()
+  const [orders, setOrders] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [query, setQuery] = useState('')
+  const [typeFilter, setTypeFilter] = useState('ALL')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
 
-  async function removeItem(id) {
+  const loadOrders = useCallback(async () => {
+    setLoading(true)
     try {
-      await fetch(`/order/temp/${kunnr}/item/${id}`, { method: 'DELETE' })
-      onCartUpdated()
-    } catch {
-      showToast('Failed to remove item', 'error')
-    }
-  }
+      let url = '/orders'
+      const params = new URLSearchParams()
+      if (dateFrom) params.set('from', dateFrom)
+      if (dateTo) params.set('to', dateTo)
+      if (params.toString()) url += '?' + params.toString()
+      const res = await fetch(url)
+      setOrders(await res.json())
+    } catch { showToast('Could not load orders', 'error') } finally { setLoading(false) }
+  }, [dateFrom, dateTo, showToast])
 
-  async function placeOrder() {
-    if (cartItems.length === 0) return showToast('Cart is empty', 'error')
-    try {
-      const res = await fetch(`/order/place/${kunnr}`, { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to place order')
-      onOrderPlaced(data.order_id)
-    } catch (err) {
-      showToast(`❌ ${err.message}`, 'error')
-    }
-  }
+  useEffect(() => { loadOrders() }, [loadOrders])
 
-  const subtotal = cartItems.reduce((s, i) => s + i.price * i.quantity, 0)
-  const tax = subtotal * TAX_RATE
-  const grand = subtotal + tax
+  function clearFilters() { setQuery(''); setTypeFilter('ALL'); setDateFrom(''); setDateTo('') }
+
+  const filtered = orders.filter(o => {
+    if (typeFilter !== 'ALL' && o.order_type !== typeFilter) return false
+    if (!query) return true
+    const q = query.toLowerCase()
+    return Object.values(o).some(v => String(v ?? '').toLowerCase().includes(q))
+  })
+
+  const totalRevenue = filtered.filter(o => o.order_type !== 'R').reduce((s, o) => s + parseFloat(o.order_total || 0), 0)
+
+  function payBadge(ps) {
+    const map = { PAID: 'paid', PENDING: 'pending', CANCELLED: 'cancelled', PARTIALLY_PAID: 'partial' }
+    const lbl = ps === 'PARTIALLY_PAID' ? 'Partial' : (ps || '—')
+    return <span className={`badge badge-${map[ps] || ''}`}>{lbl}</span>
+  }
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
-        <button className="btn btn-ghost" onClick={onBack}>← Back to Products</button>
-        <h1 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28 }}>Your Cart</h1>
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28 }}>All Orders</h1>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>Search, view and cancel confirmed sales orders.</p>
       </div>
 
-      <div className="cart-table-wrap">
+      <div className="toolbar">
+        <div className="form-group" style={{ flex: 1, minWidth: 200 }}>
+          <label>Search</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div className="search-wrap" style={{ flex: 1 }}>
+              <span className="search-icon">🔍</span>
+              <input placeholder="Order ID, KUNNR, name…" value={query} onChange={e => setQuery(e.target.value)} />
+            </div>
+            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding: '9px 14px', border: '1.5px solid var(--border)', borderRadius: 8, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: 'white' }}>
+              <option value="ALL">All Types</option>
+              <option value="S">Sales Only</option>
+              <option value="R">Returns Only</option>
+            </select>
+          </div>
+        </div>
+        <div className="form-group">
+          <label>From</label>
+          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ fontSize: 13 }} />
+        </div>
+        <div className="form-group">
+          <label>To</label>
+          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ fontSize: 13 }} />
+        </div>
+        <button className="btn btn-ghost" style={{ alignSelf: 'flex-end' }} onClick={clearFilters}>Clear</button>
+        <button className="btn btn-ghost" style={{ alignSelf: 'flex-end' }} onClick={loadOrders}>↺ Refresh</button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
+        <div className="stat-pill">Orders <strong>{filtered.length}</strong></div>
+        <div className="stat-pill">Total Revenue <strong>{fmt(totalRevenue)}</strong></div>
+      </div>
+
+      <div className="table-card">
         <table>
           <thead>
             <tr>
-              <th>MATNR</th><th>Brand</th><th>Details</th>
-              <th className="right">Unit Price</th><th className="right">Qty</th>
-              <th className="right">Gross Price</th><th></th>
+              <th>Order ID</th><th>Customer</th><th>KUNNR</th><th>Date</th>
+              <th>Type</th><th>Payment</th><th className="right">Total</th><th className="right">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {cartItems.length === 0 ? (
-              <tr className="state-row"><td colSpan={7}>Your cart is empty.</td></tr>
-            ) : cartItems.map(item => (
-              <tr key={item.id}>
-                <td><span className="mono">{item.matnr}</span></td>
-                <td><strong>{item.brand || '—'}</strong></td>
-                <td style={{ color: 'var(--muted)', fontSize: 13 }}>{[item.brandfamily, item.size].filter(Boolean).join(' · ')}</td>
-                <td className="right">{fmt(item.price)}</td>
-                <td className="right">{item.quantity}</td>
-                <td className="right">{fmt(item.price * item.quantity)}</td>
-                <td>
-                  <button className="action-btn btn-delete" onClick={() => removeItem(item.id)}>Remove</button>
+            {loading ? (
+              <tr className="state-row"><td colSpan={8}><span className="spinner" /> Loading…</td></tr>
+            ) : filtered.length === 0 ? (
+              <tr className="state-row"><td colSpan={8}>No orders found.</td></tr>
+            ) : filtered.map(o => (
+              <tr key={o.order_id}>
+                <td><span className="mono">{o.order_id}</span></td>
+                <td>{o.customer_name || '—'}</td>
+                <td><span className="mono">{o.kunnr}</span></td>
+                <td style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtD(o.created_at)}</td>
+                <td><span className={`badge badge-${o.order_type === 'R' ? 'return' : 'sale'}`}>{o.order_type === 'R' ? 'Return' : 'Sale'}</span></td>
+                <td>{payBadge(o.payment_status)}</td>
+                <td className="right"><strong>{fmt(o.order_total)}</strong></td>
+                <td className="right">
+                  <div className="actions">
+                    <button className="action-btn btn-view-sm" onClick={() => navigate(`/invoice?order_id=${o.order_id}`)}>View</button>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-
-      <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6 }}>
-            Review your items before placing the order.<br />
-            Once placed, a confirmed order number will be assigned.
-          </p>
-        </div>
-        <div className="totals-card">
-          <div className="totals-row"><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
-          <div className="totals-row tax"><span>GST (18%)</span><span>{fmt(tax)}</span></div>
-          <div className="totals-row grand"><span>Total</span><span>{fmt(grand)}</span></div>
-          <button className="place-order-btn" onClick={placeOrder}>✅ Place Order</button>
-        </div>
-      </div>
     </>
   )
 }
 
-// ── Main Sales page ─────────────────────────────────────────────────────────
-export default function Sales() {
-  const navigate = useNavigate()
+// ── Returns ───────────────────────────────────────────────────────────────────
+function ReturnsTab() {
   const showToast = useToast()
+  const navigate = useNavigate()
   const [step, setStep] = useState(1)
-  const [customer, setCustomer] = useState(null)
-  const [cartItems, setCartItems] = useState([])
-  const [showCart, setShowCart] = useState(false)
+  const [orderIdInput, setOrderIdInput] = useState('')
+  const [retCustQuery, setRetCustQuery] = useState('')
+  const [retFrom, setRetFrom] = useState('')
+  const [retTo, setRetTo] = useState('')
+  const [matchingOrders, setMatchingOrders] = useState([])
+  const [selectedOrder, setSelectedOrder] = useState(null)
+  const [orderLines, setOrderLines] = useState([])
+  const [returnItems, setReturnItems] = useState([])
+  const [retReason, setRetReason] = useState('')
+  const [retNotes, setRetNotes] = useState('')
+  const [reasons, setReasons] = useState([])
+  const retCustRef = useRef(null)
+  const [retCustResults, setRetCustResults] = useState([])
+  const [retKunnr, setRetKunnr] = useState('')
 
-  const loadCart = useCallback(async (kunnr) => {
-    if (!kunnr) return
-    try {
-      const res = await fetch(`/order/temp/${kunnr}`)
-      const data = await res.json()
-      setCartItems(data?.items || [])
-    } catch {}
+  useEffect(() => {
+    fetch('/return-reasons').then(r => r.json()).then(d => setReasons(Array.isArray(d) ? d : [])).catch(() => {})
   }, [])
 
-  function handleCustomerSet(cust) {
-    setCustomer(cust)
-    setStep(2)
-    setShowCart(false)
-    loadCart(cust.kunnr)
+  async function fetchReturnOrder() {
+    if (!orderIdInput.trim()) return
+    try {
+      const res = await fetch(`/orders/${orderIdInput.trim()}`)
+      if (!res.ok) return showToast('Order not found', 'error')
+      const data = await res.json()
+      setSelectedOrder(data.order)
+      setOrderLines(data.lines || [])
+      setReturnItems(data.lines.map(l => ({ ...l, return_qty: 0, selected: false })))
+      setStep(2)
+    } catch { showToast('Could not fetch order', 'error') }
   }
 
-  function handleCartUpdated() {
-    loadCart(customer.kunnr)
+  async function searchReturnCustomer(q) {
+    try { const r = await fetch(`/customers/search?q=${encodeURIComponent(q)}`); return await r.json() } catch { return [] }
   }
 
-  function handleOrderPlaced(orderId) {
-    navigate(`/invoice?order_id=${orderId}`)
+  async function searchOrdersForReturn() {
+    if (!retKunnr) return showToast('Select a customer first', 'error')
+    try {
+      let url = `/customers/${retKunnr}/orders`
+      const p = new URLSearchParams()
+      if (retFrom) p.set('from', retFrom)
+      if (retTo) p.set('to', retTo)
+      if (p.toString()) url += '?' + p.toString()
+      const res = await fetch(url)
+      const data = await res.json()
+      setMatchingOrders(data.filter(o => o.order_type === 'S'))
+    } catch { showToast('Search failed', 'error') }
   }
 
-  function goToStep1() {
-    setCustomer(null)
-    setCartItems([])
-    setStep(1)
-    setShowCart(false)
+  async function selectReturnOrder(orderId) {
+    try {
+      const res = await fetch(`/orders/${orderId}`)
+      const data = await res.json()
+      setSelectedOrder(data.order)
+      setOrderLines(data.lines || [])
+      setReturnItems((data.lines || []).map(l => ({ ...l, return_qty: 0, selected: false })))
+      setStep(2)
+    } catch { showToast('Could not fetch order', 'error') }
   }
 
-  const cartCount = cartItems.reduce((s, i) => s + i.quantity, 0)
+  function goStep3() {
+    const selected = returnItems.filter(i => i.selected && i.return_qty > 0)
+    if (!selected.length) return showToast('Select at least one item to return', 'error')
+    if (!retReason) return showToast('Return reason required', 'error')
+    setStep(3)
+  }
+
+  async function confirmReturn() {
+    const items = returnItems.filter(i => i.selected && i.return_qty > 0)
+    const body = {
+      original_order_id: selectedOrder.order_id,
+      kunnr: selectedOrder.kunnr,
+      items: items.map(i => ({ matnr: i.matnr, quantity: i.return_qty, mrp: i.mrp, gst_rate: i.gst_rate })),
+      reason: retReason,
+      notes: retNotes,
+    }
+    try {
+      const res = await fetch('/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, order_type: 'R' }) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      showToast(`✅ Return ${data.order_id} created`)
+      navigate(`/invoice?order_id=${data.order_id}`)
+    } catch (err) { showToast(`❌ ${err.message}`, 'error') }
+  }
+
+  const retSelected = returnItems.filter(i => i.selected && i.return_qty > 0)
+  const retTotals = retSelected.reduce((acc, i) => {
+    const mrp = parseFloat(i.mrp || 0)
+    const gst = parseFloat(i.gst_rate || 0) / 100
+    const base = mrp / (1 + gst)
+    acc.subtotal += base * i.return_qty
+    acc.tax += (mrp - base) * i.return_qty
+    acc.total += mrp * i.return_qty
+    return acc
+  }, { subtotal: 0, tax: 0, total: 0 })
 
   return (
-    <div className="page-layout">
-      <Sidebar section="Sales" onTabChange={goToStep1} />
-      <div className="main" style={{ display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
-        {/* Topbar */}
-        <div className="topbar">
-          <div className="topbar-left">
-            <span style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22 }}>Sales Order</span>
-            {customer && (
-              <div className="customer-chip">
-                <span>👤</span>
-                <span style={{ fontFamily: 'Courier New', fontSize: 12 }}>{customer.kunnr}</span>
-                <span>{customer.name}</span>
+    <>
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28 }}>Returns</h1>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>Create a return order linked to an original sales order.</p>
+      </div>
+      <StepBar step={step} labels={['Find Order', 'Select Items', 'Confirm']} />
+
+      {step === 1 && (
+        <div className="card">
+          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, marginBottom: 4 }}>Find Original Order</div>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>Enter the order ID directly, or search by customer and date range.</p>
+
+          <div style={{ marginBottom: 24, paddingBottom: 24, borderBottom: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: 10 }}>Option A — I have the Order ID</div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', maxWidth: 400 }}>
+              <input value={orderIdInput} onChange={e => setOrderIdInput(e.target.value)} placeholder="e.g. S100001" style={{ flex: 1 }} onKeyDown={e => e.key === 'Enter' && fetchReturnOrder()} />
+              <button className="btn btn-primary" onClick={fetchReturnOrder} style={{ whiteSpace: 'nowrap' }}>Fetch Order →</button>
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: 10 }}>Option B — Search by Customer & Date</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px 160px auto', gap: 10, alignItems: 'flex-end', maxWidth: 700 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Customer</label>
+                <SearchDropdown
+                  placeholder="Name or KUNNR…"
+                  onSearch={searchReturnCustomer}
+                  onSelect={c => setRetKunnr(c.kunnr)}
+                  renderItem={c => (
+                    <div>
+                      <div className="sri-name">{c.name} <span className="sri-kunnr">{c.kunnr}</span></div>
+                    </div>
+                  )}
+                  width="100%"
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>From Date</label>
+                <input type="date" value={retFrom} onChange={e => setRetFrom(e.target.value)} style={{ width: '100%' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>To Date</label>
+                <input type="date" value={retTo} onChange={e => setRetTo(e.target.value)} style={{ width: '100%' }} />
+              </div>
+              <button className="btn btn-primary" onClick={searchOrdersForReturn}>Search →</button>
+            </div>
+
+            {matchingOrders.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', marginBottom: 8 }}>Select an order:</div>
+                {matchingOrders.map(o => (
+                  <div key={o.order_id} onClick={() => selectReturnOrder(o.order_id)} style={{
+                    padding: '10px 14px', borderRadius: 8, border: '1.5px solid var(--border)',
+                    marginBottom: 8, cursor: 'pointer', background: 'white', display: 'flex', justifyContent: 'space-between',
+                  }}>
+                    <span><strong>{o.order_id}</strong> · {fmtD(o.created_at)}</span>
+                    <span>{fmt(o.order_total)}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
-          {customer && cartCount > 0 && (
-            <button className="cart-btn" onClick={() => { setShowCart(true); setStep(3) }}>
-              🛒 Cart
-              <span className="cart-badge">{cartCount}</span>
-            </button>
-          )}
         </div>
+      )}
 
-        {/* Content */}
-        <div style={{ flex: 1, padding: '36px 40px', overflowY: 'auto' }}>
-          <StepBar step={step} />
-          {step === 1 && <CustomerView onCustomerSet={handleCustomerSet} />}
-          {step === 2 && (
-            <ProductsView
-              kunnr={customer.kunnr}
-              cartItems={cartItems}
-              onCartUpdated={handleCartUpdated}
-            />
+      {step === 2 && (
+        <div className="card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20 }}>Select Items to Return</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>Order: {selectedOrder?.order_id}</div>
+            </div>
+            <button className="btn btn-ghost" onClick={() => setStep(1)} style={{ fontSize: 13 }}>← Back</button>
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 600 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
+                  {['Return', 'MATNR', 'Product', 'Orig Qty', 'Return Qty', 'MRP', 'GST%'].map(h => (
+                    <th key={h} style={{ padding: '10px 12px', textAlign: h === 'Return' ? 'left' : h.includes('Qty') || h === 'MRP' || h === 'GST%' ? 'right' : 'left', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {returnItems.map((item, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '10px 12px' }}>
+                      <input type="checkbox" checked={item.selected} onChange={e => {
+                        const updated = [...returnItems]
+                        updated[i] = { ...updated[i], selected: e.target.checked, return_qty: e.target.checked ? updated[i].quantity : 0 }
+                        setReturnItems(updated)
+                      }} />
+                    </td>
+                    <td style={{ padding: '10px 12px' }}><span className="mono">{item.matnr}</span></td>
+                    <td style={{ padding: '10px 12px' }}>{item.brand || item.matnr}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>{item.quantity}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                      <input type="number" min="0" max={item.quantity} value={item.return_qty} disabled={!item.selected}
+                        onChange={e => {
+                          const updated = [...returnItems]
+                          updated[i] = { ...updated[i], return_qty: Math.min(parseInt(e.target.value) || 0, item.quantity) }
+                          setReturnItems(updated)
+                        }}
+                        style={{ width: 60, textAlign: 'center', padding: '4px 8px', fontSize: 13 }}
+                      />
+                    </td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>{fmt(item.mrp)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>{item.gst_rate || 0}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ marginTop: 20, display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Return Reason *</label>
+              <select value={retReason} onChange={e => setRetReason(e.target.value)} style={{ width: '100%' }}>
+                <option value="">Select reason…</option>
+                {reasons.map(r => <option key={r.reason || r} value={r.reason || r}>{r.reason || r}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: 2, minWidth: 200 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Notes (optional)</label>
+              <input value={retNotes} onChange={e => setRetNotes(e.target.value)} placeholder="Any additional details…" style={{ width: '100%' }} />
+            </div>
+            <button className="btn btn-primary" onClick={goStep3}>Review Return →</button>
+          </div>
+        </div>
+      )}
+
+      {step === 3 && (
+        <div className="card" style={{ background: '#fff5f5', border: '1.5px solid #fecaca' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+            <span style={{ fontSize: 24 }}>↩️</span>
+            <div>
+              <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, color: 'var(--danger)' }}>Confirm Return Order</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)' }}>Original Order: {selectedOrder?.order_id}</div>
+            </div>
+            <button className="btn btn-ghost" onClick={() => setStep(2)} style={{ marginLeft: 'auto', fontSize: 13 }}>← Back</button>
+          </div>
+
+          <div style={{ marginBottom: 16, padding: '12px 16px', background: 'var(--accent2)', borderRadius: 8, fontSize: 13 }}>
+            {retSelected.length} item(s) · Reason: <strong>{retReason}</strong>
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 550 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
+                  {['MATNR', 'Product', 'Qty', 'MRP', 'GST%', 'Refund'].map(h => (
+                    <th key={h} style={{ padding: '10px 12px', textAlign: ['Qty', 'MRP', 'GST%', 'Refund'].includes(h) ? 'right' : 'left', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {retSelected.map((item, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '10px 12px' }}><span className="mono">{item.matnr}</span></td>
+                    <td style={{ padding: '10px 12px' }}>{item.brand || item.matnr}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>{item.return_qty}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>{fmt(item.mrp)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>{item.gst_rate || 0}%</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}><strong>{fmt(parseFloat(item.mrp || 0) * item.return_qty)}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+            <div style={{ minWidth: 260 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: 13, color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>
+                <span>Subtotal Refund</span><span>{fmt(retTotals.subtotal)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: 13, color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>
+                <span>GST Refund</span><span>{fmt(retTotals.tax)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', fontSize: 18, fontWeight: 700, color: 'var(--danger)' }}>
+                <span>Total Refund</span><span>{fmt(retTotals.total)}</span>
+              </div>
+            </div>
+          </div>
+
+          <button className="btn" onClick={confirmReturn} style={{ background: 'var(--danger)', color: 'white', fontSize: 14, padding: '12px 28px', marginTop: 8 }}>
+            ↩️ Confirm Return & Restock
+          </button>
+        </div>
+      )}
+    </>
+  )
+}
+
+// ── Sales Pricing ─────────────────────────────────────────────────────────────
+function PricingTab() {
+  const showToast = useToast()
+  const [pricingSeg, setPricingSeg] = useState('salesprice')
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [spData, setSpData] = useState([])
+  const [cdData, setCdData] = useState([])
+  const [pdData, setPdData] = useState([])
+  const [spFilter, setSpFilter] = useState('')
+  const [cdFilter, setCdFilter] = useState('')
+  const [pdFilter, setPdFilter] = useState('')
+  const [spForm, setSpForm] = useState({ matnr: '', matnr_label: '', valid_from: '', valid_to: '', unit_price: '' })
+  const [cdForm, setCdForm] = useState({ kunnr: '', kunnr_label: '', discount: '', valid_from: '', valid_to: '' })
+  const [pdForm, setPdForm] = useState({ matnr: '', matnr_label: '', discount: '', valid_from: '', valid_to: '' })
+
+  const loadSP = useCallback(async () => {
+    try { const r = await fetch('/pricing/sales-price'); setSpData(await r.json()) } catch {}
+  }, [])
+  const loadCD = useCallback(async () => {
+    try { const r = await fetch('/pricing/customer-discount'); setCdData(await r.json()) } catch {}
+  }, [])
+  const loadPD = useCallback(async () => {
+    try { const r = await fetch('/pricing/product-discount'); setPdData(await r.json()) } catch {}
+  }, [])
+
+  useEffect(() => { loadSP(); loadCD(); loadPD() }, [loadSP, loadCD, loadPD])
+
+  async function searchMatnr(q) {
+    try { const r = await fetch(`/inventory/search?q=${encodeURIComponent(q)}`); return await r.json() } catch { return [] }
+  }
+  async function searchCust(q) {
+    try { const r = await fetch(`/customers/search?q=${encodeURIComponent(q)}`); return await r.json() } catch { return [] }
+  }
+
+  async function saveSP() {
+    if (!spForm.matnr || !spForm.unit_price || !spForm.valid_from) return showToast('MATNR, price and valid from required', 'error')
+    try {
+      const res = await fetch('/pricing/sales-price', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matnr: spForm.matnr, unit_price: parseFloat(spForm.unit_price), valid_from: spForm.valid_from, valid_to: spForm.valid_to || '12319999' }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      showToast('✅ Price saved')
+      setSpForm({ matnr: '', matnr_label: '', valid_from: '', valid_to: '', unit_price: '' })
+      setShowAddForm(false)
+      loadSP()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
+
+  async function saveCD() {
+    if (!cdForm.kunnr || !cdForm.discount || !cdForm.valid_from) return showToast('Customer, discount and valid from required', 'error')
+    try {
+      const res = await fetch('/pricing/customer-discount', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kunnr: cdForm.kunnr, discount_pct: parseFloat(cdForm.discount), valid_from: cdForm.valid_from, valid_to: cdForm.valid_to || '12319999' }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      showToast('✅ Discount saved')
+      setCdForm({ kunnr: '', kunnr_label: '', discount: '', valid_from: '', valid_to: '' })
+      setShowAddForm(false)
+      loadCD()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
+
+  async function savePD() {
+    if (!pdForm.matnr || !pdForm.discount || !pdForm.valid_from) return showToast('MATNR, discount and valid from required', 'error')
+    try {
+      const res = await fetch('/pricing/product-discount', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matnr: pdForm.matnr, discount_pct: parseFloat(pdForm.discount), valid_from: pdForm.valid_from, valid_to: pdForm.valid_to || '12319999' }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      showToast('✅ Discount saved')
+      setPdForm({ matnr: '', matnr_label: '', discount: '', valid_from: '', valid_to: '' })
+      setShowAddForm(false)
+      loadPD()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
+
+  async function deleteRecord(type, id) {
+    if (!confirm('Delete this pricing record?')) return
+    try {
+      await fetch(`/pricing/${type}/${id}`, { method: 'DELETE' })
+      if (type === 'sales-price') loadSP()
+      else if (type === 'customer-discount') loadCD()
+      else loadPD()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
+
+  const filteredSP = spFilter ? spData.filter(r => JSON.stringify(r).toLowerCase().includes(spFilter.toLowerCase())) : spData
+  const filteredCD = cdFilter ? cdData.filter(r => JSON.stringify(r).toLowerCase().includes(cdFilter.toLowerCase())) : cdData
+  const filteredPD = pdFilter ? pdData.filter(r => JSON.stringify(r).toLowerCase().includes(pdFilter.toLowerCase())) : pdData
+
+  return (
+    <>
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28 }}>Sales Pricing</h1>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>Manage sales prices and discount tables.</p>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+        <div className="seg-group">
+          {[
+            { id: 'salesprice', label: '💲 Sales Price' },
+            { id: 'custdiscount', label: '👤 Customer Discount' },
+            { id: 'proddiscount', label: '🏷️ Product Discount' },
+          ].map(s => (
+            <button key={s.id} className={`seg-btn${pricingSeg === s.id ? ' active' : ''}`} onClick={() => { setPricingSeg(s.id); setShowAddForm(false) }}>{s.label}</button>
+          ))}
+        </div>
+        <button className="btn btn-primary" onClick={() => setShowAddForm(f => !f)} style={{ fontSize: 13, padding: '9px 18px' }}>
+          {showAddForm ? '✕ Cancel' : '+ Add New'}
+        </button>
+      </div>
+
+      {/* Sales Price */}
+      {pricingSeg === 'salesprice' && (
+        <>
+          {showAddForm && (
+            <div className="pricing-add-form open">
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 16 }}>Add Sales Price</div>
+              <div className="pricing-form-grid">
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Material</label>
+                  <SearchDropdown placeholder="Search MATNR or brand…" onSearch={searchMatnr} onSelect={p => setSpForm(f => ({ ...f, matnr: p.matnr, matnr_label: `${p.matnr} - ${p.brand}` }))}
+                    renderItem={p => <div><span className="sri-kunnr">{p.matnr}</span> {p.brand}</div>} width="100%" />
+                  {spForm.matnr && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Selected: {spForm.matnr}</div>}
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Valid From</label>
+                  <input type="date" value={spForm.valid_from} onChange={e => setSpForm(f => ({ ...f, valid_from: e.target.value }))} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Valid To (optional)</label>
+                  <input type="date" value={spForm.valid_to} onChange={e => setSpForm(f => ({ ...f, valid_to: e.target.value }))} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Unit Price (₹)</label>
+                  <input type="number" value={spForm.unit_price} onChange={e => setSpForm(f => ({ ...f, unit_price: e.target.value }))} placeholder="0.00" min="0" step="0.01" />
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                  <button className="btn btn-primary" onClick={saveSP} style={{ fontSize: 13, padding: '9px 16px' }}>Save</button>
+                  <button className="btn btn-ghost" onClick={() => setShowAddForm(false)} style={{ fontSize: 13, padding: '9px 16px' }}>Cancel</button>
+                </div>
+              </div>
+            </div>
           )}
-          {step === 3 && (
-            <CartView
-              kunnr={customer.kunnr}
-              cartItems={cartItems}
-              onBack={() => { setShowCart(false); setStep(2) }}
-              onOrderPlaced={handleOrderPlaced}
-              onCartUpdated={handleCartUpdated}
-            />
+          <div className="pricing-toolbar">
+            <div className="form-group" style={{ margin: 0 }}>
+              <label>Filter by Material</label>
+              <input value={spFilter} onChange={e => setSpFilter(e.target.value)} placeholder="MATNR or brand…" style={{ width: 220 }} />
+            </div>
+            <button className="btn btn-ghost" onClick={loadSP} style={{ alignSelf: 'flex-end', fontSize: 13 }}>↺ Refresh</button>
+          </div>
+          <div className="table-card">
+            <table>
+              <thead><tr><th>MATNR</th><th>Brand</th><th>Category</th><th>Valid From</th><th>Valid To</th><th className="right">Unit Price</th><th></th></tr></thead>
+              <tbody>
+                {filteredSP.length === 0 ? <tr className="state-row"><td colSpan={7}>No sales prices found.</td></tr>
+                  : filteredSP.map((r, i) => (
+                    <tr key={i}>
+                      <td><span className="mono">{r.matnr}</span></td>
+                      <td>{r.brand || '—'}</td>
+                      <td>{r.category || '—'}</td>
+                      <td>{r.valid_from}</td>
+                      <td>{r.valid_to === '12319999' ? 'Open' : r.valid_to}</td>
+                      <td className="right"><strong>{fmt(r.unit_price)}</strong></td>
+                      <td><button className="action-btn btn-delete" onClick={() => deleteRecord('sales-price', r.id)}>Delete</button></td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {/* Customer Discount */}
+      {pricingSeg === 'custdiscount' && (
+        <>
+          {showAddForm && (
+            <div className="pricing-add-form open">
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 16 }}>Add Customer Discount</div>
+              <div className="pricing-form-grid">
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Customer</label>
+                  <SearchDropdown placeholder="Search name or KUNNR…" onSearch={searchCust} onSelect={c => setCdForm(f => ({ ...f, kunnr: c.kunnr, kunnr_label: `${c.kunnr} - ${c.name}` }))}
+                    renderItem={c => <div><span className="sri-kunnr">{c.kunnr}</span> {c.name}</div>} width="100%" />
+                  {cdForm.kunnr && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Selected: {cdForm.kunnr}</div>}
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Discount %</label>
+                  <input type="number" value={cdForm.discount} onChange={e => setCdForm(f => ({ ...f, discount: e.target.value }))} placeholder="e.g. 10" min="0" max="100" step="0.1" />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Valid From</label>
+                  <input type="date" value={cdForm.valid_from} onChange={e => setCdForm(f => ({ ...f, valid_from: e.target.value }))} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Valid To (optional)</label>
+                  <input type="date" value={cdForm.valid_to} onChange={e => setCdForm(f => ({ ...f, valid_to: e.target.value }))} />
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                  <button className="btn btn-primary" onClick={saveCD} style={{ fontSize: 13, padding: '9px 16px' }}>Save</button>
+                  <button className="btn btn-ghost" onClick={() => setShowAddForm(false)} style={{ fontSize: 13, padding: '9px 16px' }}>Cancel</button>
+                </div>
+              </div>
+            </div>
           )}
+          <div className="pricing-toolbar">
+            <div className="form-group" style={{ margin: 0 }}>
+              <label>Filter by Customer</label>
+              <input value={cdFilter} onChange={e => setCdFilter(e.target.value)} placeholder="Name or KUNNR…" style={{ width: 220 }} />
+            </div>
+            <button className="btn btn-ghost" onClick={loadCD} style={{ alignSelf: 'flex-end', fontSize: 13 }}>↺ Refresh</button>
+          </div>
+          <div className="table-card">
+            <table>
+              <thead><tr><th>KUNNR</th><th>Customer Name</th><th className="right">Discount %</th><th>Valid From</th><th>Valid To</th><th></th></tr></thead>
+              <tbody>
+                {filteredCD.length === 0 ? <tr className="state-row"><td colSpan={6}>No customer discounts found.</td></tr>
+                  : filteredCD.map((r, i) => (
+                    <tr key={i}>
+                      <td><span className="mono">{r.kunnr}</span></td>
+                      <td>{r.customer_name || '—'}</td>
+                      <td className="right"><strong>{r.discount_pct}%</strong></td>
+                      <td>{r.valid_from}</td>
+                      <td>{r.valid_to === '12319999' ? 'Open' : r.valid_to}</td>
+                      <td><button className="action-btn btn-delete" onClick={() => deleteRecord('customer-discount', r.id)}>Delete</button></td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {/* Product Discount */}
+      {pricingSeg === 'proddiscount' && (
+        <>
+          {showAddForm && (
+            <div className="pricing-add-form open">
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 16 }}>Add Product Discount</div>
+              <div className="pricing-form-grid">
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Material</label>
+                  <SearchDropdown placeholder="Search MATNR or brand…" onSearch={searchMatnr} onSelect={p => setPdForm(f => ({ ...f, matnr: p.matnr, matnr_label: `${p.matnr} - ${p.brand}` }))}
+                    renderItem={p => <div><span className="sri-kunnr">{p.matnr}</span> {p.brand}</div>} width="100%" />
+                  {pdForm.matnr && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Selected: {pdForm.matnr}</div>}
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Discount %</label>
+                  <input type="number" value={pdForm.discount} onChange={e => setPdForm(f => ({ ...f, discount: e.target.value }))} placeholder="e.g. 15" min="0" max="100" step="0.1" />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Valid From</label>
+                  <input type="date" value={pdForm.valid_from} onChange={e => setPdForm(f => ({ ...f, valid_from: e.target.value }))} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Valid To (optional)</label>
+                  <input type="date" value={pdForm.valid_to} onChange={e => setPdForm(f => ({ ...f, valid_to: e.target.value }))} />
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                  <button className="btn btn-primary" onClick={savePD} style={{ fontSize: 13, padding: '9px 16px' }}>Save</button>
+                  <button className="btn btn-ghost" onClick={() => setShowAddForm(false)} style={{ fontSize: 13, padding: '9px 16px' }}>Cancel</button>
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="pricing-toolbar">
+            <div className="form-group" style={{ margin: 0 }}>
+              <label>Filter by Material</label>
+              <input value={pdFilter} onChange={e => setPdFilter(e.target.value)} placeholder="MATNR or brand…" style={{ width: 220 }} />
+            </div>
+            <button className="btn btn-ghost" onClick={loadPD} style={{ alignSelf: 'flex-end', fontSize: 13 }}>↺ Refresh</button>
+          </div>
+          <div className="table-card">
+            <table>
+              <thead><tr><th>MATNR</th><th>Brand</th><th>Category</th><th className="right">Discount %</th><th>Valid From</th><th>Valid To</th><th></th></tr></thead>
+              <tbody>
+                {filteredPD.length === 0 ? <tr className="state-row"><td colSpan={7}>No product discounts found.</td></tr>
+                  : filteredPD.map((r, i) => (
+                    <tr key={i}>
+                      <td><span className="mono">{r.matnr}</span></td>
+                      <td>{r.brand || '—'}</td>
+                      <td>{r.category || '—'}</td>
+                      <td className="right"><strong>{r.discount_pct}%</strong></td>
+                      <td>{r.valid_from}</td>
+                      <td>{r.valid_to === '12319999' ? 'Open' : r.valid_to}</td>
+                      <td><button className="action-btn btn-delete" onClick={() => deleteRecord('product-discount', r.id)}>Delete</button></td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </>
+  )
+}
+
+// ── Root ──────────────────────────────────────────────────────────────────────
+export default function Sales() {
+  const [searchParams] = useSearchParams()
+  const initialTab = searchParams.get('tab') || 'new'
+  const [tab, setTab] = useState(initialTab)
+
+  return (
+    <div className="page-layout">
+      <Sidebar section="Sales" activeTab={tab} onTabChange={setTab} />
+      <div className="main" style={{ display: 'flex', flexDirection: 'column' }}>
+        <div className="content">
+          {tab === 'new' && <NewOrderTab />}
+          {tab === 'orders' && <AllOrdersTab />}
+          {tab === 'returns' && <ReturnsTab />}
+          {tab === 'pricing' && <PricingTab />}
         </div>
       </div>
     </div>

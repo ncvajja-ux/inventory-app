@@ -1,49 +1,103 @@
 import { Link } from 'react-router-dom'
 
+const SECTION_CONFIG = {
+  Customers: {
+    tabs: [
+      { id: 'add',    icon: '➕', label: 'Add Customer' },
+      { id: 'view',   icon: '👥', label: 'View Customers' },
+      { id: 'upload', icon: '📥', label: 'Mass Upload' },
+    ],
+    navLinks: [{ href: '/inventory', icon: '🏷️', label: 'Inventory' }],
+  },
+  Inventory: {
+    tabs: [
+      { id: 'add',    icon: '🆕', label: 'New Product' },
+      { id: 'view',   icon: '📦', label: 'View Stock' },
+      { id: 'cats',   icon: '🗂️', label: 'Config' },
+      { id: 'upload', icon: '📥', label: 'Mass Upload' },
+    ],
+    navLinks: [
+      { href: '/customers', icon: '👤', label: 'Customers' },
+      { href: '/sales',     icon: '🧾', label: 'Sales' },
+    ],
+  },
+  Sales: {
+    tabs: [
+      { id: 'new',     icon: '🧾', label: 'New Order' },
+      { id: 'orders',  icon: '📋', label: 'All Orders' },
+      { id: 'returns', icon: '↩️', label: 'Returns' },
+      { id: 'pricing', icon: '💰', label: 'Sales Pricing' },
+    ],
+    navLinks: [
+      { href: '/customers', icon: '👤', label: 'Customers' },
+      { href: '/inventory', icon: '🏷️', label: 'Inventory' },
+    ],
+  },
+  Buyers: {
+    tabs: [
+      { id: 'add',  icon: '➕', label: 'Add Buyer' },
+      { id: 'view', icon: '🏢', label: 'View Buyers' },
+    ],
+    navLinks: [
+      { href: '/purchase-orders', icon: '📦', label: 'Purchase Orders' },
+      { href: '/customers',       icon: '👤', label: 'Customers' },
+      { href: '/inventory',       icon: '🏷️', label: 'Inventory' },
+    ],
+  },
+  PurchaseOrders: {
+    tabs: [
+      { id: 'new', icon: '➕', label: 'New PO' },
+      { id: 'all', icon: '📋', label: 'All POs' },
+    ],
+    navLinks: [
+      { href: '/buyers',    icon: '🏢', label: 'Buyers' },
+      { href: '/inventory', icon: '🏷️', label: 'Inventory' },
+      { href: '/sales',     icon: '🧾', label: 'Sales' },
+    ],
+  },
+  Analytics: {
+    tabs: [],
+    navLinks: [
+      { href: '/customers', icon: '👤', label: 'Customers' },
+      { href: '/inventory', icon: '🏷️', label: 'Inventory' },
+      { href: '/sales',     icon: '🧾', label: 'Sales' },
+    ],
+  },
+}
+
 export default function Sidebar({ section, activeTab, onTabChange }) {
+  const cfg = SECTION_CONFIG[section] || { tabs: [], navLinks: [] }
+
   return (
     <div className="sidebar">
-      <Link className="sidebar-brand" to="/">Store CRM</Link>
+      <Link className="sidebar-brand" to="/" style={{ textDecoration: 'none' }}>
+        Fat Closet
+      </Link>
       <div className="sidebar-sub">{section}</div>
 
-      {section === 'Customers' && (
+      {cfg.tabs.length > 0 && (
         <>
-          <span className="nav-section">Customers</span>
-          <button className={`nav-item ${activeTab === 'add' ? 'active' : ''}`} onClick={() => onTabChange('add')}>
-            ➕ Add Customer
-          </button>
-          <button className={`nav-item ${activeTab === 'view' ? 'active' : ''}`} onClick={() => onTabChange('view')}>
-            👥 View Customers
-          </button>
-          <span className="nav-section">Navigation</span>
-          <Link className="nav-item" to="/inventory">🏷️ Inventory</Link>
+          <span className="nav-section">{section}</span>
+          {cfg.tabs.map(tab => (
+            <button
+              key={tab.id}
+              className={`nav-item${activeTab === tab.id ? ' active' : ''}`}
+              onClick={() => onTabChange && onTabChange(tab.id)}
+            >
+              {tab.icon} {tab.label}
+            </button>
+          ))}
         </>
       )}
 
-      {section === 'Inventory' && (
+      {cfg.navLinks.length > 0 && (
         <>
-          <span className="nav-section">Inventory</span>
-          <button className={`nav-item ${activeTab === 'add' ? 'active' : ''}`} onClick={() => onTabChange('add')}>
-            ➕ Add Item
-          </button>
-          <button className={`nav-item ${activeTab === 'view' ? 'active' : ''}`} onClick={() => onTabChange('view')}>
-            📦 View Stock
-          </button>
-          <button className={`nav-item ${activeTab === 'cats' ? 'active' : ''}`} onClick={() => onTabChange('cats')}>
-            🗂️ Categories
-          </button>
           <span className="nav-section">Navigation</span>
-          <Link className="nav-item" to="/customers">👤 Customers</Link>
-        </>
-      )}
-
-      {section === 'Sales' && (
-        <>
-          <span className="nav-section">Sales</span>
-          <span className="nav-item active">🧾 New Order</span>
-          <span className="nav-section">Navigation</span>
-          <Link className="nav-item" to="/customers">👤 Customers</Link>
-          <Link className="nav-item" to="/inventory">🏷️ Inventory</Link>
+          {cfg.navLinks.map(link => (
+            <Link key={link.href} className="nav-item" to={link.href}>
+              {link.icon} {link.label}
+            </Link>
+          ))}
         </>
       )}
 
