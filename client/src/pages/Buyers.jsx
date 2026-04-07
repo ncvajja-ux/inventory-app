@@ -139,7 +139,7 @@ function AddTab({ onAdded }) {
       const res = await fetch('/buyers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, name: form.company_name }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to add buyer')
@@ -172,7 +172,7 @@ function EditModal({ buyer, onClose, onSaved }) {
       const res = await fetch(`/buyers/${buyer.buyer_id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, name: form.company_name }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Update failed')
@@ -190,7 +190,7 @@ function EditModal({ buyer, onClose, onSaved }) {
         <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, marginBottom: 4 }}>Edit Buyer</div>
         <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24 }}>Editing: {buyer.buyer_id}</div>
         <BuyerForm
-          initial={buyer}
+          initial={{ ...buyer, company_name: buyer.name }}
           title="Edit Buyer"
           sub={`Editing Buyer ID: ${buyer.buyer_id}`}
           onSubmit={submit}
