@@ -126,6 +126,7 @@ function BuyerForm({ initial = {}, onSubmit, onCancel, title, sub, badgeLabel, b
 function AddTab({ onAdded }) {
   const showToast = useToast()
   const [nextId, setNextId] = useState('—')
+  const [formKey, setFormKey] = useState(0)
 
   const loadNextId = useCallback(async () => {
     try { const r = await fetch('/next-buyer-id'); const d = await r.json(); setNextId(d.buyer_id || '—') } catch { setNextId('Auto') }
@@ -145,21 +146,78 @@ function AddTab({ onAdded }) {
       if (!res.ok) throw new Error(data.error || 'Failed to add buyer')
       showToast(`✅ ${form.company_name} added! ID: ${data.buyer_id}`)
       loadNextId()
+      setFormKey(k => k + 1)
       onAdded()
     } catch (err) {
       showToast(`❌ ${err.message}`, 'error')
     }
   }
 
+  function handleClear() {
+    setFormKey(k => k + 1)
+    loadNextId()
+  }
+
   return (
     <BuyerForm
+      key={formKey}
       title="Add Buyer"
       sub="Register a new vendor or supplier."
       badgeLabel="Auto-Assigned Buyer ID"
       badgeValue={nextId}
       onSubmit={submit}
-      onCancel={() => loadNextId()}
+      onCancel={handleClear}
     />
+  )
+}
+
+function ViewModal({ buyer, onClose, onEdit }) {
+  const row = buyer
+  const field = (label, value) => value ? (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '0.1em', marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 14 }}>{value}</div>
+    </div>
+  ) : null
+
+  const billingParts = [row.addr1, row.addr2, row.city, row.state, row.zip, row.country].filter(Boolean)
+
+  return (
+    <div className="modal-overlay open" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 600, width: '95vw', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+          <div>
+            <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, marginBottom: 4 }}>
+              {row.name || '—'}
+            </div>
+            <div className="id-badge" style={{ display: 'inline-block' }}>{row.buyer_id}</div>
+          </div>
+          <button className="btn btn-ghost" style={{ fontSize: 18, lineHeight: 1, padding: '4px 10px' }} onClick={onClose}>✕</button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 24px', marginBottom: 16 }}>
+          {field('Phone', row.phone)}
+          {field('Email', row.email)}
+          {field('GSTIN', row.gstin)}
+          {field('PAN / Tax ID', row.tax_id)}
+          {field('Export ID', row.export_id)}
+          {field('Payment Terms', row.payment_terms)}
+        </div>
+
+        {billingParts.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '0.1em', marginBottom: 2 }}>BILLING ADDRESS</div>
+            <div style={{ fontSize: 14 }}>{billingParts.join(', ')}</div>
+          </div>
+        )}
+        {field('Default Shipping City', row.ship_city)}
+
+        <div className="modal-actions" style={{ marginTop: 24, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="btn btn-ghost" onClick={onClose}>Close</button>
+          <button className="btn btn-primary" onClick={() => { onClose(); onEdit(buyer) }}>Edit Buyer</button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -206,6 +264,7 @@ function ViewTab() {
   const [allData, setAllData] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
+  const [viewingBuyer, setViewingBuyer] = useState(null)
   const [editingBuyer, setEditingBuyer] = useState(null)
 
   const loadData = useCallback(async () => {
@@ -265,19 +324,19 @@ function ViewTab() {
             ) : filtered.length === 0 ? (
               <tr className="state-row"><td colSpan={9}>No buyers found.</td></tr>
             ) : filtered.map(row => (
-              <tr key={row.buyer_id}>
+              <tr key={row.buyer_id} style={{ cursor: 'pointer' }} onClick={() => setViewingBuyer(row)}>
                 <td><span className="mono">{row.buyer_id}</span></td>
-                <td><strong>{row.company_name || '—'}</strong></td>
+                <td><strong>{row.name || '—'}</strong></td>
                 <td>{row.phone || '—'}</td>
                 <td>{row.email || '—'}</td>
                 <td>{row.city || '—'}</td>
                 <td>{row.state || '—'}</td>
                 <td>{row.gstin || '—'}</td>
                 <td>{row.payment_terms || '—'}</td>
-                <td>
+                <td onClick={e => e.stopPropagation()}>
                   <div className="actions">
                     <button className="action-btn btn-edit" onClick={() => setEditingBuyer(row)}>Edit</button>
-                    <button className="action-btn btn-delete" onClick={() => deleteBuyer(row.buyer_id, row.company_name)}>Delete</button>
+                    <button className="action-btn btn-delete" onClick={() => deleteBuyer(row.buyer_id, row.name)}>Delete</button>
                   </div>
                 </td>
               </tr>
@@ -285,6 +344,14 @@ function ViewTab() {
           </tbody>
         </table>
       </div>
+
+      {viewingBuyer && (
+        <ViewModal
+          buyer={viewingBuyer}
+          onClose={() => setViewingBuyer(null)}
+          onEdit={b => setEditingBuyer(b)}
+        />
+      )}
 
       {editingBuyer && (
         <EditModal
