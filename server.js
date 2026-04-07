@@ -57,14 +57,29 @@ invDb.serialize(() => {
         color TEXT, fit TEXT, tax_category TEXT,
         param1 TEXT, param2 TEXT
     )`);
-    // Migrate: add tax_category if missing
+    // Migrate: add any columns missing from old single-DB schema
     invDb.all("PRAGMA table_info(mara)", [], (err, cols) => {
         if (err || !cols) return;
-        if (!cols.find(c => c.name === 'tax_category')) {
-            invDb.run("ALTER TABLE mara ADD COLUMN tax_category TEXT",
-                (err) => { if (!err) console.log("✅ Added mara.tax_category"); }
-            );
-        }
+        const have = new Set(cols.map(c => c.name));
+        const toAdd = [
+            ["cost_price",    "REAL DEFAULT 0.00"],
+            ["mrp",           "REAL DEFAULT 0.00"],
+            ["reserved",      "INTEGER DEFAULT 0"],
+            ["gender",        "TEXT"],
+            ["category",      "TEXT"],
+            ["subcategory",   "TEXT"],
+            ["subsubcategory","TEXT"],
+            ["color",         "TEXT"],
+            ["fit",           "TEXT"],
+            ["tax_category",  "TEXT"],
+        ];
+        toAdd.forEach(([col, def]) => {
+            if (!have.has(col)) {
+                invDb.run(`ALTER TABLE mara ADD COLUMN ${col} ${def}`,
+                    (err) => { if (!err) console.log(`✅ Migrated mara: added ${col}`); }
+                );
+            }
+        });
     });
     invDb.run(`CREATE TABLE IF NOT EXISTS categories (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
