@@ -91,37 +91,50 @@ function SearchDropdown({ placeholder, onSearch, onSelect, renderItem, width = 3
 function NewOrderTab() {
   const showToast = useToast()
   const navigate = useNavigate()
-  const [step, setStep] = useState(1)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Step and customer stored in URL so browser back/forward works
+  const step = parseInt(searchParams.get('step') || '1')
+  const urlKunnr = searchParams.get('kunnr') || ''
+
   const [customer, setCustomer] = useState(null)
-  const [products, setProducts] = useState([])
+  const [cart, setCart] = useState([])                // local cart state
   const [allInventory, setAllInventory] = useState([])
+  const [products, setProducts] = useState([])
   const [selectedProduct, setSelectedProduct] = useState(null)
   const [addQty, setAddQty] = useState(1)
-  const [cart, setCart] = useState([])
   const [filterCat, setFilterCat] = useState('')
   const [filterBrand, setFilterBrand] = useState('')
   const [productSearch, setProductSearch] = useState('')
   const [categories, setCategories] = useState({})
   const [brands, setBrands] = useState([])
   const [orderForm, setOrderForm] = useState({ payment_method: '', discount: '', salesperson: '', notes: '' })
+  const [placing, setPlacing] = useState(false)
+
+  // Restore customer from URL when navigating back
+  useEffect(() => {
+    if (urlKunnr && !customer) {
+      fetch(`/customers/${urlKunnr}`)
+        .then(r => r.json())
+        .then(c => { if (!c.error) setCustomer(c) })
+        .catch(() => {})
+    }
+  }, [urlKunnr]) // eslint-disable-line
+
+  // Restore cart from server temp when navigating back to step 2 or 3
+  useEffect(() => {
+    if (urlKunnr && step >= 2 && cart.length === 0) {
+      fetch(`/order/temp/${urlKunnr}`)
+        .then(r => r.json())
+        .then(order => { if (order?.items?.length) setCart(order.items) })
+        .catch(() => {})
+    }
+  }, [urlKunnr, step]) // eslint-disable-line
 
   useEffect(() => {
     fetch('/categories').then(r => r.json()).then(setCategories).catch(() => {})
     fetch('/brands').then(r => r.json()).then(setBrands).catch(() => {})
   }, [])
-
-  async function searchCustomers(q) {
-    try {
-      const res = await fetch(`/customers/search?q=${encodeURIComponent(q)}`)
-      return await res.json()
-    } catch { return [] }
-  }
-
-  function selectCustomer(c) {
-    setCustomer(c)
-    setStep(2)
-    loadProducts()
-  }
 
   async function loadProducts() {
     try {
@@ -133,10 +146,9 @@ function NewOrderTab() {
   }
 
   useEffect(() => {
-    if (!allInventory.length) return
     let filtered = allInventory
-    if (filterCat) filtered = filtered.filter(p => p.category === filterCat)
-    if (filterBrand) filtered = filtered.filter(p => p.brand === filterBrand)
+    if (filterCat)    filtered = filtered.filter(p => p.category === filterCat)
+    if (filterBrand)  filtered = filtered.filter(p => p.brand === filterBrand)
     if (productSearch) {
       const q = productSearch.toLowerCase()
       filtered = filtered.filter(p => Object.values(p).some(v => String(v ?? '').toLowerCase().includes(q)))
@@ -144,11 +156,51 @@ function NewOrderTab() {
     setProducts(filtered)
   }, [filterCat, filterBrand, productSearch, allInventory])
 
-  function addToCart() {
+  async function searchCustomers(q) {
+    try { return await fetch(`/customers/search?q=${encodeURIComponent(q)}`).then(r => r.json()) }
+    catch { return [] }
+  }
+
+  // Navigate to a wizard step — pushes a browser history entry
+  function goStep(n, kunnr) {
+    const p = new URLSearchParams()
+    p.set('tab', 'new')
+    if (n > 1) p.set('step', String(n))
+    if (kunnr) p.set('kunnr', kunnr)
+    setSearchParams(p)   // adds history entry — browser back goes to previous step
+  }
+
+  async function selectCustomer(c) {
+    setCustomer(c)
+    setCart([])
+    // Clear any stale temp cart for this customer
+    await fetch(`/order/temp/${c.kunnr}/clear`, { method: 'DELETE' }).catch(() => {})
+    goStep(2, c.kunnr)
+    loadProducts()
+  }
+
+  async function addToCart() {
     if (!selectedProduct) return showToast('Select a product first', 'error')
     const qty = parseInt(addQty) || 1
     if (qty < 1) return showToast('Quantity must be at least 1', 'error')
+    const kunnr = customer?.kunnr || urlKunnr
 
+    // Add to server-side temp cart
+    try {
+      await fetch(`/order/temp/${kunnr}/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          matnr: selectedProduct.matnr,
+          quantity: qty,
+          price: selectedProduct.mrp || 0,
+          mrp: selectedProduct.mrp || 0,
+          gst_rate: selectedProduct.gst_rate || 0,
+        }),
+      })
+    } catch { /* server may be temporarily unavailable */ }
+
+    // Also update local state for immediate UI feedback
     setCart(prev => {
       const idx = prev.findIndex(i => i.matnr === selectedProduct.matnr)
       if (idx >= 0) {
@@ -163,14 +215,32 @@ function NewOrderTab() {
     setAddQty(1)
   }
 
-  function updateCartQty(matnr, delta) {
-    setCart(prev => prev.map(item =>
-      item.matnr === matnr ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item
-    ))
+  async function updateCartQty(matnr, delta) {
+    const kunnr = customer?.kunnr || urlKunnr
+    const item = cart.find(i => i.matnr === matnr)
+    if (!item) return
+    const newQty = Math.max(1, item.quantity + delta)
+    // Update server temp cart
+    fetch(`/order/temp/${kunnr}/item/${matnr}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quantity: newQty }),
+    }).catch(() => {})
+    setCart(prev => prev.map(i => i.matnr === matnr ? { ...i, quantity: newQty } : i))
   }
 
-  function removeFromCart(matnr) {
+  async function removeFromCart(matnr) {
+    const kunnr = customer?.kunnr || urlKunnr
+    fetch(`/order/temp/${kunnr}/item/${matnr}`, { method: 'DELETE' }).catch(() => {})
     setCart(prev => prev.filter(i => i.matnr !== matnr))
+  }
+
+  async function startNewOrder() {
+    const kunnr = customer?.kunnr || urlKunnr
+    if (kunnr) await fetch(`/order/temp/${kunnr}/clear`, { method: 'DELETE' }).catch(() => {})
+    setCart([]); setCustomer(null); setSelectedProduct(null)
+    setOrderForm({ payment_method: '', discount: '', salesperson: '', notes: '' })
+    goStep(1)
   }
 
   const cartTotals = cart.reduce((acc, item) => {
@@ -188,30 +258,23 @@ function NewOrderTab() {
 
   async function placeOrder() {
     if (!cart.length) return showToast('Cart is empty', 'error')
-    const body = {
-      kunnr: customer.kunnr,
-      items: cart.map(i => ({ matnr: i.matnr, quantity: i.quantity, mrp: i.mrp || i.sales_price || 0, gst_rate: i.gst_rate || 0 })),
-      payment_method: orderForm.payment_method,
-      discount: discountAmt,
-      salesperson: orderForm.salesperson,
-      notes: orderForm.notes,
-    }
+    const kunnr = customer?.kunnr || urlKunnr
+    setPlacing(true)
     try {
-      const res = await fetch('/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      // Use the server temp cart flow: place the order from temp cart
+      const res = await fetch(`/order/place/${kunnr}`, { method: 'POST' })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed')
+      if (!res.ok) throw new Error(data.error || 'Failed to place order')
       showToast(`✅ Order ${data.order_id} placed!`)
       navigate(`/invoice?order_id=${data.order_id}`)
     } catch (err) {
       showToast(`❌ ${err.message}`, 'error')
+    } finally {
+      setPlacing(false)
     }
   }
 
-  function startNewOrder() {
-    setStep(1); setCustomer(null); setCart([]); setSelectedProduct(null)
-    setOrderForm({ payment_method: '', discount: '', salesperson: '', notes: '' })
-  }
-
+  // ── Step 1: Select Customer ──
   if (step === 1) {
     return (
       <>
@@ -238,17 +301,19 @@ function NewOrderTab() {
     )
   }
 
+  // ── Step 2: Add Products ──
   if (step === 2) {
     return (
       <>
         <StepBar step={2} labels={['Customer', 'Add Products', 'Cart & Checkout']} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+          <button className="btn btn-ghost" onClick={() => goStep(1)}>← Change Customer</button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--accent2)', border: '1.5px solid #e8d0a0', borderRadius: 20, padding: '6px 14px', fontSize: 13, fontWeight: 600, color: '#92650a' }}>
             <span>👤</span>
-            <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{customer?.kunnr}</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{customer?.kunnr || urlKunnr}</span>
             <span>{customer?.name}</span>
           </div>
-          <button className="btn btn-ghost" onClick={() => setStep(3)} disabled={!cart.length}>
+          <button className="btn btn-ghost" onClick={() => goStep(3, customer?.kunnr || urlKunnr)} disabled={!cart.length}>
             🛒 View Cart ({cart.reduce((s, i) => s + i.quantity, 0)})
           </button>
           <button className="btn btn-ghost" style={{ marginLeft: 'auto', color: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={startNewOrder}>✕ Cancel</button>
@@ -269,7 +334,7 @@ function NewOrderTab() {
               <label>Brand</label>
               <select value={filterBrand} onChange={e => setFilterBrand(e.target.value)}>
                 <option value="">All Brands</option>
-                {brands.map(b => <option key={b.name || b} value={b.name || b}>{b.name || b}</option>)}
+                {brands.map(b => <option key={b.id || b.name} value={b.name || b}>{b.name || b}</option>)}
               </select>
             </div>
             <div className="form-group" style={{ flex: 1 }}>
@@ -279,30 +344,39 @@ function NewOrderTab() {
                 <input placeholder="MATNR, brand, size…" value={productSearch} onChange={e => setProductSearch(e.target.value)} />
               </div>
             </div>
+            <button className="btn btn-ghost" style={{ alignSelf: 'flex-end' }} onClick={loadProducts}>↺</button>
           </div>
         </div>
 
-        <div className="product-grid" style={{ marginBottom: 90 }}>
-          {products.length === 0 ? (
-            <div className="empty-state" style={{ gridColumn: '1/-1' }}>
-              <div className="empty-icon">📦</div>
-              <p>No products found.</p>
-            </div>
-          ) : products.map(p => (
-            <div
-              key={p.matnr}
-              className={`product-card${selectedProduct?.matnr === p.matnr ? ' selected' : ''}`}
-              onClick={() => setSelectedProduct(selectedProduct?.matnr === p.matnr ? null : p)}
-            >
-              <div className="selected-tick">✓</div>
-              <div className="p-matnr">{p.matnr}</div>
-              <div className="p-brand">{p.brand}</div>
-              <div className="p-meta">{[p.category, p.size, p.color].filter(Boolean).join(' · ')}</div>
-              <div className="p-price">{fmt(p.mrp || p.sales_price)}</div>
-              <div className="p-stock">{p.quantity || 0} in stock</div>
-            </div>
-          ))}
-        </div>
+        {allInventory.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-icon">📦</div>
+            <p style={{ fontWeight: 600 }}>No inventory items yet.</p>
+            <p style={{ fontSize: 13, color: 'var(--muted)' }}>Add products via Inventory → New Product before creating an order.</p>
+          </div>
+        ) : (
+          <div className="product-grid" style={{ marginBottom: 90 }}>
+            {products.length === 0 ? (
+              <div className="empty-state" style={{ gridColumn: '1/-1' }}>
+                <div className="empty-icon">🔍</div>
+                <p>No products match your filters.</p>
+              </div>
+            ) : products.map(p => (
+              <div
+                key={p.matnr}
+                className={`product-card${selectedProduct?.matnr === p.matnr ? ' selected' : ''}`}
+                onClick={() => setSelectedProduct(selectedProduct?.matnr === p.matnr ? null : p)}
+              >
+                <div className="selected-tick">✓</div>
+                <div className="p-matnr">{p.matnr}</div>
+                <div className="p-brand">{p.brand}</div>
+                <div className="p-meta">{[p.category, p.size, p.color].filter(Boolean).join(' · ')}</div>
+                <div className="p-price">{fmt(p.mrp || p.sales_price)}</div>
+                <div className="p-stock">{p.available ?? p.quantity ?? 0} in stock</div>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="add-bar">
           <div className="selected-info">
@@ -318,14 +392,14 @@ function NewOrderTab() {
     )
   }
 
-  // Step 3: Cart
+  // ── Step 3: Cart & Checkout ──
   return (
     <>
       <StepBar step={3} labels={['Customer', 'Add Products', 'Cart & Checkout']} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-        <button className="btn btn-ghost" onClick={() => setStep(2)}>← Back to Products</button>
+        <button className="btn btn-ghost" onClick={() => goStep(2, customer?.kunnr || urlKunnr)}>← Back to Products</button>
         <h1 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 26, flex: 1 }}>Your Cart</h1>
-        <button className="btn btn-ghost" onClick={() => setStep(2)}>+ Add More</button>
+        <button className="btn btn-ghost" onClick={() => goStep(2, customer?.kunnr || urlKunnr)}>+ Add More</button>
         <button className="btn btn-ghost" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={startNewOrder}>✕ Clear Order</button>
       </div>
 
@@ -340,7 +414,7 @@ function NewOrderTab() {
           </thead>
           <tbody>
             {cart.length === 0 ? (
-              <tr className="state-row"><td colSpan={8}>Your cart is empty.</td></tr>
+              <tr className="state-row"><td colSpan={8}>Your cart is empty. <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => goStep(2, customer?.kunnr || urlKunnr)}>Add products</button></td></tr>
             ) : cart.map(item => {
               const mrp = parseFloat(item.mrp || item.sales_price || 0)
               const gst = parseFloat(item.gst_rate || 0)
@@ -395,7 +469,9 @@ function NewOrderTab() {
           <div className="totals-row tax"><span>Discount</span><span style={{ color: 'var(--success)' }}>−{fmt(discountAmt)}</span></div>
           <div className="totals-row tax"><span>GST (incl.)</span><span>{fmt(cartTotals.tax)}</span></div>
           <div className="totals-row grand"><span>Total</span><span>{fmt(grandTotal)}</span></div>
-          <button className="place-order-btn" onClick={placeOrder}>✅ Place Order</button>
+          <button className="place-order-btn" onClick={placeOrder} disabled={placing || !cart.length}>
+            {placing ? '⏳ Placing…' : '✅ Place Order'}
+          </button>
           <button onClick={startNewOrder} style={{ marginTop: 8, width: '100%', padding: 10, borderRadius: 8, border: '1.5px solid var(--border)', background: 'white', fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--muted)' }}>
             🗑️ Clear Cart & Start Over
           </button>
@@ -1127,9 +1203,18 @@ function PricingTab() {
 
 // ── Root ──────────────────────────────────────────────────────────────────────
 export default function Sales() {
-  const [searchParams] = useSearchParams()
-  const initialTab = searchParams.get('tab') || 'new'
-  const [tab, setTab] = useState(initialTab)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = searchParams.get('tab') || 'new'
+
+  function setTab(t) {
+    setSearchParams(prev => {
+      const p = new URLSearchParams(prev)
+      p.set('tab', t)
+      // Clear wizard state when switching away from new-order tab
+      if (t !== 'new') { p.delete('step'); p.delete('kunnr') }
+      return p
+    })
+  }
 
   return (
     <div className="page-layout">
