@@ -136,6 +136,11 @@ function NewOrderTab() {
     fetch('/brands').then(r => r.json()).then(setBrands).catch(() => {})
   }, [])
 
+  // Load products whenever step 2 is shown (direct URL load, back navigation, or fresh select)
+  useEffect(() => {
+    if (step === 2) loadProducts()
+  }, [step]) // eslint-disable-line
+
   async function loadProducts() {
     try {
       const res = await fetch('/inventory')
