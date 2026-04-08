@@ -25,6 +25,7 @@ const buyerDb   = openDb("buyers.db");
 const invDb     = openDb("inventory.db");
 const transDb   = openDb("transactions.db");
 const pricingDb = openDb("pricing.db");
+const hrDb      = openDb("hr.db");
 
 // ─── Create tables on startup ─────────────────────────────────────────────────
 custDb.serialize(() => {
@@ -274,6 +275,73 @@ pricingDb.serialize(() => {
         valid_from TEXT NOT NULL, valid_to TEXT
     )`);
 });
+
+hrDb.serialize(() => {
+    hrDb.run(`CREATE TABLE IF NOT EXISTS departments (
+        id   INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL
+    )`);
+    hrDb.run(`CREATE TABLE IF NOT EXISTS designations (
+        id   INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL
+    )`);
+    hrDb.run(`CREATE TABLE IF NOT EXISTS employees (
+        emp_id      TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        pan         TEXT,
+        aadhar      TEXT,
+        salary      REAL    DEFAULT 0,
+        start_date  TEXT,
+        end_date    TEXT,
+        pay_mode    TEXT    DEFAULT 'cash',
+        salary_day  INTEGER,
+        department  TEXT,
+        designation TEXT,
+        phone       TEXT,
+        address     TEXT,
+        status      TEXT    DEFAULT 'active'
+    )`);
+    hrDb.run(`CREATE TABLE IF NOT EXISTS salary_headers (
+        header_id  TEXT PRIMARY KEY,
+        emp_id     TEXT NOT NULL,
+        month      TEXT NOT NULL,
+        total_paid REAL DEFAULT 0,
+        notes      TEXT,
+        created_at TEXT,
+        UNIQUE(emp_id, month)
+    )`);
+    hrDb.run(`CREATE TABLE IF NOT EXISTS salary_lines (
+        line_id      TEXT PRIMARY KEY,
+        header_id    TEXT NOT NULL,
+        payment_type TEXT NOT NULL,
+        amount       REAL NOT NULL,
+        pay_date     TEXT NOT NULL,
+        pay_mode     TEXT NOT NULL,
+        notes        TEXT
+    )`);
+    hrDb.run(`CREATE TABLE IF NOT EXISTS attendance (
+        att_id   TEXT PRIMARY KEY,
+        emp_id   TEXT NOT NULL,
+        att_date TEXT NOT NULL,
+        status   TEXT NOT NULL,
+        notes    TEXT,
+        UNIQUE(emp_id, att_date)
+    )`);
+});
+
+// ─── Helper: HR short IDs (EMP001, SH001, SL001, ATT001) ─────────────────────
+function nextHrId(db, table, col, prefix, cb) {
+    const pLen = prefix.length;
+    db.get(
+        `SELECT MAX(CAST(SUBSTR(${col}, ${pLen + 1}) AS INTEGER)) as maxid FROM ${table} WHERE ${col} LIKE ?`,
+        [`${prefix}%`],
+        (err, row) => {
+            if (err) return cb(err);
+            const next = (row && row.maxid ? row.maxid : 0) + 1;
+            cb(null, prefix + String(next).padStart(3, '0'));
+        }
+    );
+}
 
 // ─── Helper: next sequential ID ───────────────────────────────────────────────
 function nextId(db, table, col, prefix, cb) {
