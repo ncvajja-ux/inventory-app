@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
+      '/hr': 'http://localhost:3000',
       '/customers': 'http://localhost:3000',
       '/addcustomer': 'http://localhost:3000',
       '/next-kunnr': 'http://localhost:3000',
