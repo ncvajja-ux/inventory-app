@@ -28,7 +28,7 @@ function StepBar({ step, labels }) {
 }
 
 // ── Live search dropdown ──────────────────────────────────────────────────────
-function SearchDropdown({ placeholder, onSearch, onSelect, renderItem, width = 340 }) {
+function SearchDropdown({ placeholder, onSearch, onSelect, renderItem, getLabelText, width = 340 }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [open, setOpen] = useState(false)
@@ -56,7 +56,7 @@ function SearchDropdown({ placeholder, onSearch, onSelect, renderItem, width = 3
   }
 
   function select(item) {
-    const label = renderItem ? null : String(item)
+    const label = getLabelText ? getLabelText(item) : (renderItem ? '' : String(item))
     setSelectedLabel(label)
     setQuery('')
     setResults([])
@@ -1031,7 +1031,8 @@ function PricingTab() {
                 <div className="form-group" style={{ margin: 0 }}>
                   <label>Material</label>
                   <SearchDropdown placeholder="Search MATNR or brand…" onSearch={searchMatnr} onSelect={p => setSpForm(f => ({ ...f, matnr: p.matnr, matnr_label: `${p.matnr} - ${p.brand}` }))}
-                    renderItem={p => <div><span className="sri-kunnr">{p.matnr}</span> {p.brand}</div>} width="100%" />
+                    renderItem={p => <div><span className="sri-kunnr">{p.matnr}</span> {p.brand}</div>}
+                    getLabelText={p => `${p.matnr} — ${p.brand}`} width="100%" />
                   {spForm.matnr && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Selected: {spForm.matnr}</div>}
                 </div>
                 <div className="form-group" style={{ margin: 0 }}>
@@ -1092,7 +1093,8 @@ function PricingTab() {
                 <div className="form-group" style={{ margin: 0 }}>
                   <label>Customer</label>
                   <SearchDropdown placeholder="Search name or KUNNR…" onSearch={searchCust} onSelect={c => setCdForm(f => ({ ...f, kunnr: c.kunnr, kunnr_label: `${c.kunnr} - ${c.name}` }))}
-                    renderItem={c => <div><span className="sri-kunnr">{c.kunnr}</span> {c.name}</div>} width="100%" />
+                    renderItem={c => <div><span className="sri-kunnr">{c.kunnr}</span> {c.name}</div>}
+                    getLabelText={c => `${c.kunnr} — ${c.name}`} width="100%" />
                   {cdForm.kunnr && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Selected: {cdForm.kunnr}</div>}
                 </div>
                 <div className="form-group" style={{ margin: 0 }}>
@@ -1152,7 +1154,8 @@ function PricingTab() {
                 <div className="form-group" style={{ margin: 0 }}>
                   <label>Material</label>
                   <SearchDropdown placeholder="Search MATNR or brand…" onSearch={searchMatnr} onSelect={p => setPdForm(f => ({ ...f, matnr: p.matnr, matnr_label: `${p.matnr} - ${p.brand}` }))}
-                    renderItem={p => <div><span className="sri-kunnr">{p.matnr}</span> {p.brand}</div>} width="100%" />
+                    renderItem={p => <div><span className="sri-kunnr">{p.matnr}</span> {p.brand}</div>}
+                    getLabelText={p => `${p.matnr} — ${p.brand}`} width="100%" />
                   {pdForm.matnr && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Selected: {pdForm.matnr}</div>}
                 </div>
                 <div className="form-group" style={{ margin: 0 }}>

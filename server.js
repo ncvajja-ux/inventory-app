@@ -420,6 +420,19 @@ app.get("/buyers", (req, res) => {
         (err, rows) => err ? res.status(500).json({error:err.message}) : res.json(rows)
     );
 });
+app.get("/inventory/search", (req, res) => {
+    const q = (req.query.q || '').trim();
+    if (!q) return res.json([]);
+    const like = `%${q}%`;
+    invDb.all(
+        `SELECT matnr, brand, category, mrp, cost_price, size, color
+         FROM mara
+         WHERE matnr LIKE ? OR brand LIKE ? OR category LIKE ?
+         ORDER BY brand, matnr LIMIT 20`,
+        [like, like, like],
+        (err, rows) => err ? res.status(500).json({error: err.message}) : res.json(rows)
+    );
+});
 app.get("/buyers/search", (req, res) => {
     const q = (req.query.q||'').trim();
     if (!q) return res.json([]);
@@ -1098,7 +1111,7 @@ app.delete("/gst-config/:id", (req, res) => {
 });
 
 // ─── PRICING Routes ───────────────────────────────────────────────────────────
-app.get("/pricing/sales", (req, res) => {
+app.get("/pricing/sales-price", (req, res) => {
     const {matnr} = req.query;
     let sql = "SELECT * FROM sales_price WHERE 1=1";
     const p = [];
@@ -1108,7 +1121,7 @@ app.get("/pricing/sales", (req, res) => {
         err ? res.status(500).json({error:err.message}) : res.json(rows)
     );
 });
-app.post("/pricing/sales", (req, res) => {
+app.post("/pricing/sales-price", (req, res) => {
     const {matnr,valid_from,valid_to,unit_price} = req.body;
     if (!matnr||!valid_from||!unit_price) return res.status(400).json({error:"matnr, valid_from and unit_price required"});
     pricingDb.run("INSERT INTO sales_price (matnr,valid_from,valid_to,unit_price) VALUES (?,?,?,?)",
@@ -1116,7 +1129,7 @@ app.post("/pricing/sales", (req, res) => {
         function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true,id:this.lastID}); }
     );
 });
-app.delete("/pricing/sales/:id", (req, res) => {
+app.delete("/pricing/sales-price/:id", (req, res) => {
     pricingDb.run("DELETE FROM sales_price WHERE id=?", [req.params.id],
         function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
     );
