@@ -1393,8 +1393,11 @@ app.get("/hr/next-emp-id", (req, res) => {
 });
 app.get("/hr/employees", (req, res) => {
     const { status } = req.query;
-    const where = status && status !== 'all' ? `WHERE status='${status}'` : '';
-    hrDb.all(`SELECT * FROM employees ${where} ORDER BY name`, [],
+    const params = [];
+    let sql = "SELECT * FROM employees";
+    if (status && status !== 'all') { sql += " WHERE status=?"; params.push(status); }
+    sql += " ORDER BY name";
+    hrDb.all(sql, params,
         (err, rows) => err ? res.status(500).json({error:err.message}) : res.json(rows)
     );
 });
@@ -1430,6 +1433,7 @@ app.put("/hr/employees/:emp_id", (req, res) => {
     const { name, pan, aadhar, salary, start_date, end_date, pay_mode,
             salary_day, department, designation, phone, address } = req.body;
     if (!name || !name.trim()) return res.status(400).json({error:"Name required"});
+    if (!start_date) return res.status(400).json({error:"Start date required"});
     if (pan && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan))
         return res.status(400).json({error:"PAN must be format AAAAA9999A"});
     if (aadhar && !/^\d{12}$/.test(aadhar))
@@ -1441,7 +1445,11 @@ app.put("/hr/employees/:emp_id", (req, res) => {
         [name.trim(), pan||null, aadhar||null, salary||0, start_date, end_date||null,
          pay_mode||'cash', salary_day||null, department||null, designation||null,
          phone||null, address||null, status, req.params.emp_id],
-        function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
+        function(err) {
+            if (err) return res.status(500).json({error:err.message});
+            if (this.changes === 0) return res.status(404).json({error:"Employee not found"});
+            res.json({success:true});
+        }
     );
 });
 app.delete("/hr/employees/:emp_id", (req, res) => {
