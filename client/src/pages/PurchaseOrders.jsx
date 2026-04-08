@@ -390,7 +390,7 @@ function AllPOsTab() {
 
   async function updateLineStatus(poId, lineNo, status) {
     try {
-      const res = await fetch(`/purchase-orders/${poId}/items/${lineNo}/gr`, {
+      const res = await fetch(`/purchase-orders/${poId}/line/${lineNo}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
