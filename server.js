@@ -1137,6 +1137,15 @@ app.post("/pricing/sales-price", (req, res) => {
         function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true,id:this.lastID}); }
     );
 });
+app.put("/pricing/sales-price/:id", (req, res) => {
+    const { unit_price, valid_from, valid_to } = req.body;
+    if (!valid_from || !unit_price) return res.status(400).json({ error: "unit_price and valid_from required" });
+    pricingDb.run(
+        "UPDATE sales_price SET unit_price=?, valid_from=?, valid_to=? WHERE id=?",
+        [parseFloat(unit_price), valid_from, valid_to || null, req.params.id],
+        function(err) { err ? res.status(500).json({error:err.message}) : (this.changes ? res.json({success:true}) : res.status(404).json({error:"Not found"})); }
+    );
+});
 app.delete("/pricing/sales-price/:id", (req, res) => {
     pricingDb.run("DELETE FROM sales_price WHERE id=?", [req.params.id],
         function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
@@ -1159,6 +1168,15 @@ app.post("/pricing/customer-discount", (req, res) => {
     pricingDb.run("INSERT INTO customer_discount (kunnr,discount_pct,valid_from,valid_to) VALUES (?,?,?,?)",
         [kunnr,discount_pct,valid_from,valid_to||null],
         function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true,id:this.lastID}); }
+    );
+});
+app.put("/pricing/customer-discount/:id", (req, res) => {
+    const { discount_pct, valid_from, valid_to } = req.body;
+    if (discount_pct == null || !valid_from) return res.status(400).json({ error: "discount_pct and valid_from required" });
+    pricingDb.run(
+        "UPDATE customer_discount SET discount_pct=?, valid_from=?, valid_to=? WHERE id=?",
+        [parseFloat(discount_pct), valid_from, valid_to || null, req.params.id],
+        function(err) { err ? res.status(500).json({error:err.message}) : (this.changes ? res.json({success:true}) : res.status(404).json({error:"Not found"})); }
     );
 });
 app.delete("/pricing/customer-discount/:id", (req, res) => {
@@ -1185,6 +1203,15 @@ app.post("/pricing/product-discount", (req, res) => {
     pricingDb.run("INSERT INTO product_discount (matnr,discount_pct,valid_from,valid_to) VALUES (?,?,?,?)",
         [matnr,discount_pct,valid_from,valid_to||null],
         function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true,id:this.lastID}); }
+    );
+});
+app.put("/pricing/product-discount/:id", (req, res) => {
+    const { discount_pct, valid_from, valid_to } = req.body;
+    if (discount_pct == null || !valid_from) return res.status(400).json({ error: "discount_pct and valid_from required" });
+    pricingDb.run(
+        "UPDATE product_discount SET discount_pct=?, valid_from=?, valid_to=? WHERE id=?",
+        [parseFloat(discount_pct), valid_from, valid_to || null, req.params.id],
+        function(err) { err ? res.status(500).json({error:err.message}) : (this.changes ? res.json({success:true}) : res.status(404).json({error:"Not found"})); }
     );
 });
 app.delete("/pricing/product-discount/:id", (req, res) => {

@@ -917,6 +917,10 @@ function PricingTab() {
   const [spForm, setSpForm] = useState({ matnr: '', matnr_label: '', valid_from: '', valid_to: '', unit_price: '' })
   const [cdForm, setCdForm] = useState({ kunnr: '', kunnr_label: '', discount: '', valid_from: '', valid_to: '' })
   const [pdForm, setPdForm] = useState({ matnr: '', matnr_label: '', discount: '', valid_from: '', valid_to: '' })
+  // edit state — null means not editing
+  const [spEdit, setSpEdit] = useState(null)   // { id, matnr, brand, category, unit_price, valid_from, valid_to }
+  const [cdEdit, setCdEdit] = useState(null)   // { id, kunnr, customer_name, discount_pct, valid_from, valid_to }
+  const [pdEdit, setPdEdit] = useState(null)   // { id, matnr, brand, category, discount_pct, valid_from, valid_to }
 
   const loadSP = useCallback(async () => {
     try { const r = await fetch('/pricing/sales-price'); setSpData(await r.json()) } catch {}
@@ -981,6 +985,51 @@ function PricingTab() {
       showToast('✅ Discount saved')
       setPdForm({ matnr: '', matnr_label: '', discount: '', valid_from: '', valid_to: '' })
       setShowAddForm(false)
+      loadPD()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
+
+  async function updateSP() {
+    if (!spEdit.unit_price || !spEdit.valid_from) return showToast('Price and valid-from required', 'error')
+    try {
+      const res = await fetch(`/pricing/sales-price/${spEdit.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unit_price: parseFloat(spEdit.unit_price), valid_from: spEdit.valid_from, valid_to: spEdit.valid_to || null }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      showToast('✅ Price updated')
+      setSpEdit(null)
+      loadSP()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
+
+  async function updateCD() {
+    if (!cdEdit.discount_pct || !cdEdit.valid_from) return showToast('Discount and valid-from required', 'error')
+    try {
+      const res = await fetch(`/pricing/customer-discount/${cdEdit.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ discount_pct: parseFloat(cdEdit.discount_pct), valid_from: cdEdit.valid_from, valid_to: cdEdit.valid_to || null }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      showToast('✅ Discount updated')
+      setCdEdit(null)
+      loadCD()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
+
+  async function updatePD() {
+    if (!pdEdit.discount_pct || !pdEdit.valid_from) return showToast('Discount and valid-from required', 'error')
+    try {
+      const res = await fetch(`/pricing/product-discount/${pdEdit.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ discount_pct: parseFloat(pdEdit.discount_pct), valid_from: pdEdit.valid_from, valid_to: pdEdit.valid_to || null }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      showToast('✅ Discount updated')
+      setPdEdit(null)
       loadPD()
     } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
@@ -1054,6 +1103,33 @@ function PricingTab() {
               </div>
             </div>
           )}
+          {/* Edit form for Sales Price */}
+          {spEdit && (
+            <div className="pricing-add-form open" style={{ borderColor: 'var(--accent)' }}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 16 }}>
+                Edit Sales Price — <span style={{ fontFamily: 'monospace', color: 'var(--accent)' }}>{spEdit.matnr}</span>
+                {spEdit.brand && <span style={{ fontWeight: 400, color: 'var(--muted)', fontSize: 12, marginLeft: 8 }}>{spEdit.brand} · {spEdit.category}</span>}
+              </div>
+              <div className="pricing-form-grid">
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Valid From</label>
+                  <input type="date" value={spEdit.valid_from} onChange={e => setSpEdit(s => ({ ...s, valid_from: e.target.value }))} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Valid To (leave blank = open)</label>
+                  <input type="date" value={spEdit.valid_to && spEdit.valid_to !== '12319999' ? spEdit.valid_to : ''} onChange={e => setSpEdit(s => ({ ...s, valid_to: e.target.value || null }))} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Unit Price (₹)</label>
+                  <input type="number" value={spEdit.unit_price} onChange={e => setSpEdit(s => ({ ...s, unit_price: e.target.value }))} min="0" step="0.01" />
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                  <button className="btn btn-primary" onClick={updateSP} style={{ fontSize: 13, padding: '9px 16px' }}>Update</button>
+                  <button className="btn btn-ghost" onClick={() => setSpEdit(null)} style={{ fontSize: 13, padding: '9px 16px' }}>Cancel</button>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="pricing-toolbar">
             <div className="form-group" style={{ margin: 0 }}>
               <label>Filter by Material</label>
@@ -1067,14 +1143,17 @@ function PricingTab() {
               <tbody>
                 {filteredSP.length === 0 ? <tr className="state-row"><td colSpan={7}>No sales prices found.</td></tr>
                   : filteredSP.map((r, i) => (
-                    <tr key={i}>
+                    <tr key={i} style={spEdit && spEdit.id === r.id ? { background: 'rgba(var(--accent-rgb,201,168,76),0.06)' } : {}}>
                       <td><span className="mono">{r.matnr}</span></td>
                       <td>{r.brand || '—'}</td>
                       <td>{r.category || '—'}</td>
                       <td>{r.valid_from}</td>
-                      <td>{r.valid_to === '12319999' ? 'Open' : r.valid_to}</td>
+                      <td>{r.valid_to === '12319999' || !r.valid_to ? 'Open' : r.valid_to}</td>
                       <td className="right"><strong>{fmt(r.unit_price)}</strong></td>
-                      <td><button className="action-btn btn-delete" onClick={() => deleteRecord('sales-price', r.id)}>Delete</button></td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <button className="action-btn" onClick={() => { setShowAddForm(false); setSpEdit({ ...r, valid_to: r.valid_to === '12319999' ? '' : (r.valid_to || '') }) }} style={{ marginRight: 6 }}>Edit</button>
+                        <button className="action-btn btn-delete" onClick={() => deleteRecord('sales-price', r.id)}>Delete</button>
+                      </td>
                     </tr>
                   ))}
               </tbody>
@@ -1116,6 +1195,33 @@ function PricingTab() {
               </div>
             </div>
           )}
+          {/* Edit form for Customer Discount */}
+          {cdEdit && (
+            <div className="pricing-add-form open" style={{ borderColor: 'var(--accent)' }}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 16 }}>
+                Edit Customer Discount — <span style={{ fontFamily: 'monospace', color: 'var(--accent)' }}>{cdEdit.kunnr}</span>
+                {cdEdit.customer_name && <span style={{ fontWeight: 400, color: 'var(--muted)', fontSize: 12, marginLeft: 8 }}>{cdEdit.customer_name}</span>}
+              </div>
+              <div className="pricing-form-grid">
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Discount %</label>
+                  <input type="number" value={cdEdit.discount_pct} onChange={e => setCdEdit(s => ({ ...s, discount_pct: e.target.value }))} min="0" max="100" step="0.1" />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Valid From</label>
+                  <input type="date" value={cdEdit.valid_from} onChange={e => setCdEdit(s => ({ ...s, valid_from: e.target.value }))} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Valid To (leave blank = open)</label>
+                  <input type="date" value={cdEdit.valid_to && cdEdit.valid_to !== '12319999' ? cdEdit.valid_to : ''} onChange={e => setCdEdit(s => ({ ...s, valid_to: e.target.value || null }))} />
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                  <button className="btn btn-primary" onClick={updateCD} style={{ fontSize: 13, padding: '9px 16px' }}>Update</button>
+                  <button className="btn btn-ghost" onClick={() => setCdEdit(null)} style={{ fontSize: 13, padding: '9px 16px' }}>Cancel</button>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="pricing-toolbar">
             <div className="form-group" style={{ margin: 0 }}>
               <label>Filter by Customer</label>
@@ -1129,13 +1235,16 @@ function PricingTab() {
               <tbody>
                 {filteredCD.length === 0 ? <tr className="state-row"><td colSpan={6}>No customer discounts found.</td></tr>
                   : filteredCD.map((r, i) => (
-                    <tr key={i}>
+                    <tr key={i} style={cdEdit && cdEdit.id === r.id ? { background: 'rgba(var(--accent-rgb,201,168,76),0.06)' } : {}}>
                       <td><span className="mono">{r.kunnr}</span></td>
                       <td>{r.customer_name || '—'}</td>
                       <td className="right"><strong>{r.discount_pct}%</strong></td>
                       <td>{r.valid_from}</td>
-                      <td>{r.valid_to === '12319999' ? 'Open' : r.valid_to}</td>
-                      <td><button className="action-btn btn-delete" onClick={() => deleteRecord('customer-discount', r.id)}>Delete</button></td>
+                      <td>{r.valid_to === '12319999' || !r.valid_to ? 'Open' : r.valid_to}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <button className="action-btn" onClick={() => { setShowAddForm(false); setCdEdit({ ...r, valid_to: r.valid_to === '12319999' ? '' : (r.valid_to || '') }) }} style={{ marginRight: 6 }}>Edit</button>
+                        <button className="action-btn btn-delete" onClick={() => deleteRecord('customer-discount', r.id)}>Delete</button>
+                      </td>
                     </tr>
                   ))}
               </tbody>
@@ -1177,6 +1286,33 @@ function PricingTab() {
               </div>
             </div>
           )}
+          {/* Edit form for Product Discount */}
+          {pdEdit && (
+            <div className="pricing-add-form open" style={{ borderColor: 'var(--accent)' }}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 16 }}>
+                Edit Product Discount — <span style={{ fontFamily: 'monospace', color: 'var(--accent)' }}>{pdEdit.matnr}</span>
+                {pdEdit.brand && <span style={{ fontWeight: 400, color: 'var(--muted)', fontSize: 12, marginLeft: 8 }}>{pdEdit.brand} · {pdEdit.category}</span>}
+              </div>
+              <div className="pricing-form-grid">
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Discount %</label>
+                  <input type="number" value={pdEdit.discount_pct} onChange={e => setPdEdit(s => ({ ...s, discount_pct: e.target.value }))} min="0" max="100" step="0.1" />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Valid From</label>
+                  <input type="date" value={pdEdit.valid_from} onChange={e => setPdEdit(s => ({ ...s, valid_from: e.target.value }))} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Valid To (leave blank = open)</label>
+                  <input type="date" value={pdEdit.valid_to && pdEdit.valid_to !== '12319999' ? pdEdit.valid_to : ''} onChange={e => setPdEdit(s => ({ ...s, valid_to: e.target.value || null }))} />
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                  <button className="btn btn-primary" onClick={updatePD} style={{ fontSize: 13, padding: '9px 16px' }}>Update</button>
+                  <button className="btn btn-ghost" onClick={() => setPdEdit(null)} style={{ fontSize: 13, padding: '9px 16px' }}>Cancel</button>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="pricing-toolbar">
             <div className="form-group" style={{ margin: 0 }}>
               <label>Filter by Material</label>
@@ -1190,14 +1326,17 @@ function PricingTab() {
               <tbody>
                 {filteredPD.length === 0 ? <tr className="state-row"><td colSpan={7}>No product discounts found.</td></tr>
                   : filteredPD.map((r, i) => (
-                    <tr key={i}>
+                    <tr key={i} style={pdEdit && pdEdit.id === r.id ? { background: 'rgba(var(--accent-rgb,201,168,76),0.06)' } : {}}>
                       <td><span className="mono">{r.matnr}</span></td>
                       <td>{r.brand || '—'}</td>
                       <td>{r.category || '—'}</td>
                       <td className="right"><strong>{r.discount_pct}%</strong></td>
                       <td>{r.valid_from}</td>
-                      <td>{r.valid_to === '12319999' ? 'Open' : r.valid_to}</td>
-                      <td><button className="action-btn btn-delete" onClick={() => deleteRecord('product-discount', r.id)}>Delete</button></td>
+                      <td>{r.valid_to === '12319999' || !r.valid_to ? 'Open' : r.valid_to}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <button className="action-btn" onClick={() => { setShowAddForm(false); setPdEdit({ ...r, valid_to: r.valid_to === '12319999' ? '' : (r.valid_to || '') }) }} style={{ marginRight: 6 }}>Edit</button>
+                        <button className="action-btn btn-delete" onClick={() => deleteRecord('product-discount', r.id)}>Delete</button>
+                      </td>
                     </tr>
                   ))}
               </tbody>
