@@ -1331,6 +1331,60 @@ app.post("/orders/return", (req, res) => {
     });
 });
 
+// ─── HR: Config — Departments ─────────────────────────────────────────────────
+app.get("/hr/departments", (req, res) => {
+    hrDb.all("SELECT * FROM departments ORDER BY name", [],
+        (err, rows) => err ? res.status(500).json({error:err.message}) : res.json(rows)
+    );
+});
+app.post("/hr/departments", (req, res) => {
+    const { name } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({error:"Name required"});
+    hrDb.run("INSERT INTO departments (name) VALUES (?)", [name.trim()],
+        function(err) {
+            if (err && err.message.includes("UNIQUE")) return res.status(409).json({error:"Department already exists"});
+            if (err) return res.status(500).json({error:err.message});
+            res.json({success:true, id:this.lastID});
+        }
+    );
+});
+app.delete("/hr/departments/:id", (req, res) => {
+    hrDb.get("SELECT COUNT(*) as cnt FROM employees WHERE department = (SELECT name FROM departments WHERE id=?)", [req.params.id], (err, row) => {
+        if (err) return res.status(500).json({error:err.message});
+        if (row && row.cnt > 0) return res.status(409).json({error:"Department is in use by active employees"});
+        hrDb.run("DELETE FROM departments WHERE id=?", [req.params.id],
+            function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
+        );
+    });
+});
+
+// ─── HR: Config — Designations ────────────────────────────────────────────────
+app.get("/hr/designations", (req, res) => {
+    hrDb.all("SELECT * FROM designations ORDER BY name", [],
+        (err, rows) => err ? res.status(500).json({error:err.message}) : res.json(rows)
+    );
+});
+app.post("/hr/designations", (req, res) => {
+    const { name } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({error:"Name required"});
+    hrDb.run("INSERT INTO designations (name) VALUES (?)", [name.trim()],
+        function(err) {
+            if (err && err.message.includes("UNIQUE")) return res.status(409).json({error:"Designation already exists"});
+            if (err) return res.status(500).json({error:err.message});
+            res.json({success:true, id:this.lastID});
+        }
+    );
+});
+app.delete("/hr/designations/:id", (req, res) => {
+    hrDb.get("SELECT COUNT(*) as cnt FROM employees WHERE designation = (SELECT name FROM designations WHERE id=?)", [req.params.id], (err, row) => {
+        if (err) return res.status(500).json({error:err.message});
+        if (row && row.cnt > 0) return res.status(409).json({error:"Designation is in use by active employees"});
+        hrDb.run("DELETE FROM designations WHERE id=?", [req.params.id],
+            function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
+        );
+    });
+});
+
 // ─── SPA Fallback (React Router) ─────────────────────────────────────────────
 app.use((req, res) => {
     res.sendFile(path.join(__dirname, "public/dist", "index.html"));
