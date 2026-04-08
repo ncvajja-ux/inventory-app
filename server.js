@@ -995,9 +995,8 @@ app.post("/purchase-orders", (req, res) => {
                 transDb.run("INSERT INTO po_items (po_id,line_no,matnr,quantity,unit_price,line_total) VALUES (?,?,?,?,?,?)",
                     [po_id,line_no,item.matnr,item.quantity||1,item.unit_price||0,line_total]
                 );
-                // Update cost_price on mara and add stock
-                invDb.run("UPDATE mara SET quantity=quantity+?,cost_price=? WHERE matnr=?",
-                    [item.quantity||1,item.unit_price||0,item.matnr]);
+                // NOTE: stock is NOT updated here — it is updated only when the line is
+                // marked Goods Receipt via PUT /purchase-orders/:po_id/line/:line_no/status
             });
             transDb.run("COMMIT", (err) => {
                 if (err) return res.status(500).json({error:err.message});
@@ -1037,9 +1036,11 @@ app.put("/purchase-orders/:po_id/line/:line_no/status", (req, res) => {
                     invDb.run(
                         "UPDATE mara SET quantity=quantity+?, cost_price=? WHERE matnr=?",
                         [line.quantity, line.unit_price, line.matnr],
-                        (err) => { if (err) console.error("❌ Inventory GR error:", err.message); }
+                        (invErr) => {
+                            if (invErr) console.error("❌ Inventory GR error:", invErr.message);
+                            else console.log(`✅ GR: +${line.quantity} units of ${line.matnr} added to stock`);
+                        }
                     );
-                    console.log(`✅ GR: ${line.quantity} units of ${line.matnr} added to stock`);
                 }
 
                 // If reverting FROM Goods Receipt, deduct stock back
@@ -1047,7 +1048,7 @@ app.put("/purchase-orders/:po_id/line/:line_no/status", (req, res) => {
                     invDb.run(
                         "UPDATE mara SET quantity=MAX(0,quantity-?) WHERE matnr=?",
                         [line.quantity, line.matnr],
-                        (err) => { if (err) console.error("❌ Inventory GR reversal error:", err.message); }
+                        (invErr) => { if (invErr) console.error("❌ Inventory GR reversal error:", invErr.message); }
                     );
                 }
 
