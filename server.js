@@ -1635,6 +1635,219 @@ app.delete("/hr/attendance/:att_id", (req, res) => {
     );
 });
 
+// ─── Analytics Routes ─────────────────────────────────────────────────────────
+
+// Helper: load all mara records into a Map keyed by matnr
+function loadMaraMap(cb) {
+    invDb.all("SELECT matnr, brand, category, cost_price FROM mara", [], (err, rows) => {
+        if (err) return cb(err, null);
+        const map = {};
+        (rows || []).forEach(r => { map[r.matnr] = r; });
+        cb(null, map);
+    });
+}
+
+// Overview: this-month KPIs
+app.get("/analytics/overview", (req, res) => {
+    const now = new Date();
+    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const results = {};
+    let done = 0;
+    const finish = () => { if (++done === 3) res.json(results); };
+
+    // Sales this month
+    transDb.get(
+        `SELECT COALESCE(SUM(p.line_total),0) as total_sales, COUNT(DISTINCT v.order_id) as order_count
+         FROM vbak v JOIN vbap p ON v.order_id=p.order_id
+         WHERE v.order_type='S' AND v.status='CONFIRMED'
+         AND strftime('%Y-%m', v.created_at)=?`, [ym],
+        (err, row) => {
+            results.sales = { total: row ? row.total_sales : 0, count: row ? row.order_count : 0 };
+            finish();
+        }
+    );
+
+    // PO this month + pending payments
+    transDb.get(
+        `SELECT COUNT(DISTINCT h.po_id) as po_count,
+                COALESCE(SUM(i.line_total),0) as po_value,
+                COALESCE((SELECT SUM(i2.line_total) FROM po_header h2 JOIN po_items i2 ON h2.po_id=i2.po_id WHERE h2.payment_status='PENDING'),0) as pending_value
+         FROM po_header h JOIN po_items i ON h.po_id=i.po_id
+         WHERE strftime('%Y-%m', h.created_at)=?`, [ym],
+        (err, row) => {
+            results.po = { count: row ? row.po_count : 0, value: row ? row.po_value : 0, pending: row ? row.pending_value : 0 };
+            finish();
+        }
+    );
+
+    // Salary paid this month (salary_lines, exclude deductions)
+    hrDb.get(
+        `SELECT COALESCE(SUM(amount),0) as salary_paid
+         FROM salary_lines
+         WHERE payment_type != 'deduction' AND strftime('%Y-%m', pay_date)=?`, [ym],
+        (err, row) => {
+            results.salary = { paid: row ? row.salary_paid : 0 };
+            finish();
+        }
+    );
+});
+
+// Monthly sales + profit for a given year
+app.get("/analytics/monthly-sales", (req, res) => {
+    const year = req.query.year || new Date().getFullYear().toString();
+    // Get revenue by month
+    transDb.all(
+        `SELECT strftime('%Y-%m', v.created_at) as month,
+                COALESCE(SUM(p.line_total),0) as revenue,
+                p.matnr, COALESCE(SUM(p.quantity),0) as qty
+         FROM vbak v JOIN vbap p ON v.order_id=p.order_id
+         WHERE v.order_type='S' AND v.status='CONFIRMED'
+         AND strftime('%Y', v.created_at)=?
+         GROUP BY month, p.matnr`, [year],
+        (err, rows) => {
+            if (err) return res.status(500).json({error: err.message});
+            loadMaraMap((err2, maraMap) => {
+                if (err2) return res.status(500).json({error: err2.message});
+                // Aggregate by month
+                const monthMap = {};
+                (rows || []).forEach(r => {
+                    if (!monthMap[r.month]) monthMap[r.month] = { month: r.month, revenue: 0, cost: 0 };
+                    monthMap[r.month].revenue += r.revenue;
+                    const cp = (maraMap[r.matnr] && maraMap[r.matnr].cost_price) || 0;
+                    monthMap[r.month].cost += cp * (r.qty || 0);
+                });
+                const result = Object.values(monthMap)
+                    .sort((a, b) => a.month.localeCompare(b.month))
+                    .map(m => ({ ...m, profit: m.revenue - m.cost }));
+                res.json(result);
+            });
+        }
+    );
+});
+
+// YTD by category
+app.get("/analytics/ytd-by-category", (req, res) => {
+    const year = req.query.year || new Date().getFullYear().toString();
+    transDb.all(
+        `SELECT p.matnr, COALESCE(SUM(p.line_total),0) as revenue, COALESCE(SUM(p.quantity),0) as units
+         FROM vbak v JOIN vbap p ON v.order_id=p.order_id
+         WHERE v.order_type='S' AND v.status='CONFIRMED'
+         AND strftime('%Y', v.created_at)=?
+         GROUP BY p.matnr`, [year],
+        (err, rows) => {
+            if (err) return res.status(500).json({error: err.message});
+            loadMaraMap((err2, maraMap) => {
+                if (err2) return res.status(500).json({error: err2.message});
+                const catMap = {};
+                (rows || []).forEach(r => {
+                    const cat = (maraMap[r.matnr] && maraMap[r.matnr].category) || 'Uncategorised';
+                    if (!catMap[cat]) catMap[cat] = { category: cat, revenue: 0, units: 0 };
+                    catMap[cat].revenue += r.revenue;
+                    catMap[cat].units += r.units;
+                });
+                res.json(Object.values(catMap).sort((a, b) => b.revenue - a.revenue));
+            });
+        }
+    );
+});
+
+// YTD by brand
+app.get("/analytics/ytd-by-brand", (req, res) => {
+    const year = req.query.year || new Date().getFullYear().toString();
+    transDb.all(
+        `SELECT p.matnr, COALESCE(SUM(p.line_total),0) as revenue, COALESCE(SUM(p.quantity),0) as units
+         FROM vbak v JOIN vbap p ON v.order_id=p.order_id
+         WHERE v.order_type='S' AND v.status='CONFIRMED'
+         AND strftime('%Y', v.created_at)=?
+         GROUP BY p.matnr`, [year],
+        (err, rows) => {
+            if (err) return res.status(500).json({error: err.message});
+            loadMaraMap((err2, maraMap) => {
+                if (err2) return res.status(500).json({error: err2.message});
+                const brandMap = {};
+                (rows || []).forEach(r => {
+                    const brand = (maraMap[r.matnr] && maraMap[r.matnr].brand) || 'Unknown';
+                    if (!brandMap[brand]) brandMap[brand] = { brand, revenue: 0, units: 0 };
+                    brandMap[brand].revenue += r.revenue;
+                    brandMap[brand].units += r.units;
+                });
+                res.json(Object.values(brandMap).sort((a, b) => b.revenue - a.revenue));
+            });
+        }
+    );
+});
+
+// PO monthly by brand
+app.get("/analytics/po-by-brand", (req, res) => {
+    const year = req.query.year || new Date().getFullYear().toString();
+    transDb.all(
+        `SELECT strftime('%Y-%m', h.created_at) as month, i.matnr,
+                COALESCE(SUM(i.line_total),0) as value, COALESCE(SUM(i.quantity),0) as units
+         FROM po_header h JOIN po_items i ON h.po_id=i.po_id
+         WHERE strftime('%Y', h.created_at)=?
+         GROUP BY month, i.matnr`, [year],
+        (err, rows) => {
+            if (err) return res.status(500).json({error: err.message});
+            loadMaraMap((err2, maraMap) => {
+                if (err2) return res.status(500).json({error: err2.message});
+                // Structure: { brand: { month: value } }
+                const brandMonthMap = {};
+                const months = new Set();
+                (rows || []).forEach(r => {
+                    const brand = (maraMap[r.matnr] && maraMap[r.matnr].brand) || 'Unknown';
+                    months.add(r.month);
+                    if (!brandMonthMap[brand]) brandMonthMap[brand] = {};
+                    brandMonthMap[brand][r.month] = (brandMonthMap[brand][r.month] || 0) + r.value;
+                });
+                const sortedMonths = [...months].sort();
+                const result = Object.entries(brandMonthMap)
+                    .map(([brand, mv]) => ({
+                        brand,
+                        total: Object.values(mv).reduce((s, v) => s + v, 0),
+                        months: sortedMonths.map(m => ({ month: m, value: mv[m] || 0 }))
+                    }))
+                    .sort((a, b) => b.total - a.total);
+                res.json({ months: sortedMonths, brands: result });
+            });
+        }
+    );
+});
+
+// PO monthly by category
+app.get("/analytics/po-by-category", (req, res) => {
+    const year = req.query.year || new Date().getFullYear().toString();
+    transDb.all(
+        `SELECT strftime('%Y-%m', h.created_at) as month, i.matnr,
+                COALESCE(SUM(i.line_total),0) as value, COALESCE(SUM(i.quantity),0) as units
+         FROM po_header h JOIN po_items i ON h.po_id=i.po_id
+         WHERE strftime('%Y', h.created_at)=?
+         GROUP BY month, i.matnr`, [year],
+        (err, rows) => {
+            if (err) return res.status(500).json({error: err.message});
+            loadMaraMap((err2, maraMap) => {
+                if (err2) return res.status(500).json({error: err2.message});
+                const catMonthMap = {};
+                const months = new Set();
+                (rows || []).forEach(r => {
+                    const cat = (maraMap[r.matnr] && maraMap[r.matnr].category) || 'Uncategorised';
+                    months.add(r.month);
+                    if (!catMonthMap[cat]) catMonthMap[cat] = {};
+                    catMonthMap[cat][r.month] = (catMonthMap[cat][r.month] || 0) + r.value;
+                });
+                const sortedMonths = [...months].sort();
+                const result = Object.entries(catMonthMap)
+                    .map(([category, mv]) => ({
+                        category,
+                        total: Object.values(mv).reduce((s, v) => s + v, 0),
+                        months: sortedMonths.map(m => ({ month: m, value: mv[m] || 0 }))
+                    }))
+                    .sort((a, b) => b.total - a.total);
+                res.json({ months: sortedMonths, categories: result });
+            });
+        }
+    );
+});
+
 // ─── SPA Fallback (React Router) ─────────────────────────────────────────────
 app.use((req, res) => {
     res.sendFile(path.join(__dirname, "public/dist", "index.html"));
