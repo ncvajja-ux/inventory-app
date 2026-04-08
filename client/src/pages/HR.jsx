@@ -469,7 +469,7 @@ function PayrollTab() {
             style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13 }} />
           {selEmp && (
             <button className="btn btn-primary" style={{ width: '100%', marginTop: 12 }} onClick={openOrCreate}>
-              {payroll ? 'Reload' : 'Open / Create Record'}
+              Open / Create Record
             </button>
           )}
         </div>
