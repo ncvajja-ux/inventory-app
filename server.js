@@ -1385,6 +1385,246 @@ app.delete("/hr/designations/:id", (req, res) => {
     });
 });
 
+// ─── HR: Employees ────────────────────────────────────────────────────────────
+app.get("/hr/next-emp-id", (req, res) => {
+    nextHrId(hrDb, "employees", "emp_id", "EMP", (err, id) =>
+        err ? res.status(500).json({error:err.message}) : res.json({emp_id:id})
+    );
+});
+app.get("/hr/employees", (req, res) => {
+    const { status } = req.query;
+    const where = status && status !== 'all' ? `WHERE status='${status}'` : '';
+    hrDb.all(`SELECT * FROM employees ${where} ORDER BY name`, [],
+        (err, rows) => err ? res.status(500).json({error:err.message}) : res.json(rows)
+    );
+});
+app.get("/hr/employees/:emp_id", (req, res) => {
+    hrDb.get("SELECT * FROM employees WHERE emp_id=?", [req.params.emp_id], (err, row) => {
+        if (err)  return res.status(500).json({error:err.message});
+        if (!row) return res.status(404).json({error:"Employee not found"});
+        res.json(row);
+    });
+});
+app.post("/hr/employees", (req, res) => {
+    const { name, pan, aadhar, salary, start_date, end_date, pay_mode,
+            salary_day, department, designation, phone, address } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({error:"Name required"});
+    if (!start_date) return res.status(400).json({error:"Start date required"});
+    if (pan && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan))
+        return res.status(400).json({error:"PAN must be format AAAAA9999A"});
+    if (aadhar && !/^\d{12}$/.test(aadhar))
+        return res.status(400).json({error:"Aadhar must be exactly 12 digits"});
+    const status = end_date ? 'terminated' : 'active';
+    nextHrId(hrDb, "employees", "emp_id", "EMP", (err, emp_id) => {
+        if (err) return res.status(500).json({error:err.message});
+        hrDb.run(
+            `INSERT INTO employees (emp_id,name,pan,aadhar,salary,start_date,end_date,pay_mode,salary_day,department,designation,phone,address,status)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            [emp_id, name.trim(), pan||null, aadhar||null, salary||0, start_date, end_date||null,
+             pay_mode||'cash', salary_day||null, department||null, designation||null, phone||null, address||null, status],
+            function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true, emp_id}); }
+        );
+    });
+});
+app.put("/hr/employees/:emp_id", (req, res) => {
+    const { name, pan, aadhar, salary, start_date, end_date, pay_mode,
+            salary_day, department, designation, phone, address } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({error:"Name required"});
+    if (pan && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan))
+        return res.status(400).json({error:"PAN must be format AAAAA9999A"});
+    if (aadhar && !/^\d{12}$/.test(aadhar))
+        return res.status(400).json({error:"Aadhar must be exactly 12 digits"});
+    const status = end_date ? 'terminated' : 'active';
+    hrDb.run(
+        `UPDATE employees SET name=?,pan=?,aadhar=?,salary=?,start_date=?,end_date=?,pay_mode=?,
+         salary_day=?,department=?,designation=?,phone=?,address=?,status=? WHERE emp_id=?`,
+        [name.trim(), pan||null, aadhar||null, salary||0, start_date, end_date||null,
+         pay_mode||'cash', salary_day||null, department||null, designation||null,
+         phone||null, address||null, status, req.params.emp_id],
+        function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
+    );
+});
+app.delete("/hr/employees/:emp_id", (req, res) => {
+    hrDb.run("DELETE FROM employees WHERE emp_id=?", [req.params.emp_id],
+        function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
+    );
+});
+
+// ─── HR: Payroll helpers ──────────────────────────────────────────────────────
+function recalcPayrollTotal(header_id, cb) {
+    hrDb.get(
+        `SELECT
+            COALESCE(SUM(CASE WHEN payment_type != 'deduction' THEN amount ELSE 0 END), 0) as gross,
+            COALESCE(SUM(CASE WHEN payment_type  = 'deduction' THEN amount ELSE 0 END), 0) as deductions
+         FROM salary_lines WHERE header_id = ?`,
+        [header_id],
+        (err, row) => {
+            if (err) return cb(err);
+            const net = (row.gross || 0) - (row.deductions || 0);
+            hrDb.run("UPDATE salary_headers SET total_paid=? WHERE header_id=?", [net, header_id], cb);
+        }
+    );
+}
+
+// ─── HR: Payroll ──────────────────────────────────────────────────────────────
+app.get("/hr/payroll/:emp_id", (req, res) => {
+    hrDb.all("SELECT * FROM salary_headers WHERE emp_id=? ORDER BY month DESC", [req.params.emp_id],
+        (err, rows) => err ? res.status(500).json({error:err.message}) : res.json(rows)
+    );
+});
+app.get("/hr/payroll/:emp_id/:month", (req, res) => {
+    hrDb.get("SELECT * FROM salary_headers WHERE emp_id=? AND month=?",
+        [req.params.emp_id, req.params.month], (err, header) => {
+        if (err) return res.status(500).json({error:err.message});
+        if (!header) return res.json(null);
+        hrDb.all("SELECT * FROM salary_lines WHERE header_id=? ORDER BY pay_date", [header.header_id],
+            (err2, lines) => {
+                if (err2) return res.status(500).json({error:err2.message});
+                res.json({...header, lines});
+            }
+        );
+    });
+});
+app.post("/hr/payroll", (req, res) => {
+    const { emp_id, month, notes } = req.body;
+    if (!emp_id || !month) return res.status(400).json({error:"emp_id and month required"});
+    hrDb.get("SELECT * FROM salary_headers WHERE emp_id=? AND month=?", [emp_id, month], (err, existing) => {
+        if (err) return res.status(500).json({error:err.message});
+        if (existing) {
+            hrDb.all("SELECT * FROM salary_lines WHERE header_id=? ORDER BY pay_date", [existing.header_id],
+                (err2, lines) => res.json({...existing, lines: lines||[], existed:true})
+            );
+            return;
+        }
+        nextHrId(hrDb, "salary_headers", "header_id", "SH", (err2, header_id) => {
+            if (err2) return res.status(500).json({error:err2.message});
+            const now = new Date().toISOString().split('T')[0];
+            hrDb.run(
+                "INSERT INTO salary_headers (header_id,emp_id,month,total_paid,notes,created_at) VALUES (?,?,?,0,?,?)",
+                [header_id, emp_id, month, notes||null, now],
+                function(err3) {
+                    if (err3) return res.status(500).json({error:err3.message});
+                    res.json({header_id, emp_id, month, total_paid:0, notes, created_at:now, lines:[]});
+                }
+            );
+        });
+    });
+});
+app.post("/hr/payroll/:header_id/lines", (req, res) => {
+    const { payment_type, amount, pay_date, pay_mode, notes } = req.body;
+    if (!payment_type || !amount || !pay_date || !pay_mode)
+        return res.status(400).json({error:"payment_type, amount, pay_date, pay_mode required"});
+    if (amount <= 0) return res.status(400).json({error:"Amount must be greater than 0"});
+    nextHrId(hrDb, "salary_lines", "line_id", "SL", (err, line_id) => {
+        if (err) return res.status(500).json({error:err.message});
+        hrDb.run(
+            "INSERT INTO salary_lines (line_id,header_id,payment_type,amount,pay_date,pay_mode,notes) VALUES (?,?,?,?,?,?,?)",
+            [line_id, req.params.header_id, payment_type, amount, pay_date, pay_mode, notes||null],
+            function(err2) {
+                if (err2) return res.status(500).json({error:err2.message});
+                recalcPayrollTotal(req.params.header_id, (err3) => {
+                    if (err3) return res.status(500).json({error:err3.message});
+                    res.json({success:true, line_id});
+                });
+            }
+        );
+    });
+});
+app.delete("/hr/payroll/lines/:line_id", (req, res) => {
+    hrDb.get("SELECT header_id FROM salary_lines WHERE line_id=?", [req.params.line_id], (err, row) => {
+        if (err)  return res.status(500).json({error:err.message});
+        if (!row) return res.status(404).json({error:"Line not found"});
+        const header_id = row.header_id;
+        hrDb.run("DELETE FROM salary_lines WHERE line_id=?", [req.params.line_id], function(err2) {
+            if (err2) return res.status(500).json({error:err2.message});
+            recalcPayrollTotal(header_id, (err3) =>
+                err3 ? res.status(500).json({error:err3.message}) : res.json({success:true})
+            );
+        });
+    });
+});
+
+// ─── HR: Attendance ───────────────────────────────────────────────────────────
+app.get("/hr/attendance", (req, res) => {
+    const { emp_id, month } = req.query;
+    let sql = "SELECT * FROM attendance WHERE 1=1";
+    const params = [];
+    if (emp_id) { sql += " AND emp_id=?"; params.push(emp_id); }
+    if (month)  { sql += " AND att_date LIKE ?"; params.push(`${month}%`); }
+    sql += " ORDER BY att_date, emp_id";
+    hrDb.all(sql, params, (err, rows) => err ? res.status(500).json({error:err.message}) : res.json(rows));
+});
+app.post("/hr/attendance", (req, res) => {
+    const { emp_id, att_date, status, notes } = req.body;
+    if (!emp_id || !att_date || !status)
+        return res.status(400).json({error:"emp_id, att_date, status required"});
+    if (!['full','half','holiday','absent'].includes(status))
+        return res.status(400).json({error:"status must be full|half|holiday|absent"});
+    hrDb.get("SELECT att_id FROM attendance WHERE emp_id=? AND att_date=?", [emp_id, att_date], (err, existing) => {
+        if (err) return res.status(500).json({error:err.message});
+        if (existing) {
+            hrDb.run("UPDATE attendance SET status=?, notes=? WHERE att_id=?",
+                [status, notes||null, existing.att_id],
+                function(err2) { err2 ? res.status(500).json({error:err2.message}) : res.json({success:true, att_id:existing.att_id}); }
+            );
+        } else {
+            nextHrId(hrDb, "attendance", "att_id", "ATT", (err2, att_id) => {
+                if (err2) return res.status(500).json({error:err2.message});
+                hrDb.run("INSERT INTO attendance (att_id,emp_id,att_date,status,notes) VALUES (?,?,?,?,?)",
+                    [att_id, emp_id, att_date, status, notes||null],
+                    function(err3) { err3 ? res.status(500).json({error:err3.message}) : res.json({success:true, att_id}); }
+                );
+            });
+        }
+    });
+});
+app.post("/hr/attendance/bulk", (req, res) => {
+    const records = req.body;
+    if (!Array.isArray(records)) return res.status(400).json({error:"Expected array of records"});
+    hrDb.all("SELECT emp_id FROM employees", [], (err, empRows) => {
+        if (err) return res.status(500).json({error:err.message});
+        const validIds = new Set(empRows.map(r => r.emp_id));
+        const skipped = [], errors = [];
+        let pending = 0;
+        const valid = records.filter(r => {
+            if (!r.emp_id || !r.att_date || !r.status) { skipped.push({...r, reason:"missing fields"}); return false; }
+            if (!validIds.has(r.emp_id)) { skipped.push({...r, reason:"unknown emp_id"}); return false; }
+            if (!['full','half','holiday','absent'].includes(r.status)) { skipped.push({...r, reason:"invalid status"}); return false; }
+            return true;
+        });
+        if (valid.length === 0) return res.json({inserted:0, updated:0, skipped: skipped.length, errors:0, skippedRows: skipped});
+        let insertedCount = 0, updatedCount = 0;
+        pending = valid.length;
+        valid.forEach(r => {
+            hrDb.get("SELECT att_id FROM attendance WHERE emp_id=? AND att_date=?", [r.emp_id, r.att_date], (err2, existing) => {
+                if (err2) { errors.push({...r, reason:err2.message}); if (--pending === 0) done(); return; }
+                if (existing) {
+                    hrDb.run("UPDATE attendance SET status=?, notes=? WHERE att_id=?",
+                        [r.status, r.notes||null, existing.att_id],
+                        (err3) => { if (!err3) updatedCount++; if (--pending === 0) done(); }
+                    );
+                } else {
+                    nextHrId(hrDb, "attendance", "att_id", "ATT", (err3, att_id) => {
+                        if (err3) { errors.push({...r, reason:err3.message}); if (--pending === 0) done(); return; }
+                        hrDb.run("INSERT INTO attendance (att_id,emp_id,att_date,status,notes) VALUES (?,?,?,?,?)",
+                            [att_id, r.emp_id, r.att_date, r.status, r.notes||null],
+                            (err4) => { if (!err4) insertedCount++; if (--pending === 0) done(); }
+                        );
+                    });
+                }
+            });
+        });
+        function done() {
+            res.json({inserted: insertedCount, updated: updatedCount, skipped: skipped.length, errors: errors.length, skippedRows: skipped});
+        }
+    });
+});
+app.delete("/hr/attendance/:att_id", (req, res) => {
+    hrDb.run("DELETE FROM attendance WHERE att_id=?", [req.params.att_id],
+        function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
+    );
+});
+
 // ─── SPA Fallback (React Router) ─────────────────────────────────────────────
 app.use((req, res) => {
     res.sendFile(path.join(__dirname, "public/dist", "index.html"));
