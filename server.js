@@ -1117,9 +1117,17 @@ app.get("/pricing/sales-price", (req, res) => {
     const p = [];
     if (matnr) { sql += " AND matnr=?"; p.push(matnr); }
     sql += " ORDER BY valid_from DESC";
-    pricingDb.all(sql, p, (err, rows) =>
-        err ? res.status(500).json({error:err.message}) : res.json(rows)
-    );
+    pricingDb.all(sql, p, (err, rows) => {
+        if (err) return res.status(500).json({error: err.message});
+        loadMaraMap((err2, maraMap) => {
+            if (err2) return res.json(rows); // degrade gracefully
+            res.json((rows || []).map(r => ({
+                ...r,
+                brand:    (maraMap[r.matnr] && maraMap[r.matnr].brand)    || null,
+                category: (maraMap[r.matnr] && maraMap[r.matnr].category) || null,
+            })));
+        });
+    });
 });
 app.post("/pricing/sales-price", (req, res) => {
     const {matnr,valid_from,valid_to,unit_price} = req.body;
@@ -1135,9 +1143,15 @@ app.delete("/pricing/sales-price/:id", (req, res) => {
     );
 });
 app.get("/pricing/customer-discount", (req, res) => {
-    pricingDb.all("SELECT * FROM customer_discount ORDER BY kunnr,valid_from DESC", [],
-        (err, rows) => err ? res.status(500).json({error:err.message}) : res.json(rows)
-    );
+    pricingDb.all("SELECT * FROM customer_discount ORDER BY kunnr,valid_from DESC", [], (err, rows) => {
+        if (err) return res.status(500).json({error: err.message});
+        custDb.all("SELECT kunnr, name FROM kna1", [], (err2, customers) => {
+            if (err2) return res.json(rows); // degrade gracefully
+            const custMap = {};
+            (customers || []).forEach(c => { custMap[c.kunnr] = c.name; });
+            res.json((rows || []).map(r => ({ ...r, customer_name: custMap[r.kunnr] || null })));
+        });
+    });
 });
 app.post("/pricing/customer-discount", (req, res) => {
     const {kunnr,discount_pct,valid_from,valid_to} = req.body;
@@ -1153,9 +1167,17 @@ app.delete("/pricing/customer-discount/:id", (req, res) => {
     );
 });
 app.get("/pricing/product-discount", (req, res) => {
-    pricingDb.all("SELECT * FROM product_discount ORDER BY matnr,valid_from DESC", [],
-        (err, rows) => err ? res.status(500).json({error:err.message}) : res.json(rows)
-    );
+    pricingDb.all("SELECT * FROM product_discount ORDER BY matnr,valid_from DESC", [], (err, rows) => {
+        if (err) return res.status(500).json({error: err.message});
+        loadMaraMap((err2, maraMap) => {
+            if (err2) return res.json(rows); // degrade gracefully
+            res.json((rows || []).map(r => ({
+                ...r,
+                brand:    (maraMap[r.matnr] && maraMap[r.matnr].brand)    || null,
+                category: (maraMap[r.matnr] && maraMap[r.matnr].category) || null,
+            })));
+        });
+    });
 });
 app.post("/pricing/product-discount", (req, res) => {
     const {matnr,discount_pct,valid_from,valid_to} = req.body;
