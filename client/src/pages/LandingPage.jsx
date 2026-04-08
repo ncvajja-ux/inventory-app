@@ -8,6 +8,7 @@ const cards = [
   { to: '/sales',          icon: '🧾', label: 'Sales',            desc: 'Create sales orders' },
   { to: '/buyers',         icon: '🏢', label: 'Buyers',           desc: 'Vendors & suppliers' },
   { to: '/purchase-orders',icon: '📦', label: 'Purchase Orders',  desc: 'Buy & restock' },
+  { to: '/hr',             icon: '👷', label: 'HR',               desc: 'Staff & payroll' },
 ]
 
 export default function LandingPage() {
@@ -39,7 +40,7 @@ export default function LandingPage() {
         </p>
         <div style={{ width: 40, height: 2, background: 'var(--accent)', margin: '0 auto 48px', borderRadius: 2 }} />
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 150px)', gap: 16, justifyContent: 'center' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 160px)', gap: 16, justifyContent: 'center' }}>
           {cards.map(({ to, icon, label, desc }) => (
             <Link key={to} to={to} className="landing-card" style={{
               background: 'var(--card)',

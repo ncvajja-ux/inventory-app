@@ -10,6 +10,7 @@ import Invoice from './pages/Invoice'
 import Buyers from './pages/Buyers'
 import PurchaseOrders from './pages/PurchaseOrders'
 import Analytics from './pages/Analytics'
+import HR from './pages/HR'
 
 export default function App() {
   return (
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="/buyers" element={<Buyers />} />
         <Route path="/purchase-orders" element={<PurchaseOrders />} />
         <Route path="/analytics" element={<Analytics />} />
+        <Route path="/hr" element={<HR />} />
       </Routes>
     </ToastProvider>
   )

@@ -9,6 +9,7 @@ const ALL_NAV = [
   { href: '/buyers',          icon: '🏢', label: 'Buyers' },
   { href: '/purchase-orders', icon: '📦', label: 'Purchase Orders' },
   { href: '/analytics',       icon: '📊', label: 'Analytics' },
+  { href: '/hr',              icon: '👷', label: 'HR' },
 ]
 
 const SECTION_TABS = {
@@ -38,6 +39,13 @@ const SECTION_TABS = {
     { id: 'all', icon: '📋', label: 'All POs' },
   ],
   Analytics: [],
+  HR: [
+    { id: 'add',        icon: '➕', label: 'Add Employee' },
+    { id: 'view',       icon: '👥', label: 'Employees' },
+    { id: 'payroll',    icon: '💸', label: 'Payroll' },
+    { id: 'attendance', icon: '🗓️', label: 'Attendance' },
+    { id: 'config',     icon: '⚙️', label: 'Config' },
+  ],
 }
 
 export default function Sidebar({ section, activeTab, onTabChange }) {
