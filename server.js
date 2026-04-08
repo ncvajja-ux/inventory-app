@@ -1450,6 +1450,7 @@ app.delete("/hr/employees/:emp_id", (req, res) => {
     );
 });
 
+
 // ─── HR: Payroll helpers ──────────────────────────────────────────────────────
 function recalcPayrollTotal(header_id, cb) {
     hrDb.get(
