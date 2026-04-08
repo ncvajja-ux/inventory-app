@@ -1545,6 +1545,7 @@ app.delete("/hr/payroll/lines/:line_id", (req, res) => {
     });
 });
 
+
 // ─── HR: Attendance ───────────────────────────────────────────────────────────
 app.get("/hr/attendance", (req, res) => {
     const { emp_id, month } = req.query;
