@@ -120,7 +120,7 @@ export default function ItemDetail() {
             {prod?.brand || 'Item Detail'}
           </span>
         </div>
-        <Link to="/inventory" style={{
+        <Link to={`/inventory?edit=${matnr}`} style={{
           display: 'flex', alignItems: 'center', gap: 8,
           padding: '8px 14px', border: '1.5px solid var(--border)', borderRadius: 8,
           fontSize: 13, fontWeight: 600, color: 'var(--muted)', textDecoration: 'none', background: 'white',

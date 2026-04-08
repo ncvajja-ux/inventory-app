@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
 
@@ -266,7 +266,7 @@ function AddTab({ onAdded }) {
 }
 
 // ── View Tab ─────────────────────────────────────────────────────────────────
-function ViewTab() {
+function ViewTab({ editMatnr }) {
   const showToast = useToast()
   const [allData, setAllData] = useState([])
   const [loading, setLoading] = useState(true)
@@ -292,6 +292,13 @@ function ViewTab() {
   }, [showToast])
 
   useEffect(() => { loadData() }, [loadData])
+
+  // Auto-open edit modal when arriving from ItemDetail via ?edit=MATNR
+  useEffect(() => {
+    if (!editMatnr || loading || allData.length === 0) return
+    const item = allData.find(r => r.matnr === editMatnr)
+    if (item) setEditingItem(item)
+  }, [editMatnr, loading, allData])
 
   async function deleteItem(matnr) {
     if (!confirm(`Delete item ${matnr}? This cannot be undone.`)) return
@@ -1043,7 +1050,9 @@ function UploadTab() {
 
 // ── Root Component ────────────────────────────────────────────────────────────
 export default function Inventory() {
-  const [tab, setTab] = useState('add')
+  const [searchParams] = useSearchParams()
+  const editMatnr = searchParams.get('edit') || null
+  const [tab, setTab] = useState(editMatnr ? 'view' : 'add')
   const [refreshKey, setRefreshKey] = useState(0)
 
   return (
@@ -1051,7 +1060,7 @@ export default function Inventory() {
       <Sidebar section="Inventory" activeTab={tab} onTabChange={t => { setTab(t); if (t === 'view') setRefreshKey(k => k + 1) }} />
       <div className="main">
         {tab === 'add' && <AddTab onAdded={() => { setTab('view'); setRefreshKey(k => k + 1) }} />}
-        {tab === 'view' && <ViewTab key={refreshKey} />}
+        {tab === 'view' && <ViewTab key={refreshKey} editMatnr={editMatnr} />}
         {tab === 'cats' && <ConfigTab />}
         {tab === 'upload' && <UploadTab />}
       </div>
