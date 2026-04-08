@@ -395,11 +395,13 @@ function AllPOsTab() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.error || 'Update failed')
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Update failed')
+      if (d.warning) {
+        showToast(`⚠️ ${d.warning}`, 'error')
+      } else {
+        showToast(status === 'Goods Receipt' ? `✅ GR confirmed — +${d.qty_added} units added to stock` : `✅ Line ${lineNo} → ${status}`)
       }
-      showToast(status === 'Goods Receipt' ? '✅ Goods Receipt confirmed — stock updated' : `✅ Line ${lineNo} → ${status}`)
       // Refresh modal
       if (viewOrder) {
         const r = await fetch(`/purchase-orders/${poId}`)

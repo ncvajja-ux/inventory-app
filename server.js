@@ -1028,31 +1028,50 @@ app.put("/purchase-orders/:po_id/line/:line_no/status", (req, res) => {
         const oldStatus = line.status;
 
         transDb.run("UPDATE po_items SET status=? WHERE po_id=? AND line_no=?",
-            [status, po_id, line_no], (err) => {
-                if (err) return res.status(500).json({error:err.message});
+            [status, po_id, line_no], function(err) {
+                if (err) return res.status(500).json({error: err.message});
+                if (this.changes === 0) return res.status(404).json({error: "Line item not found"});
 
-                // Only update inventory when transitioning TO Goods Receipt
+                // Transitioning TO Goods Receipt — add stock, wait for result before responding
                 if (status === 'Goods Receipt' && oldStatus !== 'Goods Receipt') {
                     invDb.run(
                         "UPDATE mara SET quantity=quantity+?, cost_price=? WHERE matnr=?",
                         [line.quantity, line.unit_price, line.matnr],
-                        (invErr) => {
-                            if (invErr) console.error("❌ Inventory GR error:", invErr.message);
-                            else console.log(`✅ GR: +${line.quantity} units of ${line.matnr} added to stock`);
+                        function(invErr) {
+                            if (invErr) {
+                                console.error("❌ Inventory GR error:", invErr.message);
+                                return res.status(500).json({error: "Status updated but stock update failed: " + invErr.message});
+                            }
+                            if (this.changes === 0) {
+                                console.warn(`⚠️  GR stock update: matnr '${line.matnr}' not found in mara`);
+                                return res.status(207).json({success: true, status, warning: `MATNR ${line.matnr} not found in inventory — status updated but stock unchanged`});
+                            }
+                            console.log(`✅ GR: +${line.quantity} units of ${line.matnr} added to stock`);
+                            res.json({success: true, status, stock_updated: true, qty_added: line.quantity});
                         }
                     );
+                    return; // response sent inside callback above
                 }
 
-                // If reverting FROM Goods Receipt, deduct stock back
+                // Reverting FROM Goods Receipt — deduct stock back, wait for result
                 if (oldStatus === 'Goods Receipt' && status !== 'Goods Receipt') {
                     invDb.run(
                         "UPDATE mara SET quantity=MAX(0,quantity-?) WHERE matnr=?",
                         [line.quantity, line.matnr],
-                        (invErr) => { if (invErr) console.error("❌ Inventory GR reversal error:", invErr.message); }
+                        function(invErr) {
+                            if (invErr) {
+                                console.error("❌ Inventory GR reversal error:", invErr.message);
+                                return res.status(500).json({error: "Status reverted but stock deduction failed: " + invErr.message});
+                            }
+                            console.log(`↩️  GR reversal: -${line.quantity} units of ${line.matnr}`);
+                            res.json({success: true, status});
+                        }
                     );
+                    return; // response sent inside callback above
                 }
 
-                res.json({success:true, status});
+                // No stock change needed (Created ↔ Accepted)
+                res.json({success: true, status});
             }
         );
     });
