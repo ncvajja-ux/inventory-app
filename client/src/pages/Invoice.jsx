@@ -187,7 +187,7 @@ export default function Invoice() {
                     💰 Partial Payment
                   </button>
                 )}
-                {ps !== 'CANCELLED' && !isReturn && (
+                {ps !== 'CANCELLED' && ps !== 'PAID' && !isReturn && (
                   <button className="btn btn-danger" onClick={() => updatePayment('CANCELLED')}>
                     ✕ Cancel
                   </button>

@@ -100,12 +100,6 @@ function NewPOTab({ onCreated }) {
 
   function selectBuyer(b) {
     setBuyer(b)
-    setReviewForm(f => ({
-      ...f,
-      rv_addr1: b.addr1 || '', rv_addr2: b.addr2 || '',
-      rv_city: b.city || '', rv_state: b.state || '', rv_country: b.country || 'India',
-      rv_zip: b.zip || '', rv_ship_city: b.ship_city || '',
-    }))
     setStep(2)
   }
 

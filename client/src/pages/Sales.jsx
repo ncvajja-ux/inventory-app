@@ -107,6 +107,8 @@ function NewOrderTab() {
   const [filterBrand, setFilterBrand] = useState('')
   const [productSearch, setProductSearch] = useState('')
   const [categories, setCategories] = useState({})
+  const [custDiscountPct, setCustDiscountPct] = useState(0)   // % from customer_discount table
+  const [prodDiscounts, setProdDiscounts] = useState({})      // matnr -> discount_pct
   const [brands, setBrands] = useState([])
   const [orderForm, setOrderForm] = useState({ payment_method: '', discount: '', salesperson: '', notes: '' })
   const [placing, setPlacing] = useState(false)
@@ -143,10 +145,48 @@ function NewOrderTab() {
 
   async function loadProducts() {
     try {
-      const res = await fetch('/inventory')
-      const data = await res.json()
-      setAllInventory(data)
-      setProducts(data)
+      const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+      const [invRes, spRes, pdRes] = await Promise.all([
+        fetch('/inventory'),
+        fetch('/pricing/sales-price'),
+        fetch('/pricing/product-discount'),
+      ])
+      const invData = await invRes.json()
+      const spData  = spRes.ok  ? await spRes.json()  : []
+      const pdData  = pdRes.ok  ? await pdRes.json()  : []
+
+      // Build map: matnr -> latest active sales price
+      const spMap = {}
+      ;(spData || []).forEach(sp => {
+        const from = (sp.valid_from || '').replace(/-/g, '')
+        const to   = (sp.valid_to  || '12319999').replace(/-/g, '')
+        if (today >= from && today <= to) {
+          if (!spMap[sp.matnr] || from > (spMap[sp.matnr].valid_from || '').replace(/-/g, '')) {
+            spMap[sp.matnr] = sp
+          }
+        }
+      })
+
+      // Build map: matnr -> latest active product discount %
+      const pdMap = {}
+      ;(pdData || []).forEach(pd => {
+        const from = (pd.valid_from || '').replace(/-/g, '')
+        const to   = (pd.valid_to  || '12319999').replace(/-/g, '')
+        if (today >= from && today <= to) {
+          if (!pdMap[pd.matnr] || from > (pdMap[pd.matnr].valid_from || '').replace(/-/g, '')) {
+            pdMap[pd.matnr] = pd
+          }
+        }
+      })
+      setProdDiscounts(Object.fromEntries(Object.entries(pdMap).map(([k, v]) => [k, parseFloat(v.discount_pct) || 0])))
+
+      const enriched = invData.map(p => ({
+        ...p,
+        sales_price: spMap[p.matnr] ? spMap[p.matnr].unit_price : null,
+        prod_discount_pct: pdMap[p.matnr] ? parseFloat(pdMap[p.matnr].discount_pct) : 0,
+      }))
+      setAllInventory(enriched)
+      setProducts(enriched)
     } catch { showToast('Could not load products', 'error') }
   }
 
@@ -180,6 +220,19 @@ function NewOrderTab() {
     setCart([])
     // Clear any stale temp cart for this customer
     await fetch(`/order/temp/${c.kunnr}/clear`, { method: 'DELETE' }).catch(() => {})
+    // Fetch customer discount
+    try {
+      const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+      const cdRes = await fetch(`/pricing/customer-discount`)
+      const cdData = cdRes.ok ? await cdRes.json() : []
+      const custDisc = (cdData || []).find(d => {
+        if (d.kunnr !== c.kunnr) return false
+        const from = (d.valid_from || '').replace(/-/g, '')
+        const to   = (d.valid_to  || '12319999').replace(/-/g, '')
+        return today >= from && today <= to
+      })
+      setCustDiscountPct(custDisc ? parseFloat(custDisc.discount_pct) : 0)
+    } catch { setCustDiscountPct(0) }
     goStep(2, c.kunnr)
     loadProducts()
   }
@@ -190,6 +243,8 @@ function NewOrderTab() {
     if (qty < 1) return showToast('Quantity must be at least 1', 'error')
     const kunnr = customer?.kunnr || urlKunnr
 
+    const sp = selectedProduct.sales_price ?? selectedProduct.mrp ?? 0
+    const pdPct = selectedProduct.prod_discount_pct || prodDiscounts[selectedProduct.matnr] || 0
     // Add to server-side temp cart
     try {
       await fetch(`/order/temp/${kunnr}/add`, {
@@ -198,8 +253,9 @@ function NewOrderTab() {
         body: JSON.stringify({
           matnr: selectedProduct.matnr,
           quantity: qty,
-          price: selectedProduct.mrp || 0,
-          mrp: selectedProduct.mrp || 0,
+          price: sp,
+          mrp: selectedProduct.mrp || sp,
+          discount_pct: pdPct,
           gst_rate: selectedProduct.gst_rate || 0,
         }),
       })
@@ -213,7 +269,7 @@ function NewOrderTab() {
         updated[idx] = { ...updated[idx], quantity: updated[idx].quantity + qty }
         return updated
       }
-      return [...prev, { ...selectedProduct, quantity: qty }]
+      return [...prev, { ...selectedProduct, sales_price: sp, prod_discount_pct: pdPct, quantity: qty }]
     })
     showToast(`✅ ${selectedProduct.brand} added to cart`)
     setSelectedProduct(null)
@@ -249,17 +305,22 @@ function NewOrderTab() {
   }
 
   const cartTotals = cart.reduce((acc, item) => {
-    const mrp = parseFloat(item.mrp || item.sales_price || 0)
+    const basePrice = parseFloat(item.sales_price ?? item.mrp ?? item.price ?? 0)
+    const pdPct = parseFloat(item.prod_discount_pct || prodDiscounts[item.matnr] || 0)
+    const priceAfterProdDisc = basePrice * (1 - pdPct / 100)
     const gst = parseFloat(item.gst_rate || 0) / 100
-    const base = mrp / (1 + gst)
-    acc.subtotal += base * item.quantity
-    acc.tax += (mrp - base) * item.quantity
-    acc.gross += mrp * item.quantity
+    const taxableBase = priceAfterProdDisc / (1 + gst)
+    acc.subtotal += taxableBase * item.quantity
+    acc.tax += (priceAfterProdDisc - taxableBase) * item.quantity
+    acc.gross += priceAfterProdDisc * item.quantity
+    acc.prodDiscount += (basePrice - priceAfterProdDisc) * item.quantity
     return acc
-  }, { subtotal: 0, tax: 0, gross: 0 })
+  }, { subtotal: 0, tax: 0, gross: 0, prodDiscount: 0 })
 
-  const discountAmt = parseFloat(orderForm.discount) || 0
-  const grandTotal = cartTotals.gross - discountAmt
+  const custDiscountAmt = cartTotals.gross * custDiscountPct / 100
+  const manualDiscountAmt = parseFloat(orderForm.discount) || 0
+  const discountAmt = custDiscountAmt + manualDiscountAmt
+  const grandTotal = cartTotals.gross - custDiscountAmt - manualDiscountAmt
 
   async function placeOrder() {
     if (!cart.length) return showToast('Cart is empty', 'error')
@@ -376,7 +437,7 @@ function NewOrderTab() {
                 <div className="p-matnr">{p.matnr}</div>
                 <div className="p-brand">{p.brand}</div>
                 <div className="p-meta">{[p.category, p.size, p.color].filter(Boolean).join(' · ')}</div>
-                <div className="p-price">{fmt(p.mrp || p.sales_price)}</div>
+                <div className="p-price">{fmt(p.sales_price ?? p.mrp ?? 0)}</div>
                 <div className="p-stock">{p.available ?? p.quantity ?? 0} in stock</div>
               </div>
             ))}
@@ -413,15 +474,18 @@ function NewOrderTab() {
           <thead>
             <tr>
               <th>MATNR</th><th>Brand</th><th>Details</th>
-              <th className="right">MRP</th><th className="right">GST %</th><th className="right">Qty</th>
+              <th className="right">MRP</th><th className="right">Sales Price</th><th className="right">GST %</th><th className="right">Qty</th>
               <th className="right">Line Total</th><th></th>
             </tr>
           </thead>
           <tbody>
             {cart.length === 0 ? (
-              <tr className="state-row"><td colSpan={8}>Your cart is empty. <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => goStep(2, customer?.kunnr || urlKunnr)}>Add products</button></td></tr>
+              <tr className="state-row"><td colSpan={9}>Your cart is empty. <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => goStep(2, customer?.kunnr || urlKunnr)}>Add products</button></td></tr>
             ) : cart.map(item => {
-              const mrp = parseFloat(item.mrp || item.sales_price || 0)
+              const mrp = parseFloat(item.mrp || 0)
+              const sp  = parseFloat(item.sales_price ?? item.mrp ?? item.price ?? 0)
+              const pdPct = parseFloat(item.prod_discount_pct || prodDiscounts[item.matnr] || 0)
+              const effPrice = sp * (1 - pdPct / 100)
               const gst = parseFloat(item.gst_rate || 0)
               return (
                 <tr key={item.matnr}>
@@ -429,6 +493,7 @@ function NewOrderTab() {
                   <td><strong>{item.brand}</strong></td>
                   <td style={{ fontSize: 12, color: 'var(--muted)' }}>{[item.category, item.size, item.color].filter(Boolean).join(' · ')}</td>
                   <td className="right">{fmt(mrp)}</td>
+                  <td className="right">{fmt(sp)}{pdPct > 0 && <span style={{ color: 'var(--success)', fontSize: 11, marginLeft: 4 }}>−{pdPct}%</span>}</td>
                   <td className="right"><span className="gst-badge">{gst}%</span></td>
                   <td className="right">
                     <div className="qty-cell">
@@ -437,7 +502,7 @@ function NewOrderTab() {
                       <button className="qty-stepper" onClick={() => updateCartQty(item.matnr, 1)}>+</button>
                     </div>
                   </td>
-                  <td className="right"><strong>{fmt(mrp * item.quantity)}</strong></td>
+                  <td className="right"><strong>{fmt(effPrice * item.quantity)}</strong></td>
                   <td><button className="action-btn btn-delete" onClick={() => removeFromCart(item.matnr)}>Remove</button></td>
                 </tr>
               )
@@ -470,9 +535,18 @@ function NewOrderTab() {
           </div>
         </div>
         <div className="totals-card">
-          <div className="totals-row"><span>Subtotal</span><span>{fmt(cartTotals.gross)}</span></div>
-          <div className="totals-row tax"><span>Discount</span><span style={{ color: 'var(--success)' }}>−{fmt(discountAmt)}</span></div>
+          <div className="totals-row"><span>Subtotal (excl. GST)</span><span>{fmt(cartTotals.subtotal)}</span></div>
+          {cartTotals.prodDiscount > 0 && (
+            <div className="totals-row tax"><span>Product Discount</span><span style={{ color: 'var(--success)' }}>−{fmt(cartTotals.prodDiscount)}</span></div>
+          )}
           <div className="totals-row tax"><span>GST (incl.)</span><span>{fmt(cartTotals.tax)}</span></div>
+          <div className="totals-row"><span>Amount Before Cust. Disc.</span><span>{fmt(cartTotals.gross)}</span></div>
+          {custDiscountPct > 0 && (
+            <div className="totals-row tax"><span>Customer Discount ({custDiscountPct}%)</span><span style={{ color: 'var(--success)' }}>−{fmt(custDiscountAmt)}</span></div>
+          )}
+          {manualDiscountAmt > 0 && (
+            <div className="totals-row tax"><span>Manual Discount</span><span style={{ color: 'var(--success)' }}>−{fmt(manualDiscountAmt)}</span></div>
+          )}
           <div className="totals-row grand"><span>Total</span><span>{fmt(grandTotal)}</span></div>
           <button className="place-order-btn" onClick={placeOrder} disabled={placing || !cart.length}>
             {placing ? '⏳ Placing…' : '✅ Place Order'}
@@ -635,9 +709,11 @@ function ReturnsTab() {
       const res = await fetch(`/orders/${orderIdInput.trim()}`)
       if (!res.ok) return showToast('Order not found', 'error')
       const data = await res.json()
-      setSelectedOrder(data.order)
-      setOrderLines(data.lines || [])
-      setReturnItems(data.lines.map(l => ({ ...l, return_qty: 0, selected: false })))
+      // Server returns flat object: { order_id, kunnr, ..., items: [...] }
+      const lines = data.items || []
+      setSelectedOrder(data)
+      setOrderLines(lines)
+      setReturnItems(lines.map(l => ({ ...l, return_qty: 0, selected: false })))
       setStep(2)
     } catch { showToast('Could not fetch order', 'error') }
   }
@@ -656,7 +732,7 @@ function ReturnsTab() {
       if (p.toString()) url += '?' + p.toString()
       const res = await fetch(url)
       const data = await res.json()
-      setMatchingOrders(data.filter(o => o.order_type === 'S'))
+      setMatchingOrders(data.filter(o => o.order_type === 'S' && o.payment_status !== 'CANCELLED'))
     } catch { showToast('Search failed', 'error') }
   }
 
@@ -664,9 +740,11 @@ function ReturnsTab() {
     try {
       const res = await fetch(`/orders/${orderId}`)
       const data = await res.json()
-      setSelectedOrder(data.order)
-      setOrderLines(data.lines || [])
-      setReturnItems((data.lines || []).map(l => ({ ...l, return_qty: 0, selected: false })))
+      // Server returns flat object: { order_id, kunnr, ..., items: [...] }
+      const lines = data.items || []
+      setSelectedOrder(data)
+      setOrderLines(lines)
+      setReturnItems(lines.map(l => ({ ...l, return_qty: 0, selected: false })))
       setStep(2)
     } catch { showToast('Could not fetch order', 'error') }
   }

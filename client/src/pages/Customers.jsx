@@ -14,6 +14,7 @@ function EditModal({ customer, onClose, onSaved }) {
     dob: customer.dob || '',
     anniversary: customer.anniversary || '',
     notes: customer.notes || '',
+    status: customer.status || 'Active',
   })
 
   function set(field) {
@@ -207,13 +208,16 @@ function ViewTab() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  async function deleteCustomer(kunnr, name) {
-    if (!confirm(`Delete "${name}" (${kunnr})?\nThis cannot be undone.`)) return
+  async function updateStatus(kunnr, name, status) {
     try {
-      const res = await fetch(`/customers/${kunnr}`, { method: 'DELETE' })
+      const res = await fetch(`/customers/${kunnr}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      showToast(`🗑️ ${name} deleted`)
+      showToast(`✅ ${name} status set to ${status}`)
       loadData()
     } catch (err) {
       showToast(`❌ ${err.message}`, 'error')
@@ -259,18 +263,18 @@ function ViewTab() {
         {query && <div className="stat-pill">Showing <strong>{filtered.length}</strong></div>}
       </div>
 
-      <div className="table-card">
-        <table>
+      <div className="table-card" style={{ overflowX: 'auto' }}>
+        <table style={{ minWidth: 900 }}>
           <thead>
             <tr>
-              <th>KUNNR</th><th>Name</th><th>Phone</th><th>Email</th><th>Address</th><th>GSTIN</th><th>Actions</th>
+              <th>KUNNR</th><th>Name</th><th>Phone</th><th>Email</th><th>Address</th><th>GSTIN</th><th>DOB</th><th>Anniversary</th><th>Status</th><th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr className="state-row"><td colSpan={7}><span className="spinner" /> Loading customers…</td></tr>
+              <tr className="state-row"><td colSpan={10}><span className="spinner" /> Loading customers…</td></tr>
             ) : filtered.length === 0 ? (
-              <tr className="state-row"><td colSpan={7}>No customers found.</td></tr>
+              <tr className="state-row"><td colSpan={10}>No customers found.</td></tr>
             ) : filtered.map(row => (
               <tr key={row.kunnr}>
                 <td>
@@ -287,10 +291,28 @@ function ViewTab() {
                 <td>{row.email || '—'}</td>
                 <td>{row.address || '—'}</td>
                 <td>{row.gstin || '—'}</td>
+                <td style={{ fontSize: 12 }}>{row.dob || '—'}</td>
+                <td style={{ fontSize: 12 }}>{row.anniversary || '—'}</td>
+                <td>
+                  <span className={`badge badge-${row.status === 'Credit Hold' ? 'partial' : row.status === 'Blacklisted' || row.status === 'Duplicate/Deleted' ? 'cancelled' : 'paid'}`}>
+                    {row.status || 'Active'}
+                  </span>
+                </td>
                 <td>
                   <div className="actions">
                     <button className="action-btn btn-edit" onClick={() => setEditingCustomer(row)}>Edit</button>
-                    <button className="action-btn btn-delete" onClick={() => deleteCustomer(row.kunnr, row.name)}>Delete</button>
+                    <select
+                      className="action-btn"
+                      value=""
+                      onChange={e => { if (e.target.value) updateStatus(row.kunnr, row.name, e.target.value) }}
+                      style={{ cursor: 'pointer', padding: '4px 6px', fontSize: 12 }}
+                    >
+                      <option value="">Status ▾</option>
+                      <option value="Active">Active</option>
+                      <option value="Credit Hold">Credit Hold</option>
+                      <option value="Blacklisted">Blacklisted</option>
+                      <option value="Duplicate/Deleted">Duplicate/Deleted</option>
+                    </select>
                   </div>
                 </td>
               </tr>

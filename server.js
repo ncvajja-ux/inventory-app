@@ -33,6 +33,10 @@ custDb.serialize(() => {
         kunnr TEXT PRIMARY KEY CHECK(length(kunnr)=6),
         name TEXT NOT NULL, number TEXT, address TEXT, email TEXT, gstin TEXT
     )`);
+    custDb.run("ALTER TABLE kna1 ADD COLUMN dob TEXT", () => {});
+    custDb.run("ALTER TABLE kna1 ADD COLUMN anniversary TEXT", () => {});
+    custDb.run("ALTER TABLE kna1 ADD COLUMN notes TEXT", () => {});
+    custDb.run("ALTER TABLE kna1 ADD COLUMN status TEXT DEFAULT 'Active'", () => {});
 });
 
 buyerDb.serialize(() => {
@@ -45,6 +49,7 @@ buyerDb.serialize(() => {
         ship_city TEXT, payment_terms TEXT,
         created_at TEXT DEFAULT (datetime('now'))
     )`);
+    buyerDb.run("ALTER TABLE buyers ADD COLUMN status TEXT DEFAULT 'Active'", () => {});
 });
 
 invDb.serialize(() => {
@@ -386,20 +391,27 @@ app.get("/customers/:kunnr", (req, res) => {
     });
 });
 app.post("/addcustomer", (req, res) => {
-    const {name,number,address,email,gstin} = req.body;
+    const {name,number,address,email,gstin,dob,anniversary,notes} = req.body;
     if (!name) return res.status(400).json({error:"Name required"});
     nextId(custDb, "kna1", "kunnr", null, (err, kunnr) => {
         if (err) return res.status(500).json({error:err.message});
-        custDb.run("INSERT INTO kna1 (kunnr,name,number,address,email,gstin) VALUES (?,?,?,?,?,?)",
-            [kunnr,name,number,address,email,gstin],
+        custDb.run("INSERT INTO kna1 (kunnr,name,number,address,email,gstin,dob,anniversary,notes,status) VALUES (?,?,?,?,?,?,?,?,?,'Active')",
+            [kunnr,name,number,address,email,gstin,dob||null,anniversary||null,notes||null],
             function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true,kunnr}); }
         );
     });
 });
 app.put("/customers/:kunnr", (req, res) => {
-    const {name,number,address,email,gstin} = req.body;
-    custDb.run("UPDATE kna1 SET name=?,number=?,address=?,email=?,gstin=? WHERE kunnr=?",
-        [name,number,address,email,gstin,req.params.kunnr],
+    const {name,number,address,email,gstin,dob,anniversary,notes,status} = req.body;
+    custDb.run("UPDATE kna1 SET name=?,number=?,address=?,email=?,gstin=?,dob=?,anniversary=?,notes=?,status=COALESCE(?,status) WHERE kunnr=?",
+        [name,number,address,email,gstin,dob||null,anniversary||null,notes||null,status||null,req.params.kunnr],
+        function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
+    );
+});
+app.patch("/customers/:kunnr/status", (req, res) => {
+    const {status} = req.body;
+    if (!status) return res.status(400).json({error:"status required"});
+    custDb.run("UPDATE kna1 SET status=? WHERE kunnr=?", [status, req.params.kunnr],
         function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
     );
 });
@@ -461,10 +473,17 @@ app.post("/buyers", (req, res) => {
     });
 });
 app.put("/buyers/:buyer_id", (req, res) => {
-    const {name,phone,email,gstin,tax_id,export_id,addr1,addr2,city,state,country,zip,ship_city,payment_terms} = req.body;
+    const {name,phone,email,gstin,tax_id,export_id,addr1,addr2,city,state,country,zip,ship_city,payment_terms,status} = req.body;
     buyerDb.run(`UPDATE buyers SET name=?,phone=?,email=?,gstin=?,tax_id=?,export_id=?,
-        addr1=?,addr2=?,city=?,state=?,country=?,zip=?,ship_city=?,payment_terms=? WHERE buyer_id=?`,
-        [name,phone,email,gstin,tax_id,export_id,addr1,addr2,city,state,country,zip,ship_city,payment_terms,req.params.buyer_id],
+        addr1=?,addr2=?,city=?,state=?,country=?,zip=?,ship_city=?,payment_terms=?,status=COALESCE(?,status) WHERE buyer_id=?`,
+        [name,phone,email,gstin,tax_id,export_id,addr1,addr2,city,state,country,zip,ship_city,payment_terms,status||null,req.params.buyer_id],
+        function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
+    );
+});
+app.patch("/buyers/:buyer_id/status", (req, res) => {
+    const {status} = req.body;
+    if (!status) return res.status(400).json({error:"status required"});
+    buyerDb.run("UPDATE buyers SET status=? WHERE buyer_id=?", [status, req.params.buyer_id],
         function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
     );
 });
@@ -917,7 +936,8 @@ app.get("/next-po-id", (req, res) => {
 app.get("/purchase-orders", (req, res) => {
     const {search,from,to,payment_status} = req.query;
     let sql = `SELECT po_header.*,
-        (SELECT COUNT(*) FROM po_items WHERE po_items.po_id = po_header.po_id) as line_count
+        (SELECT COUNT(*) FROM po_items WHERE po_items.po_id = po_header.po_id) as line_count,
+        (SELECT COALESCE(SUM(line_total),0) FROM po_items WHERE po_items.po_id = po_header.po_id) as po_total
         FROM po_header WHERE 1=1`;
     const p = [];
     if (payment_status) { sql += " AND payment_status=?"; p.push(payment_status); }
@@ -1035,7 +1055,7 @@ app.put("/purchase-orders/:po_id/line/:line_no/status", (req, res) => {
                 // Transitioning TO Goods Receipt — add stock, wait for result before responding
                 if (status === 'Goods Receipt' && oldStatus !== 'Goods Receipt') {
                     invDb.run(
-                        "UPDATE mara SET quantity=quantity+?, cost_price=? WHERE matnr=?",
+                        "UPDATE mara SET quantity=COALESCE(quantity,0)+?, cost_price=? WHERE matnr=?",
                         [line.quantity, line.unit_price, line.matnr],
                         function(invErr) {
                             if (invErr) {
@@ -1056,7 +1076,7 @@ app.put("/purchase-orders/:po_id/line/:line_no/status", (req, res) => {
                 // Reverting FROM Goods Receipt — deduct stock back, wait for result
                 if (oldStatus === 'Goods Receipt' && status !== 'Goods Receipt') {
                     invDb.run(
-                        "UPDATE mara SET quantity=MAX(0,quantity-?) WHERE matnr=?",
+                        "UPDATE mara SET quantity=MAX(0,COALESCE(quantity,0)-?) WHERE matnr=?",
                         [line.quantity, line.matnr],
                         function(invErr) {
                             if (invErr) {

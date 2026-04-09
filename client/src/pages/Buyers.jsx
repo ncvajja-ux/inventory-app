@@ -278,13 +278,16 @@ function ViewTab() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  async function deleteBuyer(id, name) {
-    if (!confirm(`Delete "${name}" (${id})? This cannot be undone.`)) return
+  async function updateStatus(id, name, status) {
     try {
-      const res = await fetch(`/buyers/${id}`, { method: 'DELETE' })
+      const res = await fetch(`/buyers/${id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      showToast(`🗑️ ${name} deleted`)
+      showToast(`✅ ${name} status set to ${status}`)
       loadData()
     } catch (err) { showToast(`❌ ${err.message}`, 'error') }
   }
@@ -310,19 +313,19 @@ function ViewTab() {
         <div className="stat-pill">Total Buyers <strong>{allData.length}</strong></div>
       </div>
 
-      <div className="table-card">
-        <table>
+      <div className="table-card" style={{ overflowX: 'auto' }}>
+        <table style={{ minWidth: 900 }}>
           <thead>
             <tr>
               <th>Buyer ID</th><th>Company Name</th><th>Phone</th><th>Email</th>
-              <th>City</th><th>State</th><th>GSTIN</th><th>Payment Terms</th><th>Actions</th>
+              <th>City</th><th>State</th><th>GSTIN</th><th>Payment Terms</th><th>Status</th><th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr className="state-row"><td colSpan={9}><span className="spinner" /> Loading…</td></tr>
+              <tr className="state-row"><td colSpan={10}><span className="spinner" /> Loading…</td></tr>
             ) : filtered.length === 0 ? (
-              <tr className="state-row"><td colSpan={9}>No buyers found.</td></tr>
+              <tr className="state-row"><td colSpan={10}>No buyers found.</td></tr>
             ) : filtered.map(row => (
               <tr key={row.buyer_id} style={{ cursor: 'pointer' }} onClick={() => setViewingBuyer(row)}>
                 <td><span className="mono">{row.buyer_id}</span></td>
@@ -334,9 +337,25 @@ function ViewTab() {
                 <td>{row.gstin || '—'}</td>
                 <td>{row.payment_terms || '—'}</td>
                 <td onClick={e => e.stopPropagation()}>
+                  <span className={`badge badge-${row.status === 'Credit Hold' ? 'partial' : row.status === 'Blacklisted' || row.status === 'Duplicate/Deleted' ? 'cancelled' : 'paid'}`}>
+                    {row.status || 'Active'}
+                  </span>
+                </td>
+                <td onClick={e => e.stopPropagation()}>
                   <div className="actions">
                     <button className="action-btn btn-edit" onClick={() => setEditingBuyer(row)}>Edit</button>
-                    <button className="action-btn btn-delete" onClick={() => deleteBuyer(row.buyer_id, row.name)}>Delete</button>
+                    <select
+                      className="action-btn"
+                      value=""
+                      onChange={e => { if (e.target.value) updateStatus(row.buyer_id, row.name, e.target.value) }}
+                      style={{ cursor: 'pointer', padding: '4px 6px', fontSize: 12 }}
+                    >
+                      <option value="">Status ▾</option>
+                      <option value="Active">Active</option>
+                      <option value="Credit Hold">Credit Hold</option>
+                      <option value="Blacklisted">Blacklisted</option>
+                      <option value="Duplicate/Deleted">Duplicate/Deleted</option>
+                    </select>
                   </div>
                 </td>
               </tr>
