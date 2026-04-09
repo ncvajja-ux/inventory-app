@@ -854,9 +854,36 @@ app.put("/orders/:order_id/payment", (req, res) => {
         );
     });
 });
+app.get("/orders/search", (req, res) => {
+    const q = (req.query.q || '').trim();
+    if (!q) return res.json([]);
+    const like = `%${q}%`;
+    transDb.all(
+        `SELECT vbak.*,
+            (SELECT COALESCE(SUM(line_total),0) FROM vbap WHERE vbap.order_id = vbak.order_id) as order_total
+         FROM vbak WHERE status='CONFIRMED' AND order_type='S'
+         AND (vbak.order_id LIKE ? OR vbak.kunnr LIKE ?)
+         ORDER BY created_at DESC LIMIT 20`,
+        [like, like],
+        (err, orders) => {
+            if (err) return res.status(500).json({error:err.message});
+            if (!orders.length) return res.json([]);
+            let pending = orders.length;
+            const enriched = [];
+            orders.forEach(order => {
+                custDb.get("SELECT name FROM kna1 WHERE kunnr=?", [order.kunnr], (err, cust) => {
+                    enriched.push({...order, customer_name: cust?cust.name:order.kunnr});
+                    if (--pending===0) res.json(enriched.sort((a,b) => b.created_at.localeCompare(a.created_at)));
+                });
+            });
+        }
+    );
+});
 app.get("/orders", (req, res) => {
     const {search,from,to,payment_status,order_type} = req.query;
-    let sql = "SELECT * FROM vbak WHERE status='CONFIRMED'";
+    let sql = `SELECT vbak.*,
+        (SELECT COALESCE(SUM(line_total),0) FROM vbap WHERE vbap.order_id = vbak.order_id) as order_total
+        FROM vbak WHERE status='CONFIRMED'`;
     const p = [];
     if (payment_status) { sql += " AND payment_status=?"; p.push(payment_status); }
     if (order_type)     { sql += " AND order_type=?";     p.push(order_type); }
@@ -896,13 +923,28 @@ app.get("/orders/:order_id", (req, res) => {
             transDb.all("SELECT * FROM vbap WHERE order_id=?", [req.params.order_id], (err, items) => {
                 if (err) return res.status(500).json({error:err.message});
                 if (!items.length) return res.json({...full,items:[]});
+                const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD to match stored format
                 let pending = items.length;
                 const enriched = [];
                 items.forEach(item => {
-                    invDb.get("SELECT brand,brandfamily,size,category,subcategory,subsubcategory,color,fit,mrp FROM mara WHERE matnr=?",
+                    invDb.get("SELECT brand,brandfamily,size,category,subcategory,subsubcategory,color,fit,mrp,tax_category FROM mara WHERE matnr=?",
                         [item.matnr], (err, prod) => {
-                            enriched.push({...item,...(prod||{})});
-                            if (--pending===0) res.json({...full,items:enriched});
+                            // Also fetch current sales price from pricing table as fallback
+                            pricingDb.get(
+                                "SELECT unit_price FROM sales_price WHERE matnr=? AND valid_from<=? AND (valid_to>=? OR valid_to IS NULL OR valid_to='12319999') ORDER BY valid_from DESC LIMIT 1",
+                                [item.matnr, today, today],
+                                (err2, sp) => {
+                                    const taxCat = prod && prod.tax_category;
+                                    enriched.push({
+                                        ...item,
+                                        ...(prod||{}),
+                                        sales_price: sp ? sp.unit_price : null,
+                                        // Use sales_price as fallback when stored mrp/price is 0
+                                        effective_price: item.price || item.mrp || (sp ? sp.unit_price : 0),
+                                    });
+                                    if (--pending===0) res.json({...full,items:enriched});
+                                }
+                            );
                         }
                     );
                 });

@@ -146,14 +146,20 @@ function NewOrderTab() {
   async function loadProducts() {
     try {
       const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-      const [invRes, spRes, pdRes] = await Promise.all([
+      const [invRes, spRes, pdRes, gstRes] = await Promise.all([
         fetch('/inventory'),
         fetch('/pricing/sales-price'),
         fetch('/pricing/product-discount'),
+        fetch('/gst-config'),
       ])
       const invData = await invRes.json()
       const spData  = spRes.ok  ? await spRes.json()  : []
       const pdData  = pdRes.ok  ? await pdRes.json()  : []
+      const gstData = gstRes.ok ? await gstRes.json() : []
+
+      // Build map: tax_category -> gst_rate (take the active/latest valid entry)
+      const gstMap = {}
+      ;(gstData || []).forEach(g => { gstMap[g.tax_category] = parseFloat(g.gst_rate) || 0 })
 
       // Build map: matnr -> latest active sales price
       const spMap = {}
@@ -184,6 +190,7 @@ function NewOrderTab() {
         ...p,
         sales_price: spMap[p.matnr] ? spMap[p.matnr].unit_price : null,
         prod_discount_pct: pdMap[p.matnr] ? parseFloat(pdMap[p.matnr].discount_pct) : 0,
+        gst_rate: gstMap[p.tax_category] ?? 0,
       }))
       setAllInventory(enriched)
       setProducts(enriched)
@@ -776,12 +783,13 @@ function ReturnsTab() {
 
   const retSelected = returnItems.filter(i => i.selected && i.return_qty > 0)
   const retTotals = retSelected.reduce((acc, i) => {
-    const mrp = parseFloat(i.mrp || 0)
+    // Use effective_price (server-computed fallback) if mrp/price are 0
+    const unitPrice = parseFloat(i.effective_price || i.sales_price || i.price || i.mrp || 0)
     const gst = parseFloat(i.gst_rate || 0) / 100
-    const base = mrp / (1 + gst)
+    const base = unitPrice / (1 + gst)
     acc.subtotal += base * i.return_qty
-    acc.tax += (mrp - base) * i.return_qty
-    acc.total += mrp * i.return_qty
+    acc.tax += (unitPrice - base) * i.return_qty
+    acc.total += unitPrice * i.return_qty
     return acc
   }, { subtotal: 0, tax: 0, total: 0 })
 
@@ -799,10 +807,25 @@ function ReturnsTab() {
           <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>Enter the order ID directly, or search by customer and date range.</p>
 
           <div style={{ marginBottom: 24, paddingBottom: 24, borderBottom: '1px solid var(--border)' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: 10 }}>Option A — I have the Order ID</div>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', maxWidth: 400 }}>
-              <input value={orderIdInput} onChange={e => setOrderIdInput(e.target.value)} placeholder="e.g. S100001" style={{ flex: 1 }} onKeyDown={e => e.key === 'Enter' && fetchReturnOrder()} />
-              <button className="btn btn-primary" onClick={fetchReturnOrder} style={{ whiteSpace: 'nowrap' }}>Fetch Order →</button>
+            <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: 10 }}>Option A — Search or Enter Order ID</div>
+            <div style={{ maxWidth: 500 }}>
+              <SearchDropdown
+                placeholder="Type order ID or KUNNR to search…"
+                onSearch={async q => { try { return await fetch(`/orders/search?q=${encodeURIComponent(q)}`).then(r => r.json()) } catch { return [] } }}
+                onSelect={o => selectReturnOrder(o.order_id)}
+                renderItem={o => (
+                  <div>
+                    <div className="sri-name"><span className="sri-kunnr">{o.order_id}</span> {o.customer_name}</div>
+                    <div className="sri-detail">{fmtD(o.created_at)} · {fmt(o.order_total)}</div>
+                  </div>
+                )}
+                getLabelText={o => o.order_id}
+                width="100%"
+              />
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)' }}>
+                Or enter the exact ID: <input value={orderIdInput} onChange={e => setOrderIdInput(e.target.value)} placeholder="S100001" style={{ width: 120, marginLeft: 6, padding: '4px 8px', fontSize: 12 }} onKeyDown={e => e.key === 'Enter' && fetchReturnOrder()} />
+                <button className="btn btn-ghost" onClick={fetchReturnOrder} style={{ marginLeft: 6, fontSize: 12, padding: '5px 10px' }}>Go →</button>
+              </div>
             </div>
           </div>
 
@@ -894,7 +917,7 @@ function ReturnsTab() {
                         style={{ width: 60, textAlign: 'center', padding: '4px 8px', fontSize: 13 }}
                       />
                     </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>{fmt(item.mrp)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>{fmt(item.effective_price || item.sales_price || item.price || item.mrp)}</td>
                     <td style={{ padding: '10px 12px', textAlign: 'right' }}>{item.gst_rate || 0}%</td>
                   </tr>
                 ))}
@@ -949,9 +972,9 @@ function ReturnsTab() {
                     <td style={{ padding: '10px 12px' }}><span className="mono">{item.matnr}</span></td>
                     <td style={{ padding: '10px 12px' }}>{item.brand || item.matnr}</td>
                     <td style={{ padding: '10px 12px', textAlign: 'right' }}>{item.return_qty}</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>{fmt(item.mrp)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>{fmt(item.effective_price || item.sales_price || item.price || item.mrp)}</td>
                     <td style={{ padding: '10px 12px', textAlign: 'right' }}>{item.gst_rate || 0}%</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right' }}><strong>{fmt(parseFloat(item.mrp || 0) * item.return_qty)}</strong></td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}><strong>{fmt(parseFloat(item.effective_price || item.sales_price || item.price || item.mrp || 0) * item.return_qty)}</strong></td>
                   </tr>
                 ))}
               </tbody>

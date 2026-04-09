@@ -1052,7 +1052,7 @@ function UploadTab() {
 export default function Inventory() {
   const [searchParams] = useSearchParams()
   const editMatnr = searchParams.get('edit') || null
-  const [tab, setTab] = useState(editMatnr ? 'view' : 'add')
+  const [tab, setTab] = useState('view')
   const [refreshKey, setRefreshKey] = useState(0)
 
   return (
