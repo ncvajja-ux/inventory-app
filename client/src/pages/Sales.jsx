@@ -1452,7 +1452,7 @@ function PricingTab() {
 // ── Root ──────────────────────────────────────────────────────────────────────
 export default function Sales() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const tab = searchParams.get('tab') || 'new'
+  const tab = searchParams.get('tab') || 'orders'
 
   function setTab(t) {
     setSearchParams(prev => {

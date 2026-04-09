@@ -14,37 +14,37 @@ const ALL_NAV = [
 
 const SECTION_TABS = {
   Customers: [
-    { id: 'add',    icon: '➕', label: 'Add Customer' },
     { id: 'view',   icon: '👥', label: 'View Customers' },
+    { id: 'add',    icon: '➕', label: 'Add Customer' },
     { id: 'upload', icon: '📥', label: 'Mass Upload' },
   ],
   Inventory: [
-    { id: 'add',    icon: '🆕', label: 'New Product' },
     { id: 'view',   icon: '📦', label: 'View Stock' },
     { id: 'cats',   icon: '🗂️', label: 'Config' },
+    { id: 'add',    icon: '🆕', label: 'New Product' },
     { id: 'upload', icon: '📥', label: 'Mass Upload' },
   ],
   Sales: [
-    { id: 'new',     icon: '🧾', label: 'New Order' },
     { id: 'orders',  icon: '📋', label: 'All Orders' },
     { id: 'returns', icon: '↩️', label: 'Returns' },
     { id: 'pricing', icon: '💰', label: 'Sales Pricing' },
+    { id: 'new',     icon: '🧾', label: 'New Order' },
   ],
   Buyers: [
-    { id: 'add',  icon: '➕', label: 'Add Buyer' },
     { id: 'view', icon: '🏢', label: 'View Buyers' },
+    { id: 'add',  icon: '➕', label: 'Add Buyer' },
   ],
   PurchaseOrders: [
-    { id: 'new', icon: '➕', label: 'New PO' },
     { id: 'all', icon: '📋', label: 'All POs' },
+    { id: 'new', icon: '➕', label: 'New PO' },
   ],
   Analytics: [],
   HR: [
-    { id: 'add',        icon: '➕', label: 'Add Employee' },
     { id: 'view',       icon: '👥', label: 'Employees' },
     { id: 'payroll',    icon: '💸', label: 'Payroll' },
     { id: 'attendance', icon: '🗓️', label: 'Attendance' },
     { id: 'config',     icon: '⚙️', label: 'Config' },
+    { id: 'add',        icon: '➕', label: 'Add Employee' },
   ],
 }
 

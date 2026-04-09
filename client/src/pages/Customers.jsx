@@ -491,7 +491,7 @@ function UploadTab() {
 }
 
 export default function Customers() {
-  const [tab, setTab] = useState('add')
+  const [tab, setTab] = useState('view')
   const [refreshKey, setRefreshKey] = useState(0)
 
   function goToView() {

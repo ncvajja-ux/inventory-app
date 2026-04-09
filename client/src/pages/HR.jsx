@@ -804,7 +804,7 @@ function ConfigTab() {
 
 // ─── Main HR page ─────────────────────────────────────────────────────────────
 export default function HR() {
-  const [tab, setTab] = useState('add')
+  const [tab, setTab] = useState('view')
   const [refreshKey, setRefreshKey] = useState(0)
 
   return (

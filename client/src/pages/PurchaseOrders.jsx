@@ -566,7 +566,7 @@ function AllPOsTab() {
 }
 
 export default function PurchaseOrders() {
-  const [tab, setTab] = useState('new')
+  const [tab, setTab] = useState('all')
   const [refreshKey, setRefreshKey] = useState(0)
 
   return (

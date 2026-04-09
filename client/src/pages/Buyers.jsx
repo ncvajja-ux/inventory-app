@@ -384,7 +384,7 @@ function ViewTab() {
 }
 
 export default function Buyers() {
-  const [tab, setTab] = useState('add')
+  const [tab, setTab] = useState('view')
   const [refreshKey, setRefreshKey] = useState(0)
 
   return (
