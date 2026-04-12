@@ -481,15 +481,14 @@ function NewOrderTab() {
           <thead>
             <tr>
               <th>MATNR</th><th>Brand</th><th>Details</th>
-              <th className="right">MRP</th><th className="right">Sales Price</th><th className="right">GST %</th><th className="right">Qty</th>
+              <th className="right">Sales Price</th><th className="right">GST %</th><th className="right">Qty</th>
               <th className="right">Line Total</th><th></th>
             </tr>
           </thead>
           <tbody>
             {cart.length === 0 ? (
-              <tr className="state-row"><td colSpan={9}>Your cart is empty. <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => goStep(2, customer?.kunnr || urlKunnr)}>Add products</button></td></tr>
+              <tr className="state-row"><td colSpan={8}>Your cart is empty. <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => goStep(2, customer?.kunnr || urlKunnr)}>Add products</button></td></tr>
             ) : cart.map(item => {
-              const mrp = parseFloat(item.mrp || 0)
               const sp  = parseFloat(item.sales_price ?? item.mrp ?? item.price ?? 0)
               const pdPct = parseFloat(item.prod_discount_pct || prodDiscounts[item.matnr] || 0)
               const effPrice = sp * (1 - pdPct / 100)
@@ -499,7 +498,6 @@ function NewOrderTab() {
                   <td><span className="mono">{item.matnr}</span></td>
                   <td><strong>{item.brand}</strong></td>
                   <td style={{ fontSize: 12, color: 'var(--muted)' }}>{[item.category, item.size, item.color].filter(Boolean).join(' · ')}</td>
-                  <td className="right">{fmt(mrp)}</td>
                   <td className="right">{fmt(sp)}{pdPct > 0 && <span style={{ color: 'var(--success)', fontSize: 11, marginLeft: 4 }}>−{pdPct}%</span>}</td>
                   <td className="right"><span className="gst-badge">{gst}%</span></td>
                   <td className="right">
@@ -705,10 +703,25 @@ function ReturnsTab() {
   const retCustRef = useRef(null)
   const [retCustResults, setRetCustResults] = useState([])
   const [retKunnr, setRetKunnr] = useState('')
+  const [retCustDiscPct, setRetCustDiscPct] = useState(0)
 
   useEffect(() => {
     fetch('/return-reasons').then(r => r.json()).then(d => setReasons(Array.isArray(d) ? d : [])).catch(() => {})
   }, [])
+
+  async function fetchCustDiscForOrder(kunnr, orderDate) {
+    try {
+      const cdRes = await fetch('/pricing/customer-discount')
+      const cdData = cdRes.ok ? await cdRes.json() : []
+      const day = (orderDate || '').slice(0, 10) // YYYY-MM-DD
+      const rec = cdData.find(d =>
+        d.kunnr === kunnr &&
+        (d.valid_from || '') <= day &&
+        (d.valid_to >= day || d.valid_to === '12319999' || !d.valid_to)
+      )
+      return rec ? parseFloat(rec.discount_pct) : 0
+    } catch { return 0 }
+  }
 
   async function fetchReturnOrder() {
     if (!orderIdInput.trim()) return
@@ -721,6 +734,8 @@ function ReturnsTab() {
       setSelectedOrder(data)
       setOrderLines(lines)
       setReturnItems(lines.map(l => ({ ...l, return_qty: 0, selected: false })))
+      const pct = await fetchCustDiscForOrder(data.kunnr, data.created_at)
+      setRetCustDiscPct(pct)
       setStep(2)
     } catch { showToast('Could not fetch order', 'error') }
   }
@@ -752,6 +767,8 @@ function ReturnsTab() {
       setSelectedOrder(data)
       setOrderLines(lines)
       setReturnItems(lines.map(l => ({ ...l, return_qty: 0, selected: false })))
+      const pct = await fetchCustDiscForOrder(data.kunnr, data.created_at)
+      setRetCustDiscPct(pct)
       setStep(2)
     } catch { showToast('Could not fetch order', 'error') }
   }
@@ -768,12 +785,19 @@ function ReturnsTab() {
     const body = {
       original_order_id: selectedOrder.order_id,
       kunnr: selectedOrder.kunnr,
-      items: items.map(i => ({ matnr: i.matnr, quantity: i.return_qty, mrp: i.mrp, gst_rate: i.gst_rate })),
-      reason: retReason,
+      return_reason: retReason,
       notes: retNotes,
+      items: items.map(i => ({
+        matnr: i.matnr,
+        quantity: i.return_qty,
+        price: parseFloat(i.price || i.effective_price || i.sales_price || i.mrp || 0),
+        mrp: parseFloat(i.mrp || 0),
+        discount_pct: parseFloat(i.discount_pct || 0),
+        gst_rate: parseFloat(i.gst_rate || 0),
+      })),
     }
     try {
-      const res = await fetch('/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, order_type: 'R' }) })
+      const res = await fetch('/orders/return', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       showToast(`✅ Return ${data.order_id} created`)
@@ -783,15 +807,20 @@ function ReturnsTab() {
 
   const retSelected = returnItems.filter(i => i.selected && i.return_qty > 0)
   const retTotals = retSelected.reduce((acc, i) => {
-    // Use effective_price (server-computed fallback) if mrp/price are 0
-    const unitPrice = parseFloat(i.effective_price || i.sales_price || i.price || i.mrp || 0)
+    // Use order-time price; fall back through effective_price chain
+    const unitPrice = parseFloat(i.price || i.effective_price || i.sales_price || i.mrp || 0)
+    const prodDiscPct = parseFloat(i.discount_pct || 0)
+    const afterProdDisc = unitPrice * (1 - prodDiscPct / 100)
     const gst = parseFloat(i.gst_rate || 0) / 100
-    const base = unitPrice / (1 + gst)
+    const base = afterProdDisc / (1 + gst)
     acc.subtotal += base * i.return_qty
-    acc.tax += (unitPrice - base) * i.return_qty
-    acc.total += unitPrice * i.return_qty
+    acc.tax += (afterProdDisc - base) * i.return_qty
+    acc.prodDisc += (unitPrice - afterProdDisc) * i.return_qty
+    acc.gross += afterProdDisc * i.return_qty
     return acc
-  }, { subtotal: 0, tax: 0, total: 0 })
+  }, { subtotal: 0, tax: 0, prodDisc: 0, gross: 0 })
+  const retCustDiscAmt = retTotals.gross * retCustDiscPct / 100
+  const retTotal = retTotals.gross - retCustDiscAmt
 
   return (
     <>
@@ -843,6 +872,7 @@ function ReturnsTab() {
                       <div className="sri-name">{c.name} <span className="sri-kunnr">{c.kunnr}</span></div>
                     </div>
                   )}
+                  getLabelText={c => `${c.name} (${c.kunnr})`}
                   width="100%"
                 />
               </div>
@@ -889,8 +919,8 @@ function ReturnsTab() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 600 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
-                  {['Return', 'MATNR', 'Product', 'Orig Qty', 'Return Qty', 'MRP', 'GST%'].map(h => (
-                    <th key={h} style={{ padding: '10px 12px', textAlign: h === 'Return' ? 'left' : h.includes('Qty') || h === 'MRP' || h === 'GST%' ? 'right' : 'left', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)' }}>{h}</th>
+                  {['Return', 'MATNR', 'Product', 'Orig Qty', 'Return Qty', 'Price', 'GST%'].map(h => (
+                    <th key={h} style={{ padding: '10px 12px', textAlign: h === 'Return' ? 'left' : h.includes('Qty') || h === 'Price' || h === 'GST%' ? 'right' : 'left', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -917,7 +947,7 @@ function ReturnsTab() {
                         style={{ width: 60, textAlign: 'center', padding: '4px 8px', fontSize: 13 }}
                       />
                     </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>{fmt(item.effective_price || item.sales_price || item.price || item.mrp)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>{fmt(item.price || item.effective_price || item.sales_price || item.mrp)}</td>
                     <td style={{ padding: '10px 12px', textAlign: 'right' }}>{item.gst_rate || 0}%</td>
                   </tr>
                 ))}
@@ -961,36 +991,52 @@ function ReturnsTab() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 550 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
-                  {['MATNR', 'Product', 'Qty', 'MRP', 'GST%', 'Refund'].map(h => (
-                    <th key={h} style={{ padding: '10px 12px', textAlign: ['Qty', 'MRP', 'GST%', 'Refund'].includes(h) ? 'right' : 'left', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)' }}>{h}</th>
+                  {['MATNR', 'Product', 'Qty', 'Price', 'Disc%', 'GST%', 'Refund'].map(h => (
+                    <th key={h} style={{ padding: '10px 12px', textAlign: ['Qty', 'Price', 'Disc%', 'GST%', 'Refund'].includes(h) ? 'right' : 'left', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {retSelected.map((item, i) => (
+                {retSelected.map((item, i) => {
+                  const unitPrice = parseFloat(item.price || item.effective_price || item.sales_price || item.mrp || 0)
+                  const prodDiscPct = parseFloat(item.discount_pct || 0)
+                  const afterProdDisc = unitPrice * (1 - prodDiscPct / 100)
+                  return (
                   <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '10px 12px' }}><span className="mono">{item.matnr}</span></td>
                     <td style={{ padding: '10px 12px' }}>{item.brand || item.matnr}</td>
                     <td style={{ padding: '10px 12px', textAlign: 'right' }}>{item.return_qty}</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>{fmt(item.effective_price || item.sales_price || item.price || item.mrp)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>{fmt(unitPrice)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>{prodDiscPct > 0 ? `${prodDiscPct}%` : '—'}</td>
                     <td style={{ padding: '10px 12px', textAlign: 'right' }}>{item.gst_rate || 0}%</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right' }}><strong>{fmt(parseFloat(item.effective_price || item.sales_price || item.price || item.mrp || 0) * item.return_qty)}</strong></td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}><strong>{fmt(afterProdDisc * item.return_qty)}</strong></td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
-            <div style={{ minWidth: 260 }}>
+            <div style={{ minWidth: 280 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: 13, color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>
-                <span>Subtotal Refund</span><span>{fmt(retTotals.subtotal)}</span>
+                <span>Subtotal (excl GST)</span><span>{fmt(retTotals.subtotal)}</span>
               </div>
+              {retTotals.prodDisc > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: 13, color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>
+                  <span>Product Discount</span><span style={{ color: 'var(--danger)' }}>−{fmt(retTotals.prodDisc)}</span>
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: 13, color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>
                 <span>GST Refund</span><span>{fmt(retTotals.tax)}</span>
               </div>
+              {retCustDiscPct > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: 13, color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>
+                  <span>Customer Discount ({retCustDiscPct}%)</span><span style={{ color: 'var(--danger)' }}>−{fmt(retCustDiscAmt)}</span>
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', fontSize: 18, fontWeight: 700, color: 'var(--danger)' }}>
-                <span>Total Refund</span><span>{fmt(retTotals.total)}</span>
+                <span>Total Refund</span><span>{fmt(retTotal)}</span>
               </div>
             </div>
           </div>

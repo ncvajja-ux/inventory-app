@@ -6,7 +6,8 @@ const app     = express();
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(express.static(path.join(__dirname, "public/dist")));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(cors());
 
 // ─── Open databases ───────────────────────────────────────────────────────────
@@ -78,6 +79,8 @@ invDb.serialize(() => {
             ["color",         "TEXT"],
             ["fit",           "TEXT"],
             ["tax_category",  "TEXT"],
+            ["image_data",    "TEXT"],
+            ["material_type", "TEXT"],
         ];
         toAdd.forEach(([col, def]) => {
             if (!have.has(col)) {
@@ -101,6 +104,10 @@ invDb.serialize(() => {
     )`);
     invDb.run(`CREATE TABLE IF NOT EXISTS fits (
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE
+    )`);
+    invDb.run(`CREATE TABLE IF NOT EXISTS material_types (
+        id   INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL
     )`);
     invDb.run(`CREATE TABLE IF NOT EXISTS category_l3 (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -534,14 +541,32 @@ app.get("/inventory/:matnr", (req, res) => {
         }
     );
 });
+// Save product image (base64 data URL)
+app.post("/inventory/:matnr/image", (req, res) => {
+    const { image_data } = req.body;
+    if (!image_data) return res.status(400).json({ error: "image_data required" });
+    invDb.run("UPDATE mara SET image_data=? WHERE matnr=?", [image_data, req.params.matnr],
+        function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(404).json({ error: "Item not found" });
+            res.json({ success: true });
+        }
+    );
+});
+// Delete product image
+app.delete("/inventory/:matnr/image", (req, res) => {
+    invDb.run("UPDATE mara SET image_data=NULL WHERE matnr=?", [req.params.matnr],
+        function(err) { err ? res.status(500).json({ error: err.message }) : res.json({ success: true }) }
+    );
+});
 app.post("/addinventory", (req, res) => {
-    const {brand,brandfamily,size,quantity,price,cost_price,mrp,gender,category,subcategory,subsubcategory,color,fit,tax_category} = req.body;
+    const {brand,brandfamily,size,quantity,price,cost_price,mrp,gender,category,subcategory,subsubcategory,color,fit,tax_category,material_type} = req.body;
     if (!brand) return res.status(400).json({error:"Brand required"});
     nextId(invDb, "mara", "matnr", null, (err, matnr) => {
         if (err) return res.status(500).json({error:err.message});
-        invDb.run(`INSERT INTO mara (matnr,brand,brandfamily,size,quantity,price,cost_price,mrp,gender,category,subcategory,subsubcategory,color,fit,tax_category,reserved)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
-            [matnr,brand,brandfamily,size,quantity||0,price||0,cost_price||0,mrp||0,gender,category,subcategory,subsubcategory,color,fit,tax_category||null],
+        invDb.run(`INSERT INTO mara (matnr,brand,brandfamily,size,quantity,price,cost_price,mrp,gender,category,subcategory,subsubcategory,color,fit,tax_category,material_type,reserved)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+            [matnr,brand,brandfamily,size,quantity||0,price||0,cost_price||0,mrp||0,gender,category,subcategory,subsubcategory,color,fit,tax_category||null,material_type||null],
             function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true,matnr}); }
         );
     });
@@ -558,10 +583,10 @@ app.post("/inventory/:matnr/restock", (req, res) => {
     );
 });
 app.put("/inventory/:matnr", (req, res) => {
-    const {brand,brandfamily,size,quantity,price,cost_price,mrp,gender,category,subcategory,subsubcategory,color,fit,tax_category} = req.body;
+    const {brand,brandfamily,size,quantity,price,cost_price,mrp,gender,category,subcategory,subsubcategory,color,fit,tax_category,material_type} = req.body;
     invDb.run(`UPDATE mara SET brand=?,brandfamily=?,size=?,quantity=?,price=?,cost_price=?,mrp=?,
-        gender=?,category=?,subcategory=?,subsubcategory=?,color=?,fit=?,tax_category=? WHERE matnr=?`,
-        [brand,brandfamily,size,quantity,price||0,cost_price||0,mrp||0,gender,category,subcategory,subsubcategory,color,fit,tax_category||null,req.params.matnr],
+        gender=?,category=?,subcategory=?,subsubcategory=?,color=?,fit=?,tax_category=?,material_type=? WHERE matnr=?`,
+        [brand,brandfamily,size,quantity,price||0,cost_price||0,mrp||0,gender,category,subcategory,subsubcategory,color,fit,tax_category||null,material_type||null,req.params.matnr],
         function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
     );
 });
@@ -674,6 +699,23 @@ app.post("/fits", (req, res) => {
 });
 app.delete("/fits/:id", (req, res) => {
     invDb.run("DELETE FROM fits WHERE id=?", [req.params.id],
+        function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
+    );
+});
+app.get("/material-types", (req, res) => {
+    invDb.all("SELECT * FROM material_types ORDER BY name", [],
+        (err, rows) => err ? res.status(500).json({error:err.message}) : res.json(rows)
+    );
+});
+app.post("/material-types", (req, res) => {
+    const {name} = req.body;
+    if (!name) return res.status(400).json({error:"Name required"});
+    invDb.run("INSERT INTO material_types (name) VALUES (?)", [name],
+        function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true,id:this.lastID}); }
+    );
+});
+app.delete("/material-types/:id", (req, res) => {
+    invDb.run("DELETE FROM material_types WHERE id=?", [req.params.id],
         function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
     );
 });
@@ -1457,8 +1499,11 @@ app.post("/orders/return", (req, res) => {
                 "INSERT INTO vbap (order_id,matnr,quantity,price,mrp,discount_pct,gst_rate,line_total) VALUES (?,?,?,?,?,?,?,?)"
             );
             items.forEach(item => {
-                const lt = ((parseFloat(item.mrp||0) * (1-(parseFloat(item.discount_pct||0)/100))) +
-                            (parseFloat(item.mrp||0) * (parseFloat(item.gst_rate||0)/100))) * item.quantity;
+                // line_total = order-time unit price × (1 - product discount%) × qty
+                // price is GST-inclusive; discount reduces the price proportionally
+                const unitPrice = parseFloat(item.price || 0);
+                const discPct   = parseFloat(item.discount_pct || 0);
+                const lt        = unitPrice * (1 - discPct / 100) * item.quantity;
                 stmt.run(order_id, item.matnr, item.quantity, item.price||0,
                     item.mrp||0, item.discount_pct||0, item.gst_rate||0, lt);
             });
@@ -1987,6 +2032,125 @@ app.get("/analytics/po-by-category", (req, res) => {
                     }))
                     .sort((a, b) => b.total - a.total);
                 res.json({ months: sortedMonths, categories: result });
+            });
+        }
+    );
+});
+
+// Returns by month YTD
+app.get("/analytics/returns-by-month", (req, res) => {
+    const year = req.query.year || new Date().getFullYear().toString();
+    transDb.all(
+        `SELECT strftime('%Y-%m', v.created_at) as month,
+                COUNT(DISTINCT v.order_id) as return_count,
+                COALESCE(SUM(p.line_total),0) as refund_value
+         FROM vbak v JOIN vbap p ON v.order_id=p.order_id
+         WHERE v.order_type='R' AND strftime('%Y', v.created_at)=?
+         GROUP BY month ORDER BY month`, [year],
+        (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json(rows || []);
+        }
+    );
+});
+
+// Returns by brand YTD
+app.get("/analytics/returns-by-brand", (req, res) => {
+    const year = req.query.year || new Date().getFullYear().toString();
+    transDb.all(
+        `SELECT p.matnr, COALESCE(SUM(p.line_total),0) as refund_value, COALESCE(SUM(p.quantity),0) as units
+         FROM vbak v JOIN vbap p ON v.order_id=p.order_id
+         WHERE v.order_type='R' AND strftime('%Y', v.created_at)=?
+         GROUP BY p.matnr`, [year],
+        (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            loadMaraMap((err2, maraMap) => {
+                if (err2) return res.status(500).json({ error: err2.message });
+                const brandMap = {};
+                (rows || []).forEach(r => {
+                    const brand = (maraMap[r.matnr] && maraMap[r.matnr].brand) || 'Unknown';
+                    if (!brandMap[brand]) brandMap[brand] = { brand, refund_value: 0, units: 0 };
+                    brandMap[brand].refund_value += r.refund_value;
+                    brandMap[brand].units += r.units;
+                });
+                res.json(Object.values(brandMap).sort((a, b) => b.refund_value - a.refund_value));
+            });
+        }
+    );
+});
+
+// Returns by reason YTD
+app.get("/analytics/returns-by-reason", (req, res) => {
+    const year = req.query.year || new Date().getFullYear().toString();
+    transDb.all(
+        `SELECT COALESCE(v.return_reason, 'Not specified') as reason,
+                COUNT(DISTINCT v.order_id) as return_count,
+                COALESCE(SUM(p.line_total),0) as refund_value
+         FROM vbak v JOIN vbap p ON v.order_id=p.order_id
+         WHERE v.order_type='R' AND strftime('%Y', v.created_at)=?
+         GROUP BY v.return_reason ORDER BY refund_value DESC`, [year],
+        (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json(rows || []);
+        }
+    );
+});
+
+// Top 5 customers by return value YTD
+app.get("/analytics/top-return-customers", (req, res) => {
+    const year = req.query.year || new Date().getFullYear().toString();
+    transDb.all(
+        `SELECT v.kunnr, COUNT(DISTINCT v.order_id) as return_count,
+                COALESCE(SUM(p.line_total),0) as refund_value
+         FROM vbak v JOIN vbap p ON v.order_id=p.order_id
+         WHERE v.order_type='R' AND strftime('%Y', v.created_at)=?
+         GROUP BY v.kunnr ORDER BY refund_value DESC LIMIT 5`, [year],
+        (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!rows || rows.length === 0) return res.json([]);
+            const placeholders = rows.map(() => '?').join(',');
+            custDb.all(
+                `SELECT kunnr, name1 as name FROM kna1 WHERE kunnr IN (${placeholders})`,
+                rows.map(r => r.kunnr),
+                (err2, custs) => {
+                    const custMap = {};
+                    (custs || []).forEach(c => { custMap[c.kunnr] = c.name; });
+                    res.json(rows.map(r => ({ ...r, customer_name: custMap[r.kunnr] || r.kunnr })));
+                }
+            );
+        }
+    );
+});
+
+// Top 10 products by profit YTD
+app.get("/analytics/top-profit-products", (req, res) => {
+    const year = req.query.year || new Date().getFullYear().toString();
+    transDb.all(
+        `SELECT p.matnr, COALESCE(SUM(p.line_total),0) as revenue, COALESCE(SUM(p.quantity),0) as qty
+         FROM vbak v JOIN vbap p ON v.order_id=p.order_id
+         WHERE v.order_type='S' AND v.status='CONFIRMED' AND strftime('%Y', v.created_at)=?
+         GROUP BY p.matnr`, [year],
+        (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            loadMaraMap((err2, maraMap) => {
+                if (err2) return res.status(500).json({ error: err2.message });
+                const products = (rows || []).map(r => {
+                    const m = maraMap[r.matnr] || {};
+                    const cost = (m.cost_price || 0) * r.qty;
+                    const profit = r.revenue - cost;
+                    return {
+                        matnr: r.matnr,
+                        brand: m.brand || 'Unknown',
+                        category: m.category || '—',
+                        revenue: r.revenue,
+                        cost,
+                        profit,
+                        qty: r.qty,
+                        margin: r.revenue > 0 ? Math.round(profit / r.revenue * 100) : 0,
+                    };
+                });
+                products.sort((a, b) => b.profit - a.profit);
+                res.json(products.slice(0, 10));
             });
         }
     );

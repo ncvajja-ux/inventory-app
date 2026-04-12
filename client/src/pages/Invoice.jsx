@@ -32,8 +32,9 @@ export default function Invoice() {
 
   useEffect(() => { loadOrder() }, [orderId])
 
-  async function updatePayment(status) {
-    const paid = parseFloat(paidAmountInput) || 0
+  async function updatePayment(status, autoAmount) {
+    // If marking PAID with no amount entered, default to the order grand total
+    const paid = autoAmount != null ? autoAmount : (parseFloat(paidAmountInput) || 0)
     try {
       const res = await fetch(`/orders/${orderId}/payment`, {
         method: 'PUT',
@@ -77,14 +78,16 @@ export default function Invoice() {
   const ps = o.payment_status || 'PENDING'
 
   // Compute totals from line items
-  let subtotal = 0, totalGst = 0
+  let subtotalPreDisc = 0, prodDiscTotal = 0, subtotal = 0, totalGst = 0
   const items = o.items || []
   items.forEach(item => {
     const mrp      = parseFloat(item.mrp || item.price || 0)
     const discPct  = parseFloat(item.discount_pct || 0)
     const gstRate  = parseFloat(item.gst_rate || 0)
     const netPrice = mrp * (1 - discPct / 100)
-    const gstAmt   = mrp * (gstRate / 100)
+    const gstAmt   = netPrice * (gstRate / 100)
+    subtotalPreDisc += mrp * item.quantity
+    prodDiscTotal   += (mrp - netPrice) * item.quantity
     subtotal  += netPrice * item.quantity
     totalGst  += gstAmt * item.quantity
   })
@@ -166,19 +169,31 @@ export default function Invoice() {
           </div>
           {ps !== 'CANCELLED' && (
             <div className="payment-controls no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input
-                  type="number"
-                  value={paidAmountInput}
-                  onChange={e => setPaidAmountInput(e.target.value)}
-                  placeholder={isReturn ? 'Refund amount (₹)' : 'Amount received (₹)'}
-                  min="0" step="0.01"
-                  style={{ padding: '8px 12px', border: '1.5px solid var(--border)', borderRadius: 8, fontSize: 13, width: 160, fontFamily: "'DM Sans', sans-serif", outline: 'none' }}
-                />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    type="number"
+                    value={paidAmountInput}
+                    onChange={e => setPaidAmountInput(e.target.value)}
+                    placeholder={isReturn ? 'Refund amount (₹)' : 'Amount received (₹)'}
+                    min="0" step="0.01"
+                    style={{ padding: '8px 12px', border: '1.5px solid var(--border)', borderRadius: 8, fontSize: 13, width: 160, fontFamily: "'DM Sans', sans-serif", outline: 'none' }}
+                  />
+                  {!isReturn && ps !== 'PAID' && (
+                    <button
+                      onClick={() => setPaidAmountInput(grand.toFixed(2))}
+                      style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1.5px solid var(--border)', background: 'var(--accent2)', color: '#92650a', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", fontWeight: 600, whiteSpace: 'nowrap' }}
+                    >Full ₹{grand.toFixed(0)}</button>
+                  )}
+                </div>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {ps !== 'PAID' && (
-                  <button className="btn btn-success" onClick={() => updatePayment('PAID')}>
+                  <button className="btn btn-success" onClick={() => {
+                    // If amount is blank and marking as PAID, auto-use the grand total
+                    const amt = parseFloat(paidAmountInput)
+                    updatePayment('PAID', isNaN(amt) || amt === 0 ? (isReturn ? undefined : grand) : undefined)
+                  }}>
                     ✅ {isReturn ? 'Mark Refund Issued' : 'Mark as Paid'}
                   </button>
                 )}
@@ -285,6 +300,12 @@ export default function Invoice() {
           {/* Totals */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
             <div style={{ minWidth: 300 }}>
+              {prodDiscTotal > 0 && (
+                <div className="totals-row muted"><span>Gross Amount</span><span>{isReturn ? '-' : ''}{fmt(subtotalPreDisc)}</span></div>
+              )}
+              {prodDiscTotal > 0 && (
+                <div className="totals-row disc"><span>Product Discount</span><span>−{fmt(prodDiscTotal)}</span></div>
+              )}
               <div className="totals-row muted"><span>Subtotal (ex-GST)</span><span>{isReturn ? '-' : ''}{fmt(subtotal)}</span></div>
               <div className="totals-row muted"><span>GST</span><span>{isReturn ? '-' : ''}{fmt(totalGst)}</span></div>
               {custDisc > 0 && (

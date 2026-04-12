@@ -53,6 +53,15 @@ function useFits() {
   return [fits, load]
 }
 
+function useMaterialTypes() {
+  const [materialTypes, setMaterialTypes] = useState([])
+  const load = useCallback(async () => {
+    try { const r = await fetch('/material-types'); setMaterialTypes(await r.json()) } catch {}
+  }, [])
+  useEffect(() => { load() }, [load])
+  return [materialTypes, load]
+}
+
 function useGstConfig() {
   const [gstConfig, setGstConfig] = useState([])
   const load = useCallback(async () => {
@@ -90,6 +99,7 @@ function AddTab({ onAdded }) {
   const [brands] = useBrands()
   const [colors] = useColors()
   const [fits] = useFits()
+  const [materialTypes] = useMaterialTypes()
   const [gstConfig] = useGstConfig()
   const [showPricingPrompt, setShowPricingPrompt] = useState(false)
   const [lastMatnr, setLastMatnr] = useState(null)
@@ -97,7 +107,7 @@ function AddTab({ onAdded }) {
   const [form, setForm] = useState({
     brand: '', brandfamily: '', gender: '',
     category: '', subcategory: '', subsubcategory: '', size: '',
-    fit: '', color: '', tax_category: '',
+    fit: '', color: '', material_type: '', tax_category: '',
   })
 
   const loadNextMatnr = useCallback(async () => {
@@ -147,7 +157,7 @@ function AddTab({ onAdded }) {
   }
 
   function reset() {
-    setForm({ brand: '', brandfamily: '', gender: '', category: '', subcategory: '', subsubcategory: '', size: '', fit: '', color: '', tax_category: '' })
+    setForm({ brand: '', brandfamily: '', gender: '', category: '', subcategory: '', subsubcategory: '', size: '', fit: '', color: '', material_type: '', tax_category: '' })
     loadNextMatnr()
   }
 
@@ -248,6 +258,13 @@ function AddTab({ onAdded }) {
             </select>
           </div>
           <div className="form-group">
+            <label>Material Type</label>
+            <select value={form.material_type} onChange={set('material_type')}>
+              <option value="">Select material…</option>
+              {materialTypes.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
             <label>Tax Category</label>
             <select value={form.tax_category} onChange={set('tax_category')}>
               <option value="">Select tax category…</option>
@@ -276,6 +293,7 @@ function ViewTab({ editMatnr }) {
   const [brands] = useBrands()
   const [colors] = useColors()
   const [fits] = useFits()
+  const [materialTypes] = useMaterialTypes()
   const [gstConfig] = useGstConfig()
 
   const loadData = useCallback(async () => {
@@ -411,6 +429,7 @@ function ViewTab({ editMatnr }) {
           brands={brands}
           colors={colors}
           fits={fits}
+          materialTypes={materialTypes}
           gstConfig={gstConfig}
           onClose={() => setEditingItem(null)}
           onSaved={loadData}
@@ -420,14 +439,14 @@ function ViewTab({ editMatnr }) {
   )
 }
 
-function EditItemModal({ item, catData, categories, brands, colors, fits, gstConfig, onClose, onSaved }) {
+function EditItemModal({ item, catData, categories, brands, colors, fits, materialTypes, gstConfig, onClose, onSaved }) {
   const showToast = useToast()
   const [form, setForm] = useState({
     brand: item.brand || '', brandfamily: item.brandfamily || '',
     gender: item.gender || '', category: item.category || '',
     subcategory: item.subcategory || '', subsubcategory: item.subsubcategory || '',
     size: item.size || '', fit: item.fit || '', color: item.color || '',
-    tax_category: item.tax_category || '',
+    material_type: item.material_type || '', tax_category: item.tax_category || '',
   })
 
   function set(field) { return e => setForm(f => ({ ...f, [field]: e.target.value })) }
@@ -536,6 +555,13 @@ function EditItemModal({ item, catData, categories, brands, colors, fits, gstCon
             </select>
           </div>
           <div className="form-group">
+            <label>Material Type</label>
+            <select value={form.material_type} onChange={set('material_type')}>
+              <option value="">Select material…</option>
+              {(materialTypes || []).map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
             <label>Tax Category</label>
             <select value={form.tax_category} onChange={set('tax_category')}>
               <option value="">Select tax category…</option>
@@ -558,12 +584,14 @@ function ConfigTab() {
   const [brands, reloadBrands] = useBrands()
   const [colors, reloadColors] = useColors()
   const [fits, reloadFits] = useFits()
+  const [materialTypes, reloadMaterialTypes] = useMaterialTypes()
   const [gstConfig, reloadGst] = useGstConfig()
   const { catData, categories, reload: reloadCats } = useCategoryData()
   const [returnReasons, setReturnReasons] = useState([])
   const [l3Data, setL3Data] = useState([])
 
   const [newBrand, setNewBrand] = useState('')
+  const [newMaterialType, setNewMaterialType] = useState('')
   const [newColorName, setNewColorName] = useState('')
   const [newColorHex, setNewColorHex] = useState('#808000')
   const [newFit, setNewFit] = useState('')
@@ -618,6 +646,14 @@ function ConfigTab() {
   }
   async function removeFit(id) {
     try { await api(`/fits/${id}`, 'DELETE', {}); reloadFits() } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
+
+  async function addMaterialType() {
+    if (!newMaterialType.trim()) return
+    try { await api('/material-types', 'POST', { name: newMaterialType.trim() }); setNewMaterialType(''); reloadMaterialTypes() } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
+  async function removeMaterialType(id) {
+    try { await api(`/material-types/${id}`, 'DELETE', {}); reloadMaterialTypes() } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   async function addReturnReason() {
@@ -733,6 +769,19 @@ function ConfigTab() {
           <div className="add-row">
             <input value={newFit} onChange={e => setNewFit(e.target.value)} placeholder="e.g. Athletic Fit" onKeyDown={e => e.key === 'Enter' && addFit()} />
             <button className="btn btn-primary" onClick={addFit}>Add</button>
+          </div>
+        </div>
+
+        {/* Material Types */}
+        <div className="config-card">
+          <div className="config-title">🧵 Material Types</div>
+          <div className="config-sub">Fabric and material types available when adding products.</div>
+          <div className="tag-list">
+            {materialTypes.map(m => <Tag key={m.id} label={m.name} onRemove={() => removeMaterialType(m.id)} />)}
+          </div>
+          <div className="add-row">
+            <input value={newMaterialType} onChange={e => setNewMaterialType(e.target.value)} placeholder="e.g. Cotton, Polyester, Wool" onKeyDown={e => e.key === 'Enter' && addMaterialType()} />
+            <button className="btn btn-primary" onClick={addMaterialType}>Add</button>
           </div>
         </div>
 

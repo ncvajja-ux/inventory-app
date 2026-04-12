@@ -24,6 +24,11 @@ export default function CustomerDetail() {
   const [discounts, setDiscounts] = useState([])
   const [orders, setOrders] = useState([])
 
+  // Discount modal state
+  const [showDiscModal, setShowDiscModal] = useState(false)
+  const [discForm, setDiscForm] = useState({ discount_pct: '', valid_from: '', valid_to: '' })
+  const [savingDisc, setSavingDisc] = useState(false)
+
   useEffect(() => {
     if (!kunnr) { setError('No KUNNR provided'); setLoading(false); return }
 
@@ -58,6 +63,38 @@ export default function CustomerDetail() {
 
     loadAll()
   }, [kunnr])
+
+  async function loadDiscounts() {
+    try { const r = await fetch(`/customers/${kunnr}/discounts`); setDiscounts(await r.json()) } catch {}
+  }
+
+  async function saveDiscount() {
+    if (!discForm.discount_pct) return showToast('Discount % is required', 'error')
+    setSavingDisc(true)
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const res = await fetch('/pricing/customer-discount', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kunnr,
+          discount_pct: parseFloat(discForm.discount_pct),
+          valid_from: discForm.valid_from || today,
+          valid_to: discForm.valid_to || '12319999',
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to save')
+      showToast('✅ Discount saved')
+      setShowDiscModal(false)
+      setDiscForm({ discount_pct: '', valid_from: '', valid_to: '' })
+      loadDiscounts()
+    } catch (err) {
+      showToast('❌ ' + err.message, 'error')
+    } finally {
+      setSavingDisc(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -217,13 +254,57 @@ export default function CustomerDetail() {
                 </div>
               )
             })}
-            <div style={{ marginTop: 12 }}>
-              <Link to="/sales" style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>
-                + Add / Update Discount →
-              </Link>
+            <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
+              <button
+                className="btn btn-primary"
+                style={{ fontSize: 12, padding: '7px 14px' }}
+                onClick={() => { setDiscForm({ discount_pct: '', valid_from: '', valid_to: '' }); setShowDiscModal(true) }}
+              >+ Add Discount</button>
+              <Link
+                to="/sales?tab=pricing"
+                style={{ fontSize: 12, padding: '7px 14px', borderRadius: 8, border: '1.5px solid var(--border)', color: 'var(--muted)', textDecoration: 'none', display: 'flex', alignItems: 'center', fontWeight: 600 }}
+              >View All Pricing →</Link>
             </div>
           </div>
         </div>
+
+        {/* Add Discount Modal */}
+        {showDiscModal && (
+          <div className="modal-overlay open" onClick={e => e.target === e.currentTarget && setShowDiscModal(false)}>
+            <div className="modal" style={{ maxWidth: 420 }}>
+              <div className="modal-title">Add Customer Discount</div>
+              <div className="modal-sub">For customer <strong>{cust?.name}</strong> ({kunnr})</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 16 }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Discount % *</label>
+                  <input
+                    type="number" min="0" max="100" step="0.1"
+                    value={discForm.discount_pct}
+                    onChange={e => setDiscForm(f => ({ ...f, discount_pct: e.target.value }))}
+                    placeholder="e.g. 10"
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>Valid From</label>
+                    <input type="date" value={discForm.valid_from} onChange={e => setDiscForm(f => ({ ...f, valid_from: e.target.value }))} style={{ width: '100%' }} />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>Valid To <span style={{ fontSize: 10, color: 'var(--muted)' }}>(blank = open)</span></label>
+                    <input type="date" value={discForm.valid_to} onChange={e => setDiscForm(f => ({ ...f, valid_to: e.target.value }))} style={{ width: '100%' }} />
+                  </div>
+                </div>
+              </div>
+              <div className="modal-actions">
+                <button className="btn btn-ghost" onClick={() => setShowDiscModal(false)}>Cancel</button>
+                <button className="btn btn-primary" onClick={saveDiscount} disabled={savingDisc}>
+                  {savingDisc ? 'Saving…' : '💾 Save Discount'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Order History */}
         <div className="card">

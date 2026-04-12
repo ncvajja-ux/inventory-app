@@ -73,14 +73,15 @@ function Section({ title, children }) {
 }
 
 // ─── Horizontal Bar Chart ─────────────────────────────────────────────────────
-function BarChart({ data, valueKey, labelKey, color }) {
+function BarChart({ data, valueKey, labelKey, color, valueFmt, labelWidth = 150 }) {
   if (!data || data.length === 0) return <div style={{ color: 'var(--muted)', fontSize: 13 }}>No data</div>
+  const vf = valueFmt || fmt
   const max = Math.max(...data.map(d => d[valueKey] || 0), 1)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {data.map((d, i) => (
         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 140, fontSize: 12, color: 'var(--muted)', textAlign: 'right', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ width: labelWidth, fontSize: 12, color: 'var(--muted)', textAlign: 'right', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {d[labelKey]}
           </div>
           <div style={{ flex: 1, height: 20, background: 'var(--surface2)', borderRadius: 4, overflow: 'hidden' }}>
@@ -93,8 +94,8 @@ function BarChart({ data, valueKey, labelKey, color }) {
               transition: 'width 0.4s ease',
             }} />
           </div>
-          <div style={{ width: 80, fontSize: 12, fontVariantNumeric: 'tabular-nums', color: 'var(--text)', flexShrink: 0 }}>
-            {fmt(d[valueKey])}
+          <div style={{ width: 90, fontSize: 12, fontVariantNumeric: 'tabular-nums', color: 'var(--text)', flexShrink: 0 }}>
+            {vf(d[valueKey])}
           </div>
         </div>
       ))}
@@ -104,40 +105,25 @@ function BarChart({ data, valueKey, labelKey, color }) {
 
 // ─── Column (Vertical Bar) Chart ──────────────────────────────────────────────
 const CHART_COLORS = {
-  gold: '#c9a84c',
-  green: '#4caf74',
-  blue: '#5b8dee',
-  red: '#c05a5a',
-  sage: '#6a9e7f',
-  muted: '#888',
-  border: '#2e2e2e',
-  surface2: '#242424',
-  text: '#e8e8e8',
+  gold: '#c9a84c', green: '#4caf74', blue: '#5b8dee', red: '#c05a5a',
+  sage: '#6a9e7f', muted: '#888', border: '#2e2e2e', surface2: '#242424', text: '#e8e8e8',
 }
 
-function ColumnChart({ data, valueKey, labelKey, color = 'gold', chartHeight = 200 }) {
+function ColumnChart({ data, valueKey, labelKey, color = 'gold', chartHeight = 200, valueFmt }) {
   if (!data || data.length === 0) return <div style={{ color: 'var(--muted)', fontSize: 13 }}>No data</div>
+  const vf = valueFmt || fmt
   const max = Math.max(...data.map(d => d[valueKey] || 0), 1)
-  const BAR_W = 34
-  const GAP = 10
-  const LEFT = 8
-  const BOT_PAD = 30
-  const TOP_PAD = 28
+  const BAR_W = 34, GAP = 10, LEFT = 8, BOT_PAD = 30, TOP_PAD = 28
   const CHART_H = chartHeight - BOT_PAD - TOP_PAD
   const totalW = data.length * (BAR_W + GAP) + LEFT * 2
   const fillColor = CHART_COLORS[color] || color
 
   return (
     <svg width="100%" viewBox={`0 0 ${totalW} ${chartHeight}`} style={{ display: 'block', overflow: 'visible' }}>
-      {/* Gridlines */}
       {[0.25, 0.5, 0.75, 1].map(pct => {
         const y = TOP_PAD + CHART_H * (1 - pct)
-        return (
-          <line key={pct} x1={LEFT} y1={y} x2={totalW - LEFT} y2={y}
-            stroke={CHART_COLORS.border} strokeWidth="1" />
-        )
+        return <line key={pct} x1={LEFT} y1={y} x2={totalW - LEFT} y2={y} stroke={CHART_COLORS.border} strokeWidth="1" />
       })}
-      {/* Bars */}
       {data.map((d, i) => {
         const val = d[valueKey] || 0
         const barH = Math.max(val > 0 ? 2 : 0, Math.round((val / max) * CHART_H))
@@ -146,16 +132,12 @@ function ColumnChart({ data, valueKey, labelKey, color = 'gold', chartHeight = 2
         return (
           <g key={i}>
             <rect x={x} y={y} width={BAR_W} height={barH} fill={fillColor} rx={3} opacity={0.9} />
-            {/* Month label below */}
-            <text x={x + BAR_W / 2} y={TOP_PAD + CHART_H + 18}
-              textAnchor="middle" fontSize="10" fill={CHART_COLORS.muted}>
-              {monthLabel(d[labelKey])}
+            <text x={x + BAR_W / 2} y={TOP_PAD + CHART_H + 18} textAnchor="middle" fontSize="10" fill={CHART_COLORS.muted}>
+              {monthLabel(d[labelKey]) || d[labelKey]}
             </text>
-            {/* Value above bar */}
             {val > 0 && (
-              <text x={x + BAR_W / 2} y={Math.max(y - 6, TOP_PAD + 10)}
-                textAnchor="middle" fontSize="9" fill={CHART_COLORS.muted}>
-                {fmt(val)}
+              <text x={x + BAR_W / 2} y={Math.max(y - 6, TOP_PAD + 10)} textAnchor="middle" fontSize="9" fill={CHART_COLORS.muted}>
+                {vf(val)}
               </text>
             )}
           </g>
@@ -165,66 +147,11 @@ function ColumnChart({ data, valueKey, labelKey, color = 'gold', chartHeight = 2
   )
 }
 
-// ─── Donut Pie Chart ──────────────────────────────────────────────────────────
-const PIE_COLORS = [
-  '#c9a84c', '#5b8dee', '#4caf74', '#6a9e7f', '#e0a820',
-  '#c05a35', '#c05a5a', '#8888ff', '#ff88aa', '#88ffdd', '#ffaa44', '#44aaff',
-]
-
-function PieChart({ data, valueKey, labelKey }) {
-  if (!data || data.length === 0) return <div style={{ color: 'var(--muted)', fontSize: 13 }}>No data</div>
-  const total = data.reduce((s, d) => s + (d[valueKey] || 0), 0)
-  if (total === 0) return <div style={{ color: 'var(--muted)', fontSize: 13 }}>No data</div>
-
-  const CX = 100, CY = 100, R = 82, INNER_R = 52
-  let angle = -Math.PI / 2
-
-  const slices = data.map((d, i) => {
-    const pct = (d[valueKey] || 0) / total
-    const sa = angle
-    angle += pct * 2 * Math.PI
-    return { d, pct, sa, ea: angle, color: PIE_COLORS[i % PIE_COLORS.length] }
-  })
-
-  function arc(sa, ea) {
-    const x1 = CX + R * Math.cos(sa), y1 = CY + R * Math.sin(sa)
-    const x2 = CX + R * Math.cos(ea), y2 = CY + R * Math.sin(ea)
-    const x3 = CX + INNER_R * Math.cos(ea), y3 = CY + INNER_R * Math.sin(ea)
-    const x4 = CX + INNER_R * Math.cos(sa), y4 = CY + INNER_R * Math.sin(sa)
-    const lg = (ea - sa) > Math.PI ? 1 : 0
-    return `M ${x1} ${y1} A ${R} ${R} 0 ${lg} 1 ${x2} ${y2} L ${x3} ${y3} A ${INNER_R} ${INNER_R} 0 ${lg} 0 ${x4} ${y4} Z`
-  }
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap' }}>
-      <svg width={200} height={200} style={{ flexShrink: 0 }}>
-        {slices.map((s, i) => (
-          <path key={i} d={arc(s.sa, s.ea)} fill={s.color} opacity={0.9} />
-        ))}
-        <text x={CX} y={CY - 8} textAnchor="middle" fontSize="11" fill="#888">YTD Total</text>
-        <text x={CX} y={CY + 10} textAnchor="middle" fontSize="13" fontWeight="700" fill="#e8e8e8">{fmt(total)}</text>
-      </svg>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        {slices.map((s, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-            <div style={{ width: 10, height: 10, borderRadius: 2, background: s.color, flexShrink: 0 }} />
-            <span style={{ color: 'var(--muted)', minWidth: 34 }}>{monthLabel(s.d[labelKey])}</span>
-            <span style={{ color: 'var(--text)', fontVariantNumeric: 'tabular-nums', minWidth: 70 }}>{fmt(s.d[valueKey])}</span>
-            <span style={{ color: 'var(--muted)', fontSize: 11 }}>({(s.pct * 100).toFixed(1)}%)</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ─── PO Breakdown Table (brands or categories × months) ───────────────────────
+// ─── PO Breakdown Table ────────────────────────────────────────────────────────
 function PoBreakdownTable({ data, rowKey }) {
   const rows = data ? (data[rowKey === 'brand' ? 'brands' : 'categories'] || []) : []
   const months = data ? (data.months || []) : []
-  if (rows.length === 0 || months.length === 0) {
-    return <div style={{ color: 'var(--muted)', fontSize: 13 }}>No data</div>
-  }
+  if (rows.length === 0 || months.length === 0) return <div style={{ color: 'var(--muted)', fontSize: 13 }}>No data</div>
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -244,17 +171,81 @@ function PoBreakdownTable({ data, rowKey }) {
         <tbody>
           {rows.map((row, i) => (
             <tr key={i} style={{ borderBottom: '1px solid rgba(46,46,46,0.5)' }}>
-              <td style={{ padding: '9px 14px', color: 'var(--text)', fontWeight: 500, whiteSpace: 'nowrap' }}>
-                {row[rowKey]}
-              </td>
+              <td style={{ padding: '9px 14px', color: 'var(--text)', fontWeight: 500, whiteSpace: 'nowrap' }}>{row[rowKey]}</td>
               {row.months.map((mv, j) => (
                 <td key={j} style={{ padding: '9px 10px', textAlign: 'right', color: mv.value > 0 ? 'var(--text)' : 'var(--muted)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                   {mv.value > 0 ? fmt(mv.value) : '—'}
                 </td>
               ))}
-              <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: 'var(--gold)', fontVariantNumeric: 'tabular-nums' }}>
-                {fmt(row.total)}
+              <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: 'var(--gold)', fontVariantNumeric: 'tabular-nums' }}>{fmt(row.total)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ─── Top Profit Products Table ────────────────────────────────────────────────
+function ProfitTable({ data }) {
+  if (!data || data.length === 0) return <div style={{ color: 'var(--muted)', fontSize: 13 }}>No data</div>
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <thead>
+          <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
+            {['#', 'MATNR', 'Brand', 'Category', 'Qty Sold', 'Revenue', 'Cost', 'Profit', 'Margin'].map(h => (
+              <th key={h} style={{ padding: '8px 12px', textAlign: ['Qty Sold', 'Revenue', 'Cost', 'Profit', 'Margin'].includes(h) ? 'right' : 'left', fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((p, i) => (
+            <tr key={i} style={{ borderBottom: '1px solid rgba(46,46,46,0.5)' }}>
+              <td style={{ padding: '9px 12px', color: 'var(--muted)', fontSize: 11 }}>{i + 1}</td>
+              <td style={{ padding: '9px 12px', fontFamily: 'monospace', fontSize: 11, color: 'var(--muted)' }}>{p.matnr}</td>
+              <td style={{ padding: '9px 12px', color: 'var(--text)', fontWeight: 500 }}>{p.brand}</td>
+              <td style={{ padding: '9px 12px', color: 'var(--muted)' }}>{p.category}</td>
+              <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--text)' }}>{p.qty}</td>
+              <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>{fmt(p.revenue)}</td>
+              <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{fmt(p.cost)}</td>
+              <td style={{ padding: '9px 12px', textAlign: 'right', color: p.profit >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmt(p.profit)}</td>
+              <td style={{ padding: '9px 12px', textAlign: 'right' }}>
+                <span style={{
+                  background: p.margin >= 40 ? '#1a3a2a' : p.margin >= 20 ? '#2a2a1a' : '#2a1a1a',
+                  color: p.margin >= 40 ? 'var(--green)' : p.margin >= 20 ? 'var(--yellow)' : 'var(--red)',
+                  padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600,
+                }}>{p.margin}%</span>
               </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ─── Top Return Customers Table ───────────────────────────────────────────────
+function ReturnCustomersTable({ data }) {
+  if (!data || data.length === 0) return <div style={{ color: 'var(--muted)', fontSize: 13 }}>No data</div>
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <thead>
+          <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
+            {['#', 'KUNNR', 'Customer', 'Returns', 'Refund Value'].map(h => (
+              <th key={h} style={{ padding: '8px 14px', textAlign: ['Returns', 'Refund Value'].includes(h) ? 'right' : 'left', fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 500 }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((c, i) => (
+            <tr key={i} style={{ borderBottom: '1px solid rgba(46,46,46,0.5)' }}>
+              <td style={{ padding: '9px 14px', color: 'var(--muted)', fontSize: 11 }}>{i + 1}</td>
+              <td style={{ padding: '9px 14px', fontFamily: 'monospace', fontSize: 11, color: 'var(--muted)' }}>{c.kunnr}</td>
+              <td style={{ padding: '9px 14px', color: 'var(--text)', fontWeight: 500 }}>{c.customer_name}</td>
+              <td style={{ padding: '9px 14px', textAlign: 'right', color: 'var(--text)' }}>{c.return_count}</td>
+              <td style={{ padding: '9px 14px', textAlign: 'right', color: 'var(--red)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmt(c.refund_value)}</td>
             </tr>
           ))}
         </tbody>
@@ -272,10 +263,20 @@ export default function Analytics() {
   const [year, setYear] = useState(String(new Date().getFullYear()))
   const [loading, setLoading] = useState(false)
 
+  // Overview data
   const [overview, setOverview] = useState(null)
-  const [monthlySales, setMonthlySales] = useState(null)
-  const [ytdCategory, setYtdCategory] = useState(null)
-  const [ytdBrand, setYtdBrand] = useState(null)
+  const [monthlySales, setMonthlySales] = useState([])
+  const [topProfitProds, setTopProfitProds] = useState([])
+  const [ytdBrand, setYtdBrand] = useState([])
+
+  // Sales tab data
+  const [ytdCategory, setYtdCategory] = useState([])
+  const [retByMonth, setRetByMonth] = useState([])
+  const [retByBrand, setRetByBrand] = useState([])
+  const [retByReason, setRetByReason] = useState([])
+  const [topReturnCusts, setTopReturnCusts] = useState([])
+
+  // Purchasing tab data
   const [poBrand, setPoBrand] = useState(null)
   const [poCategory, setPoCategory] = useState(null)
 
@@ -284,16 +285,23 @@ export default function Analytics() {
   const loadAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [ovRes, msRes, ytcRes, ytbRes, pbRes, pcRes] = await Promise.all([
+      const [ovRes, msRes, ytcRes, ytbRes, pbRes, pcRes, rbmRes, rbbRes, rbrRes, trcRes, tppRes] = await Promise.all([
         fetch('/analytics/overview'),
         fetch(`/analytics/monthly-sales?year=${year}`),
         fetch(`/analytics/ytd-by-category?year=${year}`),
         fetch(`/analytics/ytd-by-brand?year=${year}`),
         fetch(`/analytics/po-by-brand?year=${year}`),
         fetch(`/analytics/po-by-category?year=${year}`),
+        fetch(`/analytics/returns-by-month?year=${year}`),
+        fetch(`/analytics/returns-by-brand?year=${year}`),
+        fetch(`/analytics/returns-by-reason?year=${year}`),
+        fetch(`/analytics/top-return-customers?year=${year}`),
+        fetch(`/analytics/top-profit-products?year=${year}`),
       ])
-      const [ov, ms, ytc, ytb, pb, pc] = await Promise.all([
-        ovRes.json(), msRes.json(), ytcRes.json(), ytbRes.json(), pbRes.json(), pcRes.json(),
+      const [ov, ms, ytc, ytb, pb, pc, rbm, rbb, rbr, trc, tpp] = await Promise.all([
+        ovRes.json(), msRes.json(), ytcRes.json(), ytbRes.json(),
+        pbRes.json(), pcRes.json(), rbmRes.json(), rbbRes.json(),
+        rbrRes.json(), trcRes.json(), tppRes.json(),
       ])
       setOverview(ov)
       setMonthlySales(Array.isArray(ms) ? ms : [])
@@ -301,7 +309,12 @@ export default function Analytics() {
       setYtdBrand(Array.isArray(ytb) ? ytb : [])
       setPoBrand(pb && typeof pb === 'object' ? pb : null)
       setPoCategory(pc && typeof pc === 'object' ? pc : null)
-    } catch (err) {
+      setRetByMonth(Array.isArray(rbm) ? rbm : [])
+      setRetByBrand(Array.isArray(rbb) ? rbb : [])
+      setRetByReason(Array.isArray(rbr) ? rbr : [])
+      setTopReturnCusts(Array.isArray(trc) ? trc : [])
+      setTopProfitProds(Array.isArray(tpp) ? tpp : [])
+    } catch {
       showToast('Could not load analytics data', 'error')
     } finally {
       setLoading(false)
@@ -310,7 +323,6 @@ export default function Analytics() {
 
   useEffect(() => { loadAll() }, [loadAll])
 
-  // Year options: current year down to 4 years ago
   const currentYear = new Date().getFullYear()
   const yearOptions = Array.from({ length: 5 }, (_, i) => String(currentYear - i))
 
@@ -339,6 +351,13 @@ export default function Analytics() {
     >{label}</button>
   )
 
+  // Derived
+  const top5Brands = ytdBrand.slice(0, 5)
+
+  // Total returns KPIs
+  const totalReturnCount = retByMonth.reduce((s, r) => s + (r.return_count || 0), 0)
+  const totalRefundValue = retByMonth.reduce((s, r) => s + (r.refund_value || 0), 0)
+
   return (
     <div ref={containerRef} style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)' }}>
 
@@ -356,7 +375,6 @@ export default function Analytics() {
             Fat Closet <span style={{ color: 'var(--gold)' }}>/ Analytics</span>
           </div>
           <div style={{ width: 1, height: 24, background: 'var(--border)' }} />
-          {/* Tab switcher */}
           <div style={{ display: 'flex', gap: 4 }}>
             {TABS.map(t => tabBtn(t.key, t.label))}
           </div>
@@ -418,31 +436,36 @@ export default function Analytics() {
                   </div>
                 </Section>
 
-                {/* Monthly Sales Histogram */}
-                <Section title={`Monthly Sales — ${year}`}>
-                  {monthlySales && monthlySales.length > 0 ? (
-                    <ColumnChart data={monthlySales} valueKey="revenue" labelKey="month" color="gold" chartHeight={220} />
+                {/* Monthly Sales + Profit side by side */}
+                <Section title={`Monthly Revenue & Profit — ${year}`}>
+                  {monthlySales.length > 0 ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
+                      <div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, letterSpacing: 1, textTransform: 'uppercase' }}>Revenue</div>
+                        <ColumnChart data={monthlySales} valueKey="revenue" labelKey="month" color="gold" chartHeight={200} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, letterSpacing: 1, textTransform: 'uppercase' }}>Gross Profit</div>
+                        <ColumnChart data={monthlySales} valueKey="profit" labelKey="month" color="green" chartHeight={200} />
+                      </div>
+                    </div>
                   ) : (
                     <div style={{ color: 'var(--muted)', fontSize: 13 }}>No sales data for {year}</div>
                   )}
                 </Section>
 
-                {/* Monthly Profit Histogram */}
-                <Section title={`Monthly Profit — ${year}`}>
-                  {monthlySales && monthlySales.length > 0 ? (
-                    <ColumnChart data={monthlySales} valueKey="profit" labelKey="month" color="green" chartHeight={220} />
+                {/* Top 5 Brands by Sales */}
+                <Section title={`Top 5 Brands by Sales — ${year}`}>
+                  {top5Brands.length > 0 ? (
+                    <BarChart data={top5Brands} valueKey="revenue" labelKey="brand" color="var(--gold)" />
                   ) : (
-                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>No sales data for {year}</div>
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>No brand data for {year}</div>
                   )}
                 </Section>
 
-                {/* YTD Pie */}
-                <Section title={`Year to Date — ${year}`}>
-                  {monthlySales && monthlySales.length > 0 ? (
-                    <PieChart data={monthlySales} valueKey="revenue" labelKey="month" />
-                  ) : (
-                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>No sales data for {year}</div>
-                  )}
+                {/* Top 10 Products by Profit */}
+                <Section title={`Top 10 Products by Profit — ${year}`}>
+                  <ProfitTable data={topProfitProds} />
                 </Section>
               </>
             )}
@@ -450,30 +473,87 @@ export default function Analytics() {
             {/* ══ SALES TAB ════════════════════════════════════════════════════ */}
             {tab === 'sales' && (
               <>
+                {/* ── Sales breakdown ── */}
+                <Section title={`YTD Sales by Brand — ${year}`}>
+                  {ytdBrand.length > 0 ? (
+                    <BarChart data={ytdBrand} valueKey="revenue" labelKey="brand" color="var(--gold)" />
+                  ) : (
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>No brand data for {year}</div>
+                  )}
+                </Section>
+
                 <Section title={`YTD Sales by Category — ${year}`}>
-                  {ytdCategory && ytdCategory.length > 0 ? (
-                    <BarChart
-                      data={ytdCategory}
-                      valueKey="revenue"
-                      labelKey="category"
-                      color="var(--blue)"
-                    />
+                  {ytdCategory.length > 0 ? (
+                    <BarChart data={ytdCategory} valueKey="revenue" labelKey="category" color="var(--blue)" />
                   ) : (
                     <div style={{ color: 'var(--muted)', fontSize: 13 }}>No category data for {year}</div>
                   )}
                 </Section>
 
-                <Section title={`YTD Sales by Brand — ${year}`}>
-                  {ytdBrand && ytdBrand.length > 0 ? (
-                    <BarChart
-                      data={ytdBrand}
-                      valueKey="revenue"
-                      labelKey="brand"
-                      color="var(--gold)"
-                    />
+                {/* ── Returns ── */}
+                <div style={{ marginTop: 8, marginBottom: 24, paddingTop: 16, borderTop: '2px solid var(--border)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--red)', marginBottom: 16 }}>
+                    ↩ Returns — {year}
+                  </div>
+                  {/* Returns KPI mini row */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 16, marginBottom: 32 }}>
+                    <KpiCard label="Total Returns" value={totalReturnCount} sub={`${year} YTD`} color="var(--red)" />
+                    <KpiCard label="Total Refund Value" value={fmt(totalRefundValue)} sub={`${year} YTD`} color="var(--rust)" />
+                  </div>
+                </div>
+
+                <Section title={`Returns by Month — ${year}`}>
+                  {retByMonth.length > 0 ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
+                      <div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, letterSpacing: 1, textTransform: 'uppercase' }}>No. of Returns</div>
+                        <ColumnChart
+                          data={retByMonth} valueKey="return_count" labelKey="month"
+                          color="red" chartHeight={180}
+                          valueFmt={n => (n == null ? '—' : String(n))}
+                        />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, letterSpacing: 1, textTransform: 'uppercase' }}>Refund Value</div>
+                        <ColumnChart data={retByMonth} valueKey="refund_value" labelKey="month" color="rust" chartHeight={180} />
+                      </div>
+                    </div>
                   ) : (
-                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>No brand data for {year}</div>
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>No returns data for {year}</div>
                   )}
+                </Section>
+
+                <Section title={`Returns by Brand — ${year}`}>
+                  {retByBrand.length > 0 ? (
+                    <BarChart data={retByBrand} valueKey="refund_value" labelKey="brand" color="var(--red)" />
+                  ) : (
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>No brand returns data for {year}</div>
+                  )}
+                </Section>
+
+                <Section title={`Returns by Reason — ${year}`}>
+                  {retByReason.length > 0 ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 40 }}>
+                      <div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10, letterSpacing: 1, textTransform: 'uppercase' }}>By Refund Value</div>
+                        <BarChart data={retByReason} valueKey="refund_value" labelKey="reason" color="var(--rust)" labelWidth={180} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10, letterSpacing: 1, textTransform: 'uppercase' }}>By No. of Orders</div>
+                        <BarChart
+                          data={retByReason} valueKey="return_count" labelKey="reason"
+                          color="var(--red)" labelWidth={180}
+                          valueFmt={n => (n == null ? '—' : `${n} orders`)}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>No reason data for {year}</div>
+                  )}
+                </Section>
+
+                <Section title={`Top 5 Customers by Returns — ${year}`}>
+                  <ReturnCustomersTable data={topReturnCusts} />
                 </Section>
               </>
             )}
