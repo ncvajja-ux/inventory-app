@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require("express");
 const path    = require("path");
 const sqlite3 = require("sqlite3").verbose();
@@ -9,6 +10,17 @@ app.use(express.static(path.join(__dirname, "public/dist")));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(cors());
+
+// ─── Auth routes ─────────────────────────────────────────────────────────────
+app.get("/auth/status", (req, res) => {
+  res.json({ locked: !!process.env.APP_PASSWORD });
+});
+
+app.post("/auth/unlock", (req, res) => {
+  const { password } = req.body;
+  if (!process.env.APP_PASSWORD) return res.json({ ok: true });
+  res.json({ ok: password === process.env.APP_PASSWORD });
+});
 
 // ─── Open databases ───────────────────────────────────────────────────────────
 function openDb(filename) {
@@ -38,6 +50,32 @@ custDb.serialize(() => {
     custDb.run("ALTER TABLE kna1 ADD COLUMN anniversary TEXT", () => {});
     custDb.run("ALTER TABLE kna1 ADD COLUMN notes TEXT", () => {});
     custDb.run("ALTER TABLE kna1 ADD COLUMN status TEXT DEFAULT 'Active'", () => {});
+    custDb.run("ALTER TABLE kna1 ADD COLUMN body_type TEXT", () => {});
+
+    // Body measurements + photo (separate from kna1 to keep it clean)
+    custDb.run(`CREATE TABLE IF NOT EXISTS customer_measurements (
+        kunnr         TEXT PRIMARY KEY,
+        photo_data    TEXT,
+        shoulders     REAL,
+        top_inseam    REAL,
+        tummy         REAL,
+        waist         REAL,
+        thighs        REAL,
+        bottom_inseam REAL,
+        updated_at    TEXT DEFAULT (datetime('now'))
+    )`);
+
+    // Preferred brands / sizes per customer
+    custDb.run(`CREATE TABLE IF NOT EXISTS customer_preferences (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        kunnr    TEXT NOT NULL,
+        brand    TEXT NOT NULL,
+        category TEXT,
+        size     TEXT,
+        fit      TEXT,
+        UNIQUE(kunnr, brand, category)
+    )`);
+    custDb.run("ALTER TABLE customer_preferences ADD COLUMN fit TEXT", () => {});
 });
 
 buyerDb.serialize(() => {
@@ -81,6 +119,7 @@ invDb.serialize(() => {
             ["tax_category",  "TEXT"],
             ["image_data",    "TEXT"],
             ["material_type", "TEXT"],
+            ["body_type",     "TEXT"],
         ];
         toAdd.forEach(([col, def]) => {
             if (!have.has(col)) {
@@ -109,6 +148,22 @@ invDb.serialize(() => {
         id   INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT UNIQUE NOT NULL
     )`);
+    invDb.run(`CREATE TABLE IF NOT EXISTS body_types (
+        id   INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL
+    )`);
+    // Seed body types if empty
+    invDb.get("SELECT COUNT(*) as n FROM body_types", [], (err, row) => {
+        if (err || (row && row.n > 0)) return;
+        const types = [
+            "Average Height & Weight","Average Height & Heavyset","Average Height & Thin",
+            "Average Weight & Tall","Big & Tall","Tall & Thin",
+            "Average Weight & Short","Short & Heavyset","Short & Thin"
+        ];
+        const stmt = invDb.prepare("INSERT OR IGNORE INTO body_types (name) VALUES (?)");
+        types.forEach(t => stmt.run([t]));
+        stmt.finalize();
+    });
     invDb.run(`CREATE TABLE IF NOT EXISTS category_l3 (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         category TEXT NOT NULL, subcategory TEXT NOT NULL,
@@ -398,20 +453,20 @@ app.get("/customers/:kunnr", (req, res) => {
     });
 });
 app.post("/addcustomer", (req, res) => {
-    const {name,number,address,email,gstin,dob,anniversary,notes} = req.body;
+    const {name,number,address,email,gstin,dob,anniversary,notes,body_type} = req.body;
     if (!name) return res.status(400).json({error:"Name required"});
     nextId(custDb, "kna1", "kunnr", null, (err, kunnr) => {
         if (err) return res.status(500).json({error:err.message});
-        custDb.run("INSERT INTO kna1 (kunnr,name,number,address,email,gstin,dob,anniversary,notes,status) VALUES (?,?,?,?,?,?,?,?,?,'Active')",
-            [kunnr,name,number,address,email,gstin,dob||null,anniversary||null,notes||null],
+        custDb.run("INSERT INTO kna1 (kunnr,name,number,address,email,gstin,dob,anniversary,notes,body_type,status) VALUES (?,?,?,?,?,?,?,?,?,?,'Active')",
+            [kunnr,name,number,address,email,gstin,dob||null,anniversary||null,notes||null,body_type||null],
             function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true,kunnr}); }
         );
     });
 });
 app.put("/customers/:kunnr", (req, res) => {
-    const {name,number,address,email,gstin,dob,anniversary,notes,status} = req.body;
-    custDb.run("UPDATE kna1 SET name=?,number=?,address=?,email=?,gstin=?,dob=?,anniversary=?,notes=?,status=COALESCE(?,status) WHERE kunnr=?",
-        [name,number,address,email,gstin,dob||null,anniversary||null,notes||null,status||null,req.params.kunnr],
+    const {name,number,address,email,gstin,dob,anniversary,notes,body_type,status} = req.body;
+    custDb.run("UPDATE kna1 SET name=?,number=?,address=?,email=?,gstin=?,dob=?,anniversary=?,notes=?,body_type=?,status=COALESCE(?,status) WHERE kunnr=?",
+        [name,number,address,email,gstin,dob||null,anniversary||null,notes||null,body_type||null,status||null,req.params.kunnr],
         function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
     );
 });
@@ -560,13 +615,13 @@ app.delete("/inventory/:matnr/image", (req, res) => {
     );
 });
 app.post("/addinventory", (req, res) => {
-    const {brand,brandfamily,size,quantity,price,cost_price,mrp,gender,category,subcategory,subsubcategory,color,fit,tax_category,material_type} = req.body;
+    const {brand,brandfamily,size,quantity,price,cost_price,mrp,gender,category,subcategory,subsubcategory,color,fit,tax_category,material_type,body_type} = req.body;
     if (!brand) return res.status(400).json({error:"Brand required"});
     nextId(invDb, "mara", "matnr", null, (err, matnr) => {
         if (err) return res.status(500).json({error:err.message});
-        invDb.run(`INSERT INTO mara (matnr,brand,brandfamily,size,quantity,price,cost_price,mrp,gender,category,subcategory,subsubcategory,color,fit,tax_category,material_type,reserved)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
-            [matnr,brand,brandfamily,size,quantity||0,price||0,cost_price||0,mrp||0,gender,category,subcategory,subsubcategory,color,fit,tax_category||null,material_type||null],
+        invDb.run(`INSERT INTO mara (matnr,brand,brandfamily,size,quantity,price,cost_price,mrp,gender,category,subcategory,subsubcategory,color,fit,tax_category,material_type,body_type,reserved)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+            [matnr,brand,brandfamily,size,quantity||0,price||0,cost_price||0,mrp||0,gender,category,subcategory,subsubcategory,color,fit,tax_category||null,material_type||null,body_type||null],
             function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true,matnr}); }
         );
     });
@@ -583,10 +638,10 @@ app.post("/inventory/:matnr/restock", (req, res) => {
     );
 });
 app.put("/inventory/:matnr", (req, res) => {
-    const {brand,brandfamily,size,quantity,price,cost_price,mrp,gender,category,subcategory,subsubcategory,color,fit,tax_category,material_type} = req.body;
+    const {brand,brandfamily,size,quantity,price,cost_price,mrp,gender,category,subcategory,subsubcategory,color,fit,tax_category,material_type,body_type} = req.body;
     invDb.run(`UPDATE mara SET brand=?,brandfamily=?,size=?,quantity=?,price=?,cost_price=?,mrp=?,
-        gender=?,category=?,subcategory=?,subsubcategory=?,color=?,fit=?,tax_category=?,material_type=? WHERE matnr=?`,
-        [brand,brandfamily,size,quantity,price||0,cost_price||0,mrp||0,gender,category,subcategory,subsubcategory,color,fit,tax_category||null,material_type||null,req.params.matnr],
+        gender=?,category=?,subcategory=?,subsubcategory=?,color=?,fit=?,tax_category=?,material_type=?,body_type=? WHERE matnr=?`,
+        [brand,brandfamily,size,quantity,price||0,cost_price||0,mrp||0,gender,category,subcategory,subsubcategory,color,fit,tax_category||null,material_type||null,body_type||null,req.params.matnr],
         function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
     );
 });
@@ -716,6 +771,25 @@ app.post("/material-types", (req, res) => {
 });
 app.delete("/material-types/:id", (req, res) => {
     invDb.run("DELETE FROM material_types WHERE id=?", [req.params.id],
+        function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
+    );
+});
+
+// ─── BODY TYPE Routes ────────────────────────────────────────────────────────
+app.get("/body-types", (req, res) => {
+    invDb.all("SELECT * FROM body_types ORDER BY id", [], (err, rows) => {
+        err ? res.status(500).json({error:err.message}) : res.json(rows || []);
+    });
+});
+app.post("/body-types", (req, res) => {
+    const {name} = req.body;
+    if (!name) return res.status(400).json({error:"Name required"});
+    invDb.run("INSERT INTO body_types (name) VALUES (?)", [name.trim()],
+        function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true,id:this.lastID}); }
+    );
+});
+app.delete("/body-types/:id", (req, res) => {
+    invDb.run("DELETE FROM body_types WHERE id=?", [req.params.id],
         function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true}); }
     );
 });
@@ -1375,6 +1449,57 @@ app.get("/customers/:kunnr/stats", (req, res) => {
             SUM(CASE WHEN order_type='S' AND payment_status='PAID' THEN paid_amount ELSE 0 END) as total_revenue
          FROM vbak WHERE kunnr=? AND status='CONFIRMED'`,
         [kunnr], (err, row) => err ? res.status(500).json({error:err.message}) : res.json(row||{})
+    );
+});
+
+// ─── Customer Measurements ────────────────────────────────────────────────────
+app.get("/customers/:kunnr/measurements", (req, res) => {
+    custDb.get("SELECT * FROM customer_measurements WHERE kunnr=?", [req.params.kunnr],
+        (err, row) => err ? res.status(500).json({error:err.message}) : res.json(row || {})
+    );
+});
+app.put("/customers/:kunnr/measurements", (req, res) => {
+    const {kunnr} = req.params;
+    const {photo_data, shoulders, top_inseam, tummy, waist, thighs, bottom_inseam} = req.body;
+    custDb.run(
+        `INSERT INTO customer_measurements (kunnr,photo_data,shoulders,top_inseam,tummy,waist,thighs,bottom_inseam,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,datetime('now'))
+         ON CONFLICT(kunnr) DO UPDATE SET
+           photo_data=excluded.photo_data,
+           shoulders=excluded.shoulders, top_inseam=excluded.top_inseam,
+           tummy=excluded.tummy, waist=excluded.waist,
+           thighs=excluded.thighs, bottom_inseam=excluded.bottom_inseam,
+           updated_at=datetime('now')`,
+        [kunnr,photo_data||null,shoulders||null,top_inseam||null,tummy||null,waist||null,thighs||null,bottom_inseam||null],
+        (err) => err ? res.status(500).json({error:err.message}) : res.json({success:true})
+    );
+});
+
+// ─── Customer Preferences (brands/sizes) ─────────────────────────────────────
+app.get("/customers/:kunnr/preferences", (req, res) => {
+    custDb.all("SELECT * FROM customer_preferences WHERE kunnr=? ORDER BY brand, category",
+        [req.params.kunnr],
+        (err, rows) => err ? res.status(500).json({error:err.message}) : res.json(rows||[])
+    );
+});
+app.post("/customers/:kunnr/preferences", (req, res) => {
+    const {kunnr} = req.params;
+    const {brand, category, size} = req.body;
+    if (!brand) return res.status(400).json({error:"brand required"});
+    custDb.run(
+        "INSERT OR IGNORE INTO customer_preferences (kunnr,brand,category,size,fit) VALUES (?,?,?,?,?)",
+        [kunnr, brand, category||null, size||null, req.body.fit||null],
+        function(err) {
+            if (err) return res.status(500).json({error:err.message});
+            if (this.changes === 0) return res.status(409).json({error:"Already exists"});
+            res.json({success:true, id:this.lastID});
+        }
+    );
+});
+app.delete("/customers/:kunnr/preferences/:id", (req, res) => {
+    custDb.run("DELETE FROM customer_preferences WHERE id=? AND kunnr=?",
+        [req.params.id, req.params.kunnr],
+        (err) => err ? res.status(500).json({error:err.message}) : res.json({success:true})
     );
 });
 

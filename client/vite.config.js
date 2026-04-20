@@ -1,32 +1,45 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// Routes that are both React pages AND Express API prefixes.
+// When a browser navigates to these paths, serve the SPA instead of proxying.
+function bypass(req) {
+  if (req.headers.accept?.includes('text/html')) return '/index.html'
+}
+
+const api = target => ({ target, bypass })
+const T = 'http://localhost:3000'
+
 export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/hr': 'http://localhost:3000',
-      '/customers': 'http://localhost:3000',
-      '/addcustomer': 'http://localhost:3000',
-      '/next-kunnr': 'http://localhost:3000',
-      '/inventory': 'http://localhost:3000',
-      '/addinventory': 'http://localhost:3000',
-      '/next-matnr': 'http://localhost:3000',
-      '/next-buyer-id': 'http://localhost:3000',
-      '/next-po-id': 'http://localhost:3000',
-      '/order': 'http://localhost:3000',
-      '/orders': 'http://localhost:3000',
-      '/categories': 'http://localhost:3000',
-      '/category-l3': 'http://localhost:3000',
-      '/brands': 'http://localhost:3000',
-      '/colors': 'http://localhost:3000',
-      '/fits': 'http://localhost:3000',
-      '/gst-config': 'http://localhost:3000',
-      '/return-reasons': 'http://localhost:3000',
-      '/buyers': 'http://localhost:3000',
-      '/purchase-orders': 'http://localhost:3000',
-      '/pricing': 'http://localhost:3000',
-      '/analytics': 'http://localhost:3000',
+      '/hr':              api(T),
+      '/customers':       api(T),
+      '/addcustomer':     api(T),
+      '/next-kunnr':      api(T),
+      '/inventory':       api(T),
+      '/addinventory':    api(T),
+      '/next-matnr':      api(T),
+      '/next-buyer-id':   api(T),
+      '/next-po-id':      api(T),
+      '/order':           api(T),
+      '/orders':          api(T),
+      '/categories':      api(T),
+      '/category-l3':     api(T),
+      '/brands':          api(T),
+      '/colors':          api(T),
+      '/fits':            api(T),
+      '/gst-config':      api(T),
+      '/return-reasons':  api(T),
+      '/buyers':          api(T),
+      '/purchase-orders': api(T),
+      '/pricing':         api(T),
+      '/analytics':       api(T),
+      '/material-types':  api(T),
+      '/body-types':      api(T),
+      '/sales-price':     api(T),
+      '/auth':            api(T),
     }
   },
   build: {

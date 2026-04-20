@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { useTheme } from './ThemeContext'
 
 const ALL_NAV = [
   { href: '/',                icon: '🏠', label: 'Home' },
@@ -50,6 +51,7 @@ const SECTION_TABS = {
 
 export default function Sidebar({ section, activeTab, onTabChange }) {
   const location = useLocation()
+  const { theme, toggleTheme } = useTheme()
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem('sidebarCollapsed') === 'true' } catch { return false }
   })
@@ -116,6 +118,18 @@ export default function Sidebar({ section, activeTab, onTabChange }) {
           )
         })}
       </>
+
+      {/* Theme toggle */}
+      <div className="sidebar-footer">
+        <button
+          className="nav-item"
+          onClick={toggleTheme}
+          title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+        >
+          <span className="nav-icon">{theme === 'dark' ? '☀️' : '🌙'}</span>
+          {!collapsed && <span className="nav-label">{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>}
+        </button>
+      </div>
     </div>
   )
 }
