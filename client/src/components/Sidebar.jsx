@@ -5,6 +5,7 @@ import { useTheme } from './ThemeContext'
 const ALL_NAV = [
   { href: '/',                icon: '🏠', label: 'Home' },
   { href: '/customers',       icon: '👤', label: 'Customers' },
+  { href: '/groups',          icon: '👥', label: 'Customer Groups' },
   { href: '/inventory',       icon: '🏷️', label: 'Inventory' },
   { href: '/sales',           icon: '🧾', label: 'Sales' },
   { href: '/buyers',          icon: '🏢', label: 'Buyers' },
@@ -38,6 +39,10 @@ const SECTION_TABS = {
   PurchaseOrders: [
     { id: 'all', icon: '📋', label: 'All POs' },
     { id: 'new', icon: '➕', label: 'New PO' },
+  ],
+  Groups: [
+    { id: 'view', icon: '👥', label: 'View Groups' },
+    { id: 'new',  icon: '➕', label: 'New Group' },
   ],
   Analytics: [],
   HR: [

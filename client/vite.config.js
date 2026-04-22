@@ -40,6 +40,7 @@ export default defineConfig({
       '/body-types':      api(T),
       '/sales-price':     api(T),
       '/auth':            api(T),
+      '/groups':          api(T),
     }
   },
   build: {

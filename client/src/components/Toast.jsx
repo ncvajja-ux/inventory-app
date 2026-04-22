@@ -7,11 +7,13 @@ export function ToastProvider({ children }) {
 
   const showToast = useCallback((msg, type = 'success') => {
     setToast({ msg, type, show: true })
-    setTimeout(() => setToast(t => ({ ...t, show: false })), 3000)
+    const duration = type === 'warning' ? 6000 : 3000
+    setTimeout(() => setToast(t => ({ ...t, show: false })), duration)
   }, [])
 
-  const bg = toast.type === 'error' ? '#dc2626'
-           : toast.type === 'info'  ? '#0369a1'
+  const bg = toast.type === 'error'   ? '#dc2626'
+           : toast.type === 'info'    ? '#0369a1'
+           : toast.type === 'warning' ? '#b45309'
            : '#16a34a'
 
   return (
@@ -32,6 +34,8 @@ export function ToastProvider({ children }) {
         transition: 'all 0.3s ease',
         zIndex: 999,
         pointerEvents: 'none',
+        maxWidth: 400,
+        whiteSpace: 'pre-line',
       }}>
         {toast.msg}
       </div>

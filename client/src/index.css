@@ -467,9 +467,20 @@ tbody td { padding: 13px 16px; vertical-align: middle; }
   position: relative;
 }
 .product-card:hover { border-color: var(--accent); box-shadow: 0 4px 16px rgba(200,151,58,0.12); transform: translateY(-2px); }
-.product-card.selected { border-color: var(--accent); background: var(--accent2); }
+.product-card.selected { border-color: var(--accent); background: var(--accent); box-shadow: 0 4px 18px rgba(200,151,58,0.35); transform: translateY(-2px); }
+.product-card.selected .p-brand,
+.product-card.selected .p-meta,
+.product-card.selected .p-price,
+.product-card.selected .p-qty,
+.product-card.selected .p-stock { color: white; }
+.card-qty-row { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.qty-input-card { width: 44px; text-align: center; padding: 4px 6px; border-radius: 6px; border: 1.5px solid rgba(255,255,255,0.5); background: rgba(255,255,255,0.2); color: white; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; }
+.qty-input-card:focus { outline: none; border-color: white; background: rgba(255,255,255,0.3); }
+/* stepper buttons white on selected card */
+.product-card.selected .qty-stepper { border-color: rgba(255,255,255,0.5); color: white; background: rgba(255,255,255,0.15); }
+.product-card.selected .qty-stepper:hover { background: rgba(255,255,255,0.3); }
 .p-matnr { font-family: 'Courier New', monospace; font-size: 11px; color: #92650a; background: var(--accent2); padding: 2px 7px; border-radius: 4px; display: inline-block; margin-bottom: 8px; }
-.product-card.selected .p-matnr { background: rgba(200,151,58,0.2); }
+.product-card.selected .p-matnr { background: rgba(255,255,255,0.25); color: white; }
 .p-brand  { font-weight: 700; font-size: 14px; margin-bottom: 2px; }
 .p-meta   { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
 .p-price  { font-size: 15px; font-weight: 700; color: var(--accent); }
@@ -758,7 +769,7 @@ tbody td { padding: 13px 16px; vertical-align: middle; }
 [data-theme="dark"] .search-results          { background: var(--card); border-color: var(--accent); }
 [data-theme="dark"] .search-result-item:hover{ background: rgba(201,168,76,0.08); }
 [data-theme="dark"] .product-card            { background: var(--card); border-color: var(--border); }
-[data-theme="dark"] .product-card.selected   { background: rgba(201,168,76,0.08); }
+[data-theme="dark"] .product-card.selected   { background: var(--accent); border-color: var(--accent); }
 [data-theme="dark"] .totals-card             { background: var(--card); }
 [data-theme="dark"] .cart-table-wrap         { background: var(--card); }
 [data-theme="dark"] thead th                 { background: var(--bg); }

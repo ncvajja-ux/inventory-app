@@ -39,6 +39,7 @@ const invDb     = openDb("inventory.db");
 const transDb   = openDb("transactions.db");
 const pricingDb = openDb("pricing.db");
 const hrDb      = openDb("hr.db");
+const groupsDb  = openDb("groups.db");
 
 // ─── Create tables on startup ─────────────────────────────────────────────────
 custDb.serialize(() => {
@@ -235,12 +236,17 @@ transDb.serialize(() => {
         reasons.forEach(r => stmt.run(r));
         stmt.finalize(() => console.log("✅ Return reasons seeded"));
     });
-    // Migrate vbak: add customer_discount_pct if missing
+    // Migrate vbak: add customer_discount_pct and manual_discount if missing
     transDb.all("PRAGMA table_info(vbak)", [], (err, cols) => {
         if (err || !cols) return;
         if (!cols.find(c => c.name === 'customer_discount_pct')) {
             transDb.run("ALTER TABLE vbak ADD COLUMN customer_discount_pct REAL DEFAULT 0.00",
                 (err) => { if (!err) console.log("✅ Added vbak.customer_discount_pct"); }
+            );
+        }
+        if (!cols.find(c => c.name === 'manual_discount')) {
+            transDb.run("ALTER TABLE vbak ADD COLUMN manual_discount REAL DEFAULT 0.00",
+                (err) => { if (!err) console.log("✅ Added vbak.manual_discount"); }
             );
         }
     });
@@ -409,6 +415,22 @@ function nextHrId(db, table, col, prefix, cb) {
         }
     );
 }
+
+// ─── GROUPS tables ────────────────────────────────────────────────────────────
+groupsDb.serialize(() => {
+    groupsDb.run(`CREATE TABLE IF NOT EXISTS customer_groups (
+        group_id   TEXT PRIMARY KEY,
+        name       TEXT NOT NULL,
+        notes      TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+    )`);
+    groupsDb.run(`CREATE TABLE IF NOT EXISTS group_members (
+        group_id   TEXT NOT NULL REFERENCES customer_groups(group_id) ON DELETE CASCADE,
+        kunnr      TEXT NOT NULL,
+        PRIMARY KEY (group_id, kunnr)
+    )`);
+    groupsDb.run("PRAGMA foreign_keys = ON");
+});
 
 // ─── Helper: next sequential ID ───────────────────────────────────────────────
 function nextId(db, table, col, prefix, cb) {
@@ -916,6 +938,7 @@ app.delete("/order/temp/:kunnr/item/:matnr", (req, res) => {
 app.post("/order/place/:kunnr", (req, res) => {
     const kunnr   = req.params.kunnr;
     const temp_id = `&${kunnr}`;
+    const { customer_discount_pct = 0, manual_discount = 0 } = req.body || {};
     transDb.get("SELECT * FROM vbak WHERE order_id=?", [temp_id], (err, order) => {
         if (err)    return res.status(500).json({error:err.message});
         if (!order) return res.status(404).json({error:"No temp order found"});
@@ -925,7 +948,10 @@ app.post("/order/place/:kunnr", (req, res) => {
                 if (err) return res.status(500).json({error:err.message});
                 transDb.serialize(() => {
                     transDb.run("BEGIN TRANSACTION");
-                    transDb.run("INSERT INTO vbak (order_id,kunnr,status,payment_status,order_type) VALUES (?,?,'CONFIRMED','PENDING','S')", [order_id,kunnr]);
+                    transDb.run(
+                        "INSERT INTO vbak (order_id,kunnr,status,payment_status,order_type,customer_discount_pct,manual_discount) VALUES (?,?,'CONFIRMED','PENDING','S',?,?)",
+                        [order_id, kunnr, parseFloat(customer_discount_pct)||0, parseFloat(manual_discount)||0]
+                    );
                     transDb.run("UPDATE vbap SET order_id=? WHERE order_id=?", [order_id,temp_id]);
                     transDb.run("DELETE FROM vbak WHERE order_id=?", [temp_id]);
                     transDb.run("COMMIT", (err) => {
@@ -1035,7 +1061,12 @@ app.get("/orders/:order_id", (req, res) => {
     transDb.get("SELECT * FROM vbak WHERE order_id=?", [req.params.order_id], (err, header) => {
         if (err||!header) return res.status(404).json({error:"Order not found"});
         custDb.get("SELECT * FROM kna1 WHERE kunnr=?", [header.kunnr], (err, cust) => {
-            const full = {...header,...(cust||{})};
+            const full = {
+                ...header,
+                ...(cust||{}),
+                status: header.status,                  // preserve order status (CONFIRMED/TEMP)
+                customer_status: cust?.status || null,  // customer Active/Inactive/Credit Hold
+            };
             transDb.all("SELECT * FROM vbap WHERE order_id=?", [req.params.order_id], (err, items) => {
                 if (err) return res.status(500).json({error:err.message});
                 if (!items.length) return res.json({...full,items:[]});
@@ -2276,6 +2307,285 @@ app.get("/analytics/top-profit-products", (req, res) => {
                 });
                 products.sort((a, b) => b.profit - a.profit);
                 res.json(products.slice(0, 10));
+            });
+        }
+    );
+});
+
+// GET /analytics/product-match?matnr= ─────────────────────────────────────────
+// Returns customers ranked by how well they match a product's brand+category+body_type.
+// indicator: 'green' = brand+category+bodytype, 'blue' = bodytype only, 'white' = brand+category only
+app.get("/analytics/product-match", (req, res) => {
+    const { matnr } = req.query;
+    if (!matnr) return res.status(400).json({ error: "matnr required" });
+
+    // 1. Load the product
+    invDb.get("SELECT matnr,brand,category,subcategory,body_type FROM mara WHERE matnr=?", [matnr], (err, product) => {
+        if (err || !product) return res.status(404).json({ error: "Product not found" });
+
+        const { brand, category, body_type: prodBodyType } = product;
+
+        // 2. Load all customers (with body_type) + their preferences in parallel
+        custDb.all("SELECT kunnr, name, number, body_type, status FROM kna1", [], (err, customers) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            custDb.all(
+                "SELECT kunnr, brand, category FROM customer_preferences",
+                [],
+                (err, prefs) => {
+                    if (err) return res.status(500).json({ error: err.message });
+
+                    // Build preference lookup: kunnr → Set of "brand::category" strings
+                    const prefMap = {};
+                    prefs.forEach(p => {
+                        if (!prefMap[p.kunnr]) prefMap[p.kunnr] = [];
+                        prefMap[p.kunnr].push({ brand: p.brand, category: p.category });
+                    });
+
+                    const results = [];
+                    customers.forEach(c => {
+                        const custPrefs = prefMap[c.kunnr] || [];
+                        const styleMatch = brand && category &&
+                            custPrefs.some(p =>
+                                p.brand?.toLowerCase() === brand?.toLowerCase() &&
+                                p.category?.toLowerCase() === category?.toLowerCase()
+                            );
+                        const bodyMatch  = prodBodyType && c.body_type &&
+                            c.body_type.toLowerCase() === prodBodyType.toLowerCase();
+
+                        let indicator = null;
+                        if (styleMatch && bodyMatch)  indicator = 'green';
+                        else if (bodyMatch)            indicator = 'blue';
+                        else if (styleMatch)           indicator = 'white';
+
+                        if (indicator) {
+                            results.push({
+                                kunnr: c.kunnr,
+                                name:  c.name,
+                                number: c.number,
+                                body_type: c.body_type,
+                                status: c.status,
+                                indicator,
+                                // rank order: green first, blue second, white last
+                                _rank: indicator === 'green' ? 0 : indicator === 'blue' ? 1 : 2,
+                            });
+                        }
+                    });
+
+                    results.sort((a, b) => a._rank - b._rank || a.name.localeCompare(b.name));
+                    res.json({ product, results });
+                }
+            );
+        });
+    });
+});
+
+// ─── GROUPS Routes ────────────────────────────────────────────────────────────
+
+// GET /groups — all groups with member count (serve SPA for browser navigations)
+app.get("/groups", (req, res, next) => {
+    if (req.headers.accept?.includes('text/html'))
+        return res.sendFile("index.html", { root: path.join(__dirname, "public", "dist") })
+    next()
+}, (req, res) => {
+    groupsDb.all(
+        `SELECT g.*, COUNT(m.kunnr) as member_count
+         FROM customer_groups g
+         LEFT JOIN group_members m ON g.group_id = m.group_id
+         GROUP BY g.group_id ORDER BY g.created_at DESC`,
+        [], (err, rows) => err ? res.status(500).json({error:err.message}) : res.json(rows)
+    );
+});
+
+// POST /groups — create group
+app.post("/groups", (req, res) => {
+    const { name, notes } = req.body;
+    if (!name) return res.status(400).json({error:"name required"});
+    nextId(groupsDb, "customer_groups", "group_id", "G", (err, group_id) => {
+        if (err) return res.status(500).json({error:err.message});
+        groupsDb.run(
+            "INSERT INTO customer_groups (group_id, name, notes) VALUES (?,?,?)",
+            [group_id, name, notes||null],
+            function(err) { err ? res.status(500).json({error:err.message}) : res.json({success:true, group_id}); }
+        );
+    });
+});
+
+// PUT /groups/:id — rename / update notes
+app.put("/groups/:id", (req, res) => {
+    const { name, notes } = req.body;
+    groupsDb.run(
+        "UPDATE customer_groups SET name=COALESCE(?,name), notes=? WHERE group_id=?",
+        [name||null, notes||null, req.params.id],
+        (err) => err ? res.status(500).json({error:err.message}) : res.json({success:true})
+    );
+});
+
+// DELETE /groups/:id — delete group + all members
+app.delete("/groups/:id", (req, res) => {
+    groupsDb.run("PRAGMA foreign_keys = ON", () => {
+        groupsDb.run("DELETE FROM customer_groups WHERE group_id=?", [req.params.id],
+            (err) => err ? res.status(500).json({error:err.message}) : res.json({success:true})
+        );
+    });
+});
+
+// GET /groups/:id/members — list members with customer names
+app.get("/groups/:id/members", (req, res) => {
+    groupsDb.all(
+        "SELECT kunnr FROM group_members WHERE group_id=?",
+        [req.params.id],
+        (err, members) => {
+            if (err) return res.status(500).json({error:err.message});
+            if (!members.length) return res.json([]);
+            const placeholders = members.map(() => "?").join(",");
+            custDb.all(
+                `SELECT kunnr, name, number FROM kna1 WHERE kunnr IN (${placeholders})`,
+                members.map(m => m.kunnr),
+                (err, customers) => {
+                    if (err) return res.status(500).json({error:err.message});
+                    const nameMap = {};
+                    customers.forEach(c => { nameMap[c.kunnr] = c; });
+                    res.json(members.map(m => ({ kunnr: m.kunnr, ...nameMap[m.kunnr] })));
+                }
+            );
+        }
+    );
+});
+
+// POST /groups/:id/members — add member
+app.post("/groups/:id/members", (req, res) => {
+    const { kunnr } = req.body;
+    if (!kunnr) return res.status(400).json({error:"kunnr required"});
+    groupsDb.run(
+        "INSERT OR IGNORE INTO group_members (group_id, kunnr) VALUES (?,?)",
+        [req.params.id, kunnr],
+        (err) => err ? res.status(500).json({error:err.message}) : res.json({success:true})
+    );
+});
+
+// DELETE /groups/:id/members/:kunnr — remove member
+app.delete("/groups/:id/members/:kunnr", (req, res) => {
+    groupsDb.run(
+        "DELETE FROM group_members WHERE group_id=? AND kunnr=?",
+        [req.params.id, req.params.kunnr],
+        (err) => err ? res.status(500).json({error:err.message}) : res.json({success:true})
+    );
+});
+
+// GET /customers/:kunnr/groups — groups a customer belongs to
+app.get("/customers/:kunnr/groups", (req, res) => {
+    groupsDb.all(
+        `SELECT g.group_id, g.name, g.notes
+         FROM customer_groups g
+         JOIN group_members m ON g.group_id = m.group_id
+         WHERE m.kunnr=?
+         ORDER BY g.name`,
+        [req.params.kunnr],
+        (err, rows) => err ? res.status(500).json({error:err.message}) : res.json(rows)
+    );
+});
+
+// GET /groups/conflict-check?kunnr=&matnr= — warning check across groups
+app.get("/groups/conflict-check", (req, res) => {
+    const { kunnr, matnr } = req.query;
+    if (!kunnr || !matnr) return res.json({ exactMatch: [], styleMatch: [] });
+
+    // Step 1: find all groupmates
+    groupsDb.all(
+        `SELECT DISTINCT m2.kunnr, g.name as group_name
+         FROM group_members m1
+         JOIN group_members m2 ON m1.group_id = m2.group_id AND m2.kunnr != m1.kunnr
+         JOIN customer_groups g ON g.group_id = m1.group_id
+         WHERE m1.kunnr=?`,
+        [kunnr],
+        (err, groupmates) => {
+            if (err) return res.status(500).json({error:err.message});
+            if (!groupmates.length) return res.json({ exactMatch: [], styleMatch: [] });
+
+            const gmKunnrs = [...new Set(groupmates.map(g => g.kunnr))];
+            const groupNameOf = {}; // kunnr → group_name (first group found)
+            groupmates.forEach(g => { if (!groupNameOf[g.kunnr]) groupNameOf[g.kunnr] = g.group_name; });
+
+            // Step 2: get brand+category for this matnr
+            invDb.get("SELECT brand, category FROM mara WHERE matnr=?", [matnr], (err, product) => {
+                if (err || !product) return res.json({ exactMatch: [], styleMatch: [] });
+
+                const ph = gmKunnrs.map(() => "?").join(",");
+
+                // Step 3: exact match — groupmates who bought this exact matnr
+                transDb.all(
+                    `SELECT v.kunnr, p.matnr, v.order_id
+                     FROM vbap p JOIN vbak v ON p.order_id = v.order_id
+                     WHERE p.matnr=? AND v.kunnr IN (${ph})
+                       AND v.status NOT IN ('TEMP','CANCELLED')`,
+                    [matnr, ...gmKunnrs],
+                    (err, exactRows) => {
+                        if (err) return res.status(500).json({error:err.message});
+
+                        // Get names for exact matches
+                        const exactKunnrs = [...new Set(exactRows.map(r => r.kunnr))];
+
+                        const fetchNames = (kunnrList, cb) => {
+                            if (!kunnrList.length) return cb([]);
+                            const p2 = kunnrList.map(() => "?").join(",");
+                            custDb.all(`SELECT kunnr, name FROM kna1 WHERE kunnr IN (${p2})`, kunnrList, (err, rows) => {
+                                const map = {};
+                                (rows||[]).forEach(r => { map[r.kunnr] = r.name; });
+                                cb(map);
+                            });
+                        };
+
+                        fetchNames(exactKunnrs, (nameMap) => {
+                            const exactMatch = exactRows.map(r => ({
+                                kunnr: r.kunnr,
+                                name: nameMap[r.kunnr] || r.kunnr,
+                                order_id: r.order_id,
+                                group_name: groupNameOf[r.kunnr] || '',
+                            }));
+
+                            // Step 4: style match — same brand+category, different matnr
+                            if (!product.brand && !product.category) {
+                                return res.json({ exactMatch, styleMatch: [] });
+                            }
+                            invDb.all(
+                                `SELECT matnr FROM mara WHERE brand=? AND category=? AND matnr!=?`,
+                                [product.brand, product.category, matnr],
+                                (err, siblings) => {
+                                    if (err || !siblings.length) return res.json({ exactMatch, styleMatch: [] });
+                                    const sibMatnrs = siblings.map(s => s.matnr);
+                                    const exactSet = new Set(exactRows.map(r => r.kunnr));
+                                    const sp = sibMatnrs.map(() => "?").join(",");
+                                    transDb.all(
+                                        `SELECT DISTINCT v.kunnr, p.matnr
+                                         FROM vbap p JOIN vbak v ON p.order_id = v.order_id
+                                         WHERE p.matnr IN (${sp}) AND v.kunnr IN (${ph})
+                                           AND v.status NOT IN ('TEMP','CANCELLED')`,
+                                        [...sibMatnrs, ...gmKunnrs],
+                                        (err, styleRows) => {
+                                            if (err) return res.json({ exactMatch, styleMatch: [] });
+                                            // Exclude kunnrs already in exactMatch
+                                            const styleKunnrs = [...new Set(styleRows.filter(r => !exactSet.has(r.kunnr)).map(r => r.kunnr))];
+                                            fetchNames(styleKunnrs, (styleNameMap) => {
+                                                const styleMatch = styleRows
+                                                    .filter(r => !exactSet.has(r.kunnr))
+                                                    .filter((r, i, arr) => arr.findIndex(x => x.kunnr === r.kunnr) === i)
+                                                    .map(r => ({
+                                                        kunnr: r.kunnr,
+                                                        name: styleNameMap[r.kunnr] || r.kunnr,
+                                                        brand: product.brand,
+                                                        category: product.category,
+                                                        group_name: groupNameOf[r.kunnr] || '',
+                                                    }));
+                                                res.json({ exactMatch, styleMatch });
+                                            });
+                                        }
+                                    );
+                                }
+                            );
+                        });
+                    }
+                );
             });
         }
     );

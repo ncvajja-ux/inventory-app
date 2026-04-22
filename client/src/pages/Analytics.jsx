@@ -255,6 +255,223 @@ function ReturnCustomersTable({ data }) {
 }
 
 // ─── Main Analytics Component ─────────────────────────────────────────────────
+// ─── Product Match Tab ────────────────────────────────────────────────────────
+function ProductMatchTab() {
+  const [query, setQuery]         = useState('')
+  const [products, setProducts]   = useState([])
+  const [selected, setSelected]   = useState(null)   // chosen product
+  const [matchData, setMatchData] = useState(null)   // { product, results }
+  const [loading, setLoading]     = useState(false)
+  const [searching, setSearching] = useState(false)
+
+  // Search inventory as user types
+  async function searchProducts(q) {
+    setQuery(q)
+    if (!q.trim()) { setProducts([]); return }
+    setSearching(true)
+    try {
+      const data = await fetch('/inventory').then(r => r.json())
+      const lower = q.toLowerCase()
+      setProducts(
+        (Array.isArray(data) ? data : []).filter(p =>
+          p.matnr?.includes(q) ||
+          p.brand?.toLowerCase().includes(lower) ||
+          p.category?.toLowerCase().includes(lower) ||
+          p.subcategory?.toLowerCase().includes(lower) ||
+          p.color?.toLowerCase().includes(lower)
+        ).slice(0, 30)
+      )
+    } catch { /* ignore */ } finally { setSearching(false) }
+  }
+
+  async function runMatch(product) {
+    setSelected(product)
+    setProducts([])
+    setQuery(`${product.brand} — ${product.matnr}`)
+    setMatchData(null)
+    setLoading(true)
+    try {
+      const data = await fetch(`/analytics/product-match?matnr=${encodeURIComponent(product.matnr)}`).then(r => r.json())
+      setMatchData(data)
+    } catch { /* ignore */ } finally { setLoading(false) }
+  }
+
+  const INDICATOR = {
+    green: { bg: '#14532d', border: '#22c55e', text: '#4ade80', dot: '#22c55e', label: 'Brand + Style + Body Type' },
+    blue:  { bg: '#1e3a5f', border: '#3b82f6', text: '#60a5fa', dot: '#3b82f6', label: 'Body Type only' },
+    white: { bg: '#1f1f1f', border: '#555',    text: '#ccc',    dot: '#aaa',    label: 'Brand + Style only' },
+  }
+
+  const counts = matchData?.results
+    ? { green: matchData.results.filter(r => r.indicator === 'green').length,
+        blue:  matchData.results.filter(r => r.indicator === 'blue').length,
+        white: matchData.results.filter(r => r.indicator === 'white').length }
+    : null
+
+  return (
+    <div style={{ maxWidth: 860, margin: '0 auto' }}>
+      {/* Header */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, color: 'var(--text)', marginBottom: 4 }}>
+          Product Match
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+          Choose a product to find customers whose preferences and body type align with it.
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
+        {Object.entries(INDICATOR).map(([key, ind]) => (
+          <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--muted)' }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: ind.dot, flexShrink: 0, boxShadow: `0 0 6px ${ind.dot}` }} />
+            {ind.label}
+          </div>
+        ))}
+      </div>
+
+      {/* Product search */}
+      <div style={{ position: 'relative', marginBottom: 24 }}>
+        <input
+          value={query}
+          onChange={e => searchProducts(e.target.value)}
+          placeholder="Search product by MATNR, brand, category…"
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            color: 'var(--text)', padding: '12px 16px', fontSize: 14,
+            fontFamily: "'DM Sans', sans-serif", outline: 'none',
+            borderRadius: selected ? '8px 8px 0 0' : 8,
+          }}
+          onFocus={() => { if (!selected && query) searchProducts(query) }}
+        />
+        {products.length > 0 && (
+          <div style={{
+            position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+            background: 'var(--surface)', border: '1px solid var(--border)', borderTop: 'none',
+            borderRadius: '0 0 8px 8px', maxHeight: 280, overflowY: 'auto',
+          }}>
+            {products.map(p => (
+              <div key={p.matnr} onClick={() => runMatch(p)} style={{
+                padding: '10px 16px', cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'center',
+                borderBottom: '1px solid var(--border)',
+              }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--gold)', background: 'rgba(201,168,76,0.12)', padding: '2px 6px', borderRadius: 4, flexShrink: 0 }}>{p.matnr}</span>
+                <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{p.brand}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>{[p.category, p.subcategory, p.size, p.color].filter(Boolean).join(' · ')}</span>
+                {p.body_type && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>{p.body_type}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Selected product chip */}
+      {selected && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+          background: 'var(--surface)', border: '1px solid var(--gold)',
+          borderRadius: 10, padding: '12px 16px', marginBottom: 24,
+        }}>
+          <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--gold)', background: 'rgba(201,168,76,0.12)', padding: '3px 8px', borderRadius: 4 }}>{selected.matnr}</span>
+          <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)' }}>{selected.brand}</span>
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>{[selected.category, selected.subcategory, selected.size, selected.color].filter(Boolean).join(' · ')}</span>
+          {selected.body_type && (
+            <span style={{ fontSize: 12, color: 'var(--blue)', background: 'rgba(91,141,238,0.12)', border: '1px solid rgba(91,141,238,0.3)', borderRadius: 6, padding: '2px 8px' }}>
+              Body: {selected.body_type}
+            </span>
+          )}
+          <button onClick={() => { setSelected(null); setMatchData(null); setQuery('') }}
+            style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
+        </div>
+      )}
+
+      {/* Loading */}
+      {loading && (
+        <div style={{ textAlign: 'center', padding: 60, color: 'var(--muted)', fontSize: 14 }}>
+          Matching customers…
+        </div>
+      )}
+
+      {/* Results */}
+      {matchData && !loading && (
+        <>
+          {/* Summary chips */}
+          <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+            {Object.entries(INDICATOR).map(([key, ind]) => counts[key] > 0 && (
+              <div key={key} style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                background: ind.bg, border: `1px solid ${ind.border}`,
+                borderRadius: 20, padding: '6px 14px', fontSize: 13, color: ind.text, fontWeight: 600,
+              }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: ind.dot }} />
+                {counts[key]} {key === 'green' ? 'Perfect match' : key === 'blue' ? 'Body type match' : 'Style match'}
+              </div>
+            ))}
+            {matchData.results.length === 0 && (
+              <div style={{ color: 'var(--muted)', fontSize: 13 }}>No matching customers found.</div>
+            )}
+          </div>
+
+          {/* Customer list */}
+          {matchData.results.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {matchData.results.map(c => {
+                const ind = INDICATOR[c.indicator]
+                return (
+                  <div key={c.kunnr} style={{
+                    display: 'flex', alignItems: 'center', gap: 14,
+                    background: ind.bg, border: `1px solid ${ind.border}`,
+                    borderRadius: 10, padding: '12px 16px',
+                  }}>
+                    {/* Indicator dot */}
+                    <span style={{
+                      width: 12, height: 12, borderRadius: '50%', flexShrink: 0,
+                      background: ind.dot, boxShadow: `0 0 8px ${ind.dot}`,
+                    }} />
+                    {/* Avatar */}
+                    <div style={{
+                      width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+                      background: ind.border + '33', border: `1px solid ${ind.border}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 14, fontWeight: 700, color: ind.text,
+                    }}>
+                      {c.name?.[0]?.toUpperCase() || '?'}
+                    </div>
+                    {/* Name + KUNNR */}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: ind.text }}>{c.name}</div>
+                      <div style={{ fontSize: 11, color: ind.border, marginTop: 2, fontFamily: 'monospace' }}>{c.kunnr}</div>
+                    </div>
+                    {/* Body type */}
+                    {c.body_type && (
+                      <span style={{ fontSize: 11, color: ind.text, opacity: 0.7, flexShrink: 0 }}>{c.body_type}</span>
+                    )}
+                    {/* Phone */}
+                    {c.number && (
+                      <span style={{ fontSize: 12, color: ind.text, opacity: 0.7, flexShrink: 0 }}>{c.number}</span>
+                    )}
+                    {/* Match badge */}
+                    <span style={{
+                      fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
+                      color: ind.dot, background: 'rgba(0,0,0,0.25)', borderRadius: 6, padding: '3px 8px', flexShrink: 0,
+                    }}>
+                      {c.indicator === 'green' ? '● Perfect' : c.indicator === 'blue' ? '● Body' : '● Style'}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function Analytics() {
   const showToast = useToast()
   const containerRef = useRef(null)
@@ -327,9 +544,10 @@ export default function Analytics() {
   const yearOptions = Array.from({ length: 5 }, (_, i) => String(currentYear - i))
 
   const TABS = [
-    { key: 'overview', label: 'Overview' },
-    { key: 'sales', label: 'Sales' },
-    { key: 'purchasing', label: 'Purchasing' },
+    { key: 'overview',  label: 'Overview' },
+    { key: 'sales',     label: 'Sales' },
+    { key: 'purchasing',label: 'Purchasing' },
+    { key: 'match',     label: '🎯 Product Match' },
   ]
 
   const tabBtn = (key, label) => (
@@ -570,6 +788,8 @@ export default function Analytics() {
                 </Section>
               </>
             )}
+
+            {tab === 'match' && <ProductMatchTab />}
           </>
         )}
       </div>

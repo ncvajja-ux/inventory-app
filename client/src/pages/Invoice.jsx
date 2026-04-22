@@ -91,9 +91,10 @@ export default function Invoice() {
     subtotal  += netPrice * item.quantity
     totalGst  += gstAmt * item.quantity
   })
-  const custDiscPct = o.customer_discount_pct || 0
-  const custDisc = (subtotal + totalGst) * (custDiscPct / 100)
-  const grand    = subtotal + totalGst - custDisc
+  const custDiscPct  = o.customer_discount_pct || 0
+  const custDisc     = (subtotal + totalGst) * (custDiscPct / 100)
+  const manualDisc   = parseFloat(o.manual_discount || 0)
+  const grand        = subtotal + totalGst - custDisc - manualDisc
   const paid     = parseFloat(o.paid_amount || 0)
   const balance  = grand - paid
 
@@ -198,7 +199,13 @@ export default function Invoice() {
                   </button>
                 )}
                 {ps === 'PENDING' && !isReturn && (
-                  <button className="btn btn-primary" onClick={() => updatePayment('PARTIALLY_PAID')}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => updatePayment('PARTIALLY_PAID')}
+                    disabled={o.customer_status === 'Credit Hold'}
+                    title={o.customer_status === 'Credit Hold' ? 'Partial payment disabled — customer is on Credit Hold' : undefined}
+                    style={o.customer_status === 'Credit Hold' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                  >
                     💰 Partial Payment
                   </button>
                 )}
@@ -212,42 +219,25 @@ export default function Invoice() {
           )}
         </div>
 
-        {/* Customer + Order info */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-          <div className="card">
-            <div className="card-title">Customer</div>
-            <div className="info-grid">
-              {[
-                ['Name', <strong>{o.name || '—'}</strong>],
-                ['KUNNR', <span className="mono">{o.kunnr}</span>],
-                ...(o.number ? [['Phone', o.number]] : []),
-                ...(o.email ? [['Email', o.email]] : []),
-                ...(o.gstin ? [['GSTIN', o.gstin]] : []),
-                ...(o.address ? [['Address', o.address]] : []),
-              ].map(([label, value]) => (
-                <div key={label} className="info-field">
-                  <label>{label}</label>
-                  <span>{value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="card">
-            <div className="card-title">Order Info</div>
-            <div className="info-grid">
-              {[
-                ['Order ID', <span className="mono">{o.order_id}</span>],
-                ['Order Date', fmtD(o.created_at)],
-                ['Status', o.status || '—'],
-                ...(custDiscPct > 0 ? [['Customer Discount', `${custDiscPct}%`]] : []),
-                ...(paid > 0 ? [['Amount Paid', <strong>{fmt(paid)}</strong>]] : []),
-              ].map(([label, value]) => (
-                <div key={label} className="info-field">
-                  <label>{label}</label>
-                  <span>{value}</span>
-                </div>
-              ))}
-            </div>
+        {/* Customer info — full width */}
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="card-title">Customer</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
+            {[
+              ['Name',    <strong>{o.name || '—'}</strong>],
+              ['KUNNR',   <span className="mono">{o.kunnr}</span>],
+              ['Order ID',  <span className="mono">{o.order_id}</span>],
+              ['Order Date', fmtD(o.created_at)],
+              ...(o.number  ? [['Phone',   o.number]]  : []),
+              ...(o.email   ? [['Email',   o.email]]   : []),
+              ...(o.gstin   ? [['GSTIN',   o.gstin]]   : []),
+              ...(o.address ? [['Address', o.address]] : []),
+            ].map(([label, value]) => (
+              <div key={label} className="info-field">
+                <label>{label}</label>
+                <span>{value}</span>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -309,7 +299,10 @@ export default function Invoice() {
               <div className="totals-row muted"><span>Subtotal (ex-GST)</span><span>{isReturn ? '-' : ''}{fmt(subtotal)}</span></div>
               <div className="totals-row muted"><span>GST</span><span>{isReturn ? '-' : ''}{fmt(totalGst)}</span></div>
               {custDisc > 0 && (
-                <div className="totals-row disc"><span>Customer Discount</span><span>−{fmt(custDisc)}</span></div>
+                <div className="totals-row disc"><span>Customer Discount ({custDiscPct}%)</span><span>−{fmt(custDisc)}</span></div>
+              )}
+              {manualDisc > 0 && (
+                <div className="totals-row disc"><span>Manual Discount</span><span>−{fmt(manualDisc)}</span></div>
               )}
               <div className="totals-row grand" style={{ color: isReturn ? 'var(--danger)' : undefined }}>
                 <span>Grand Total</span><span>{isReturn ? '-' : ''}{fmt(grand)}</span>

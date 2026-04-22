@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useToast } from '../components/Toast'
 
@@ -12,6 +12,418 @@ function payBadge(ps) {
   return <span className={`badge badge-${map[ps] || ''}`}>{lbl}</span>
 }
 
+// ── Photo card — mirrors ItemDetail ImageCard style ───────────────────────────
+function PhotoCard({ kunnr }) {
+  const showToast = useToast()
+  const fileRef = useRef(null)
+  const [photoData, setPhotoData] = useState(null)
+  const [pending, setPending] = useState(null)
+  const [saving, setSaving] = useState(false)
+
+  // Load existing photo on mount
+  useEffect(() => {
+    fetch(`/customers/${kunnr}/measurements`)
+      .then(r => r.json())
+      .then(d => { if (d.photo_data) setPhotoData(d.photo_data) })
+      .catch(() => {})
+  }, [kunnr])
+
+  function onFileChange(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) return showToast('Please select an image file', 'error')
+    const img = new Image()
+    const objectUrl = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+      const MAX = 900
+      let { width, height } = img
+      if (width > MAX) { height = Math.round(height * MAX / width); width = MAX }
+      if (height > MAX) { width = Math.round(width * MAX / height); height = MAX }
+      const canvas = document.createElement('canvas')
+      canvas.width = width; canvas.height = height
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height)
+      setPending(canvas.toDataURL('image/jpeg', 0.82))
+    }
+    img.src = objectUrl
+    e.target.value = ''
+  }
+
+  async function savePhoto() {
+    if (!pending) return
+    setSaving(true)
+    try {
+      const res = await fetch(`/customers/${kunnr}/measurements`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photo_data: pending }),
+      })
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error) }
+      setPhotoData(pending)
+      setPending(null)
+      showToast('✅ Photo saved')
+    } catch (err) { showToast('❌ ' + err.message, 'error') }
+    finally { setSaving(false) }
+  }
+
+  async function removePhoto() {
+    if (!confirm('Remove this photo?')) return
+    try {
+      await fetch(`/customers/${kunnr}/measurements`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photo_data: null }),
+      })
+      setPhotoData(null)
+      setPending(null)
+      showToast('Photo removed')
+    } catch { showToast('Could not remove photo', 'error') }
+  }
+
+  const displaySrc = pending || photoData
+
+  return (
+    <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 0, padding: 0, overflow: 'hidden' }}>
+      {/* Header */}
+      <div style={{
+        fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
+        color: 'var(--muted)', padding: '16px 20px 12px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        borderBottom: displaySrc ? '1px solid var(--border)' : 'none',
+      }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span>📷</span> Customer Photo</span>
+        {photoData && !pending && (
+          <button onClick={removePhoto} style={{ fontSize: 11, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+            Remove
+          </button>
+        )}
+      </div>
+
+      {/* Image area */}
+      {displaySrc ? (
+        <div style={{ position: 'relative' }}>
+          <img
+            src={displaySrc}
+            alt="Customer"
+            style={{ width: '100%', aspectRatio: '4/3', objectFit: 'contain', background: '#f8f8f6', display: 'block' }}
+          />
+          {pending && (
+            <div style={{
+              position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.85)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12,
+            }}>
+              <div style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>Preview — unsaved</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={savePhoto} disabled={saving} className="btn btn-primary" style={{ fontSize: 13, padding: '8px 20px' }}>
+                  {saving ? 'Saving…' : '✓ Save Photo'}
+                </button>
+                <button onClick={() => setPending(null)} className="btn btn-ghost" style={{ fontSize: 13 }}>Discard</button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div
+          onClick={() => fileRef.current?.click()}
+          style={{
+            aspectRatio: '4/3', display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', gap: 12,
+            cursor: 'pointer', background: '#fafaf8',
+            border: '2px dashed var(--border)', margin: 12, borderRadius: 10,
+            transition: 'border-color 0.2s, background 0.2s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.background = 'var(--accent2)' }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = '#fafaf8' }}
+        >
+          <div style={{ fontSize: 36, opacity: 0.3 }}>👤</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>Upload Customer Photo</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', opacity: 0.7 }}>JPG, PNG, WEBP · max 20 MB</div>
+        </div>
+      )}
+
+      {/* Footer */}
+      <div style={{ padding: '12px 20px', display: 'flex', gap: 10, borderTop: displaySrc ? '1px solid var(--border)' : 'none' }}>
+        <button onClick={() => fileRef.current?.click()} className="btn btn-ghost" style={{ fontSize: 12, flex: 1 }}>
+          {displaySrc ? '↑ Replace Photo' : '↑ Choose File'}
+        </button>
+      </div>
+
+      <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onFileChange} />
+    </div>
+  )
+}
+
+// ── Measurements form ─────────────────────────────────────────────────────────
+const MEASURE_FIELDS = [
+  { key: 'shoulders',     label: 'Shoulders',      icon: '↔️' },
+  { key: 'top_inseam',    label: 'Top Inseam',     icon: '📏' },
+  { key: 'tummy',         label: 'Tummy',           icon: '⭕' },
+  { key: 'waist',         label: 'Waist',           icon: '➰' },
+  { key: 'thighs',        label: 'Thighs',          icon: '🦵' },
+  { key: 'bottom_inseam', label: 'Bottom Inseam',  icon: '📐' },
+]
+
+function MeasurementsCard({ kunnr, initialData }) {
+  const showToast = useToast()
+  const [form, setForm] = useState({
+    shoulders: '', top_inseam: '', tummy: '', waist: '', thighs: '', bottom_inseam: '',
+    ...Object.fromEntries(
+      Object.entries(initialData || {}).filter(([k]) => MEASURE_FIELDS.some(f => f.key === k)).map(([k, v]) => [k, v ?? ''])
+    )
+  })
+  const [saving, setSaving] = useState(false)
+  const [dirty, setDirty] = useState(false)
+
+  function set(field) {
+    return e => { setForm(f => ({ ...f, [field]: e.target.value })); setDirty(true) }
+  }
+
+  async function save() {
+    setSaving(true)
+    try {
+      const res = await fetch(`/customers/${kunnr}/measurements`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error) }
+      showToast('✅ Measurements saved')
+      setDirty(false)
+    } catch (err) { showToast('❌ ' + err.message, 'error') }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+        {MEASURE_FIELDS.map(({ key, label, icon }) => (
+          <div key={key} className="form-group" style={{ margin: 0 }}>
+            <label style={{ fontSize: 11 }}>{icon} {label} <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(cm)</span></label>
+            <input
+              type="number" min="0" step="0.5"
+              value={form[key]}
+              onChange={set(key)}
+              placeholder="—"
+              style={{ fontSize: 14 }}
+            />
+          </div>
+        ))}
+      </div>
+      {dirty && (
+        <button className="btn btn-primary" style={{ fontSize: 12, padding: '7px 16px' }} onClick={save} disabled={saving}>
+          {saving ? 'Saving…' : '💾 Save Measurements'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ── Preferred brands card ─────────────────────────────────────────────────────
+function PreferencesCard({ kunnr, initialPrefs }) {
+  const showToast = useToast()
+  const [prefs, setPrefs] = useState(initialPrefs || [])
+  const [brands, setBrands] = useState([])
+  const [categories, setCategories] = useState([])
+  const [fits, setFits] = useState([])
+  const [form, setForm] = useState({ brand: '', category: '', size: '', fit: '' })
+  const [adding, setAdding] = useState(false)
+
+  useEffect(() => {
+    fetch('/inventory/meta/brands').then(r => r.json()).then(setBrands).catch(() => {})
+    fetch('/categories/list').then(r => r.json()).then(setCategories).catch(() => {})
+    fetch('/fits').then(r => r.json()).then(setFits).catch(() => {})
+  }, [])
+
+  async function add() {
+    if (!form.brand) return showToast('Select a brand', 'error')
+    setAdding(true)
+    try {
+      const res = await fetch(`/customers/${kunnr}/preferences`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed')
+      setPrefs(p => [...p, { ...form, id: data.id }])
+      setForm({ brand: '', category: '', size: '', fit: '' })
+      showToast('✅ Preference added')
+    } catch (err) { showToast('❌ ' + err.message, 'error') }
+    finally { setAdding(false) }
+  }
+
+  async function remove(id) {
+    try {
+      await fetch(`/customers/${kunnr}/preferences/${id}`, { method: 'DELETE' })
+      setPrefs(p => p.filter(x => x.id !== id))
+    } catch { showToast('Failed to remove', 'error') }
+  }
+
+  return (
+    <div>
+      {/* Existing preferences */}
+      {prefs.length === 0 ? (
+        <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16 }}>No preferences set yet.</div>
+      ) : (
+        <div style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {prefs.map(p => (
+            <div key={p.id} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'var(--accent2)', border: '1px solid #e8d0a0',
+              borderRadius: 20, padding: '5px 12px', fontSize: 13,
+            }}>
+              <strong>{p.brand}</strong>
+              {p.category && <span style={{ color: 'var(--muted)', fontSize: 12 }}>· {p.category}</span>}
+              {p.fit && (
+                <span style={{
+                  background: '#ede9fe', border: '1px solid #c4b5fd',
+                  color: '#6d28d9', borderRadius: 4, padding: '1px 6px', fontSize: 11, fontWeight: 700,
+                }}>{p.fit}</span>
+              )}
+              {p.size && (
+                <span style={{
+                  background: 'white', border: '1px solid var(--border)',
+                  borderRadius: 4, padding: '1px 6px', fontSize: 11, fontWeight: 700,
+                }}>{p.size}</span>
+              )}
+              <button onClick={() => remove(p.id)} style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--muted)', fontSize: 16, padding: '0 2px', lineHeight: 1,
+              }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add new preference */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: 10, alignItems: 'flex-end' }}>
+        <div className="form-group" style={{ margin: 0 }}>
+          <label style={{ fontSize: 11 }}>Brand *</label>
+          <select value={form.brand} onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}>
+            <option value="">Select brand…</option>
+            {brands.map(b => <option key={b}>{b}</option>)}
+          </select>
+        </div>
+        <div className="form-group" style={{ margin: 0 }}>
+          <label style={{ fontSize: 11 }}>Category</label>
+          <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
+            <option value="">Any category</option>
+            {categories.map(c => <option key={c}>{c}</option>)}
+          </select>
+        </div>
+        <div className="form-group" style={{ margin: 0 }}>
+          <label style={{ fontSize: 11 }}>Fit</label>
+          <select value={form.fit} onChange={e => setForm(f => ({ ...f, fit: e.target.value }))}>
+            <option value="">Any fit</option>
+            {fits.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
+          </select>
+        </div>
+        <div className="form-group" style={{ margin: 0 }}>
+          <label style={{ fontSize: 11 }}>Size</label>
+          <input
+            value={form.size}
+            onChange={e => setForm(f => ({ ...f, size: e.target.value }))}
+            placeholder="e.g. M, 32"
+          />
+        </div>
+        <button
+          className="btn btn-primary"
+          style={{ fontSize: 13, padding: '8px 16px', alignSelf: 'flex-end', whiteSpace: 'nowrap' }}
+          onClick={add}
+          disabled={adding}
+        >
+          {adding ? '…' : '+ Add'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── GroupsCard ────────────────────────────────────────────────────────────────
+function GroupsCard({ kunnr }) {
+  const [groups,    setGroups]    = useState([])
+  const [allGroups, setAllGroups] = useState([])
+  const [selected,  setSelected]  = useState('')
+  const [saving,    setSaving]    = useState(false)
+  const showToast = useToast()
+
+  const load = async () => {
+    try {
+      const [mine, all] = await Promise.all([
+        fetch(`/customers/${kunnr}/groups`).then(r => r.json()),
+        fetch('/groups').then(r => r.json()),
+      ])
+      setGroups(mine || [])
+      setAllGroups(all || [])
+    } catch {}
+  }
+
+  useEffect(() => { load() }, [kunnr])
+
+  async function addToGroup() {
+    if (!selected) return
+    setSaving(true)
+    try {
+      await fetch(`/groups/${selected}/members`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kunnr }),
+      })
+      setSelected('')
+      await load()
+      showToast('Added to group', 'success')
+    } finally { setSaving(false) }
+  }
+
+  async function leaveGroup(group_id, name) {
+    await fetch(`/groups/${group_id}/members/${kunnr}`, { method: 'DELETE' })
+    await load()
+    showToast(`Removed from ${name}`, 'success')
+  }
+
+  const available = allGroups.filter(g => !groups.find(m => m.group_id === g.group_id))
+
+  return (
+    <div>
+      {/* Chips */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: groups.length ? 14 : 0 }}>
+        {groups.map(g => (
+          <div key={g.group_id} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            background: 'var(--bg)', border: '1px solid var(--border)',
+            borderRadius: 20, padding: '5px 12px', fontSize: 13,
+          }}>
+            <span>👥</span>
+            <span style={{ fontWeight: 600 }}>{g.name}</span>
+            <button
+              onClick={() => leaveGroup(g.group_id, g.name)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: 15, padding: 0, lineHeight: 1 }}
+              title="Leave group"
+            >✕</button>
+          </div>
+        ))}
+        {groups.length === 0 && (
+          <p style={{ color: 'var(--muted)', fontSize: 13, margin: 0 }}>Not in any group yet.</p>
+        )}
+      </div>
+
+      {/* Add to group */}
+      {available.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <select value={selected} onChange={e => setSelected(e.target.value)} style={{ flex: 1 }}>
+            <option value="">Add to a group…</option>
+            {available.map(g => <option key={g.group_id} value={g.group_id}>{g.name}</option>)}
+          </select>
+          <button className="btn btn-primary" style={{ padding: '10px 18px', fontSize: 13 }}
+            onClick={addToGroup} disabled={saving || !selected}>
+            {saving ? '…' : 'Add'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function CustomerDetail() {
   const { kunnr } = useParams()
   const navigate = useNavigate()
@@ -23,6 +435,8 @@ export default function CustomerDetail() {
   const [stats, setStats] = useState({})
   const [discounts, setDiscounts] = useState([])
   const [orders, setOrders] = useState([])
+  const [measurements, setMeasurements] = useState({})
+  const [preferences, setPreferences] = useState([])
 
   // Discount modal state
   const [showDiscModal, setShowDiscModal] = useState(false)
@@ -34,26 +448,32 @@ export default function CustomerDetail() {
 
     async function loadAll() {
       try {
-        const [custRes, ordersRes, discRes, statsRes] = await Promise.all([
+        const [custRes, ordersRes, discRes, statsRes, measRes, prefsRes] = await Promise.all([
           fetch(`/customers/${kunnr}`),
           fetch(`/customers/${kunnr}/orders`),
           fetch(`/customers/${kunnr}/discounts`),
           fetch(`/customers/${kunnr}/stats`),
+          fetch(`/customers/${kunnr}/measurements`),
+          fetch(`/customers/${kunnr}/preferences`),
         ])
 
         if (custRes.status === 404) throw new Error('Customer not found')
 
-        const [custData, ordersData, discData, statsData] = await Promise.all([
+        const [custData, ordersData, discData, statsData, measData, prefsData] = await Promise.all([
           custRes.json(),
           ordersRes.json(),
           discRes.json(),
           statsRes.json(),
+          measRes.json(),
+          prefsRes.json(),
         ])
 
         setCust(custData)
         setOrders(Array.isArray(ordersData) ? ordersData : [])
         setDiscounts(Array.isArray(discData) ? discData : [])
         setStats(statsData || {})
+        setMeasurements(measData || {})
+        setPreferences(Array.isArray(prefsData) ? prefsData : [])
       } catch (err) {
         setError(err.message)
       } finally {
@@ -123,28 +543,21 @@ export default function CustomerDetail() {
   const activeDisc = discounts.find(d =>
     d.valid_from <= today && (!d.valid_to || d.valid_to >= today || d.valid_to === '12319999')
   )
+  const hasMeasurements = MEASURE_FIELDS.some(f => measurements[f.key])
 
   return (
     <div style={{ fontFamily: "'DM Sans', sans-serif", background: 'var(--bg)', minHeight: '100vh' }}>
       {/* Topbar */}
       <div style={{
-        background: 'white',
-        borderBottom: '1px solid var(--border)',
-        padding: '0 40px',
-        height: 64,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        position: 'sticky',
-        top: 0,
-        zIndex: 50,
+        background: 'white', borderBottom: '1px solid var(--border)',
+        padding: '0 40px', height: 64, display: 'flex', alignItems: 'center',
+        justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 50,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <Link to="/customers" style={{
             display: 'flex', alignItems: 'center', gap: 8,
             padding: '8px 14px', border: '1.5px solid var(--border)', borderRadius: 8,
-            fontSize: 13, fontWeight: 600, color: 'var(--muted)', textDecoration: 'none',
-            background: 'white',
+            fontSize: 13, fontWeight: 600, color: 'var(--muted)', textDecoration: 'none', background: 'white',
           }}>← Customers</Link>
           <span style={{
             fontFamily: 'Courier New, monospace', fontSize: 13,
@@ -156,7 +569,7 @@ export default function CustomerDetail() {
             {cust?.name || 'Customer Detail'}
           </span>
         </div>
-        <Link to={`/sales`} style={{
+        <Link to={`/sales?tab=new&step=1&kunnr=${kunnr}`} style={{
           background: 'var(--accent)', color: 'white',
           padding: '9px 20px', borderRadius: 8,
           fontSize: 13, fontWeight: 600, textDecoration: 'none',
@@ -167,7 +580,7 @@ export default function CustomerDetail() {
       {/* Content */}
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 40px' }}>
 
-        {/* Customer header + stat pills */}
+        {/* Stat pills */}
         <div style={{ marginBottom: 28 }}>
           <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 32, marginBottom: 4 }}>
             {cust?.name || '—'}
@@ -188,17 +601,18 @@ export default function CustomerDetail() {
                 display: 'flex', flexDirection: 'column', gap: 3, minWidth: 110,
                 ...pill.cls,
               }}>
-                <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.7 }}>
-                  {pill.label}
-                </label>
+                <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.7 }}>{pill.label}</label>
                 <span style={{ fontSize: 20, fontWeight: 700 }}>{pill.value}</span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Profile + Discounts */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+        {/* Row 1: Photo | Profile | Discounts */}
+        <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr 1fr', gap: 20, marginBottom: 20 }}>
+
+          {/* Photo card */}
+          <PhotoCard kunnr={kunnr} />
 
           {/* Profile card */}
           <div className="card">
@@ -212,6 +626,7 @@ export default function CustomerDetail() {
                 { label: 'Phone', value: dash(cust?.number) },
                 { label: 'Email', value: dash(cust?.email) },
                 { label: 'GSTIN', value: dash(cust?.gstin) },
+                { label: 'Body Type', value: dash(cust?.body_type) },
               ].map(f => (
                 <div key={f.label} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                   <label style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)' }}>{f.label}</label>
@@ -231,9 +646,7 @@ export default function CustomerDetail() {
               <span>🏷️</span> Discount Records
             </div>
             {discounts.length === 0 ? (
-              <div style={{ color: 'var(--muted)', fontSize: 13, padding: '8px 0' }}>
-                No discounts defined for this customer.
-              </div>
+              <div style={{ color: 'var(--muted)', fontSize: 13, padding: '8px 0' }}>No discounts defined.</div>
             ) : discounts.map((d, i) => {
               const isActive = d.valid_from <= today && (!d.valid_to || d.valid_to >= today || d.valid_to === '12319999')
               return (
@@ -268,49 +681,42 @@ export default function CustomerDetail() {
           </div>
         </div>
 
-        {/* Add Discount Modal */}
-        {showDiscModal && (
-          <div className="modal-overlay open" onClick={e => e.target === e.currentTarget && setShowDiscModal(false)}>
-            <div className="modal" style={{ maxWidth: 420 }}>
-              <div className="modal-title">Add Customer Discount</div>
-              <div className="modal-sub">For customer <strong>{cust?.name}</strong> ({kunnr})</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 16 }}>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label>Discount % *</label>
-                  <input
-                    type="number" min="0" max="100" step="0.1"
-                    value={discForm.discount_pct}
-                    onChange={e => setDiscForm(f => ({ ...f, discount_pct: e.target.value }))}
-                    placeholder="e.g. 10"
-                    style={{ width: '100%' }}
-                  />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label>Valid From</label>
-                    <input type="date" value={discForm.valid_from} onChange={e => setDiscForm(f => ({ ...f, valid_from: e.target.value }))} style={{ width: '100%' }} />
-                  </div>
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label>Valid To <span style={{ fontSize: 10, color: 'var(--muted)' }}>(blank = open)</span></label>
-                    <input type="date" value={discForm.valid_to} onChange={e => setDiscForm(f => ({ ...f, valid_to: e.target.value }))} style={{ width: '100%' }} />
-                  </div>
-                </div>
-              </div>
-              <div className="modal-actions">
-                <button className="btn btn-ghost" onClick={() => setShowDiscModal(false)}>Cancel</button>
-                <button className="btn btn-primary" onClick={saveDiscount} disabled={savingDisc}>
-                  {savingDisc ? 'Saving…' : '💾 Save Discount'}
-                </button>
-              </div>
-            </div>
+        {/* Row 2: Body Measurements */}
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>📐</span> Body Measurements
+            {hasMeasurements && (
+              <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>
+                · Updated {measurements.updated_at ? new Date(measurements.updated_at).toLocaleDateString('en-IN') : ''}
+              </span>
+            )}
           </div>
-        )}
+          <MeasurementsCard kunnr={kunnr} initialData={measurements} />
+        </div>
+
+        {/* Row 3: Preferred Brands & Sizes */}
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>⭐</span> Preferred Brands & Sizes
+            <span style={{ fontWeight: 400, fontSize: 11 }}>— used for personalised recommendations</span>
+          </div>
+          <PreferencesCard kunnr={kunnr} initialPrefs={preferences} />
+        </div>
+
+        {/* Groups */}
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>👥</span> Groups
+            <span style={{ fontWeight: 400, fontSize: 11 }}>— friend circles for conflict detection</span>
+          </div>
+          <GroupsCard kunnr={kunnr} />
+        </div>
 
         {/* Order History */}
         <div className="card">
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span>🧾</span> Order History
-            {orders.length > 0 && <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 8 }}>{orders.length} records</span>}
+            {orders.length > 0 && <span style={{ fontWeight: 400, fontSize: 11, marginLeft: 8 }}>{orders.length} records</span>}
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -328,7 +734,7 @@ export default function CustomerDetail() {
               <tbody>
                 {orders.length === 0 ? (
                   <tr><td colSpan={7} style={{ textAlign: 'center', padding: 32, color: 'var(--muted)', fontSize: 13 }}>
-                    No orders found for this customer.
+                    No orders found.
                   </td></tr>
                 ) : orders.map(r => {
                   const isReturn = r.order_type === 'R'
@@ -362,6 +768,44 @@ export default function CustomerDetail() {
           </div>
         </div>
       </div>
+
+      {/* Discount Modal */}
+      {showDiscModal && (
+        <div className="modal-overlay open" onClick={e => e.target === e.currentTarget && setShowDiscModal(false)}>
+          <div className="modal" style={{ maxWidth: 420 }}>
+            <div className="modal-title">Add Customer Discount</div>
+            <div className="modal-sub">For customer <strong>{cust?.name}</strong> ({kunnr})</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 16 }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>Discount % *</label>
+                <input
+                  type="number" min="0" max="100" step="0.1"
+                  value={discForm.discount_pct}
+                  onChange={e => setDiscForm(f => ({ ...f, discount_pct: e.target.value }))}
+                  placeholder="e.g. 10"
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Valid From</label>
+                  <input type="date" value={discForm.valid_from} onChange={e => setDiscForm(f => ({ ...f, valid_from: e.target.value }))} style={{ width: '100%' }} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Valid To <span style={{ fontSize: 10, color: 'var(--muted)' }}>(blank = open)</span></label>
+                  <input type="date" value={discForm.valid_to} onChange={e => setDiscForm(f => ({ ...f, valid_to: e.target.value }))} style={{ width: '100%' }} />
+                </div>
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setShowDiscModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveDiscount} disabled={savingDisc}>
+                {savingDisc ? 'Saving…' : '💾 Save Discount'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

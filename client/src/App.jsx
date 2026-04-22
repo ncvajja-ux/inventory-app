@@ -14,6 +14,7 @@ import Buyers from './pages/Buyers'
 import PurchaseOrders from './pages/PurchaseOrders'
 import Analytics from './pages/Analytics'
 import HR from './pages/HR'
+import Groups from './pages/Groups'
 
 function AppRoutes() {
   return (
@@ -29,6 +30,7 @@ function AppRoutes() {
       <Route path="/purchase-orders" element={<PurchaseOrders />} />
       <Route path="/analytics" element={<Analytics />} />
       <Route path="/hr" element={<HR />} />
+      <Route path="/groups" element={<Groups />} />
     </Routes>
   )
 }

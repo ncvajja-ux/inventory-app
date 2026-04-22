@@ -3,8 +3,17 @@ import { Link } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
 
+function useBodyTypes() {
+  const [bodyTypes, setBodyTypes] = useState([])
+  useEffect(() => {
+    fetch('/body-types').then(r => r.json()).then(setBodyTypes).catch(() => {})
+  }, [])
+  return bodyTypes
+}
+
 function EditModal({ customer, onClose, onSaved }) {
   const showToast = useToast()
+  const bodyTypes = useBodyTypes()
   const [form, setForm] = useState({
     name: customer.name || '',
     number: customer.number || '',
@@ -14,6 +23,7 @@ function EditModal({ customer, onClose, onSaved }) {
     dob: customer.dob || '',
     anniversary: customer.anniversary || '',
     notes: customer.notes || '',
+    body_type: customer.body_type || '',
     status: customer.status || 'Active',
   })
 
@@ -69,6 +79,20 @@ function EditModal({ customer, onClose, onSaved }) {
             <label>Anniversary</label>
             <input value={form.anniversary} onChange={set('anniversary')} type="date" />
           </div>
+          <div className="form-group">
+            <label>Body Type</label>
+            <select value={form.body_type} onChange={set('body_type')}>
+              <option value="">Select body type…</option>
+              {bodyTypes.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label>Status</label>
+            <select value={form.status} onChange={set('status')}>
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+            </select>
+          </div>
           <div className="form-group full">
             <label>Address</label>
             <input value={form.address} onChange={set('address')} placeholder="Street, City, State" />
@@ -89,9 +113,10 @@ function EditModal({ customer, onClose, onSaved }) {
 
 function AddTab({ onAdded }) {
   const showToast = useToast()
+  const bodyTypes = useBodyTypes()
   const [nextKunnr, setNextKunnr] = useState('—')
   const [form, setForm] = useState({
-    name: '', number: '', email: '', address: '', gstin: '', dob: '', anniversary: '', notes: '',
+    name: '', number: '', email: '', address: '', gstin: '', dob: '', anniversary: '', notes: '', body_type: '',
   })
 
   const loadNextKunnr = useCallback(async () => {
@@ -109,7 +134,7 @@ function AddTab({ onAdded }) {
   function set(field) { return e => setForm(f => ({ ...f, [field]: e.target.value })) }
 
   function reset() {
-    setForm({ name: '', number: '', email: '', address: '', gstin: '', dob: '', anniversary: '', notes: '' })
+    setForm({ name: '', number: '', email: '', address: '', gstin: '', dob: '', anniversary: '', notes: '', body_type: '' })
     loadNextKunnr()
   }
 
@@ -167,6 +192,13 @@ function AddTab({ onAdded }) {
           <div className="form-group">
             <label>Anniversary</label>
             <input value={form.anniversary} onChange={set('anniversary')} type="date" />
+          </div>
+          <div className="form-group">
+            <label>Body Type</label>
+            <select value={form.body_type} onChange={set('body_type')}>
+              <option value="">Select body type…</option>
+              {bodyTypes.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+            </select>
           </div>
           <div className="form-group full">
             <label>Address</label>
@@ -226,9 +258,9 @@ function ViewTab() {
 
   function downloadCSV() {
     if (!allData.length) return
-    const headers = ['KUNNR', 'Name', 'Phone', 'Email', 'Address', 'GSTIN', 'DOB', 'Anniversary', 'Notes']
+    const headers = ['KUNNR', 'Name', 'Phone', 'Email', 'Address', 'GSTIN', 'DOB', 'Anniversary', 'Body Type', 'Notes']
     const rows = allData.map(r => [
-      r.kunnr, r.name, r.number, r.email, r.address, r.gstin, r.dob, r.anniversary, r.notes,
+      r.kunnr, r.name, r.number, r.email, r.address, r.gstin, r.dob, r.anniversary, r.body_type, r.notes,
     ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
     const csv = [headers.join(','), ...rows].join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
@@ -267,14 +299,14 @@ function ViewTab() {
         <table style={{ minWidth: 900 }}>
           <thead>
             <tr>
-              <th>KUNNR</th><th>Name</th><th>Phone</th><th>Email</th><th>Address</th><th>GSTIN</th><th>DOB</th><th>Anniversary</th><th>Status</th><th>Actions</th>
+              <th>KUNNR</th><th>Name</th><th>Phone</th><th>Email</th><th>Address</th><th>GSTIN</th><th>DOB</th><th>Anniversary</th><th>Body Type</th><th>Status</th><th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr className="state-row"><td colSpan={10}><span className="spinner" /> Loading customers…</td></tr>
+              <tr className="state-row"><td colSpan={11}><span className="spinner" /> Loading customers…</td></tr>
             ) : filtered.length === 0 ? (
-              <tr className="state-row"><td colSpan={10}>No customers found.</td></tr>
+              <tr className="state-row"><td colSpan={11}>No customers found.</td></tr>
             ) : filtered.map(row => (
               <tr key={row.kunnr}>
                 <td>
@@ -293,6 +325,7 @@ function ViewTab() {
                 <td>{row.gstin || '—'}</td>
                 <td style={{ fontSize: 12 }}>{row.dob || '—'}</td>
                 <td style={{ fontSize: 12 }}>{row.anniversary || '—'}</td>
+                <td style={{ fontSize: 12 }}>{row.body_type || '—'}</td>
                 <td>
                   <span className={`badge badge-${row.status === 'Credit Hold' ? 'partial' : row.status === 'Blacklisted' || row.status === 'Duplicate/Deleted' ? 'cancelled' : 'paid'}`}>
                     {row.status || 'Active'}
@@ -452,7 +485,7 @@ function UploadTab() {
         </div>
 
         {summary && (
-          <div className={`upload-summary ${summary.fail === 0 ? 'success' : 'warn'}`} style={{
+          <div style={{
             marginTop: 20,
             padding: '12px 16px',
             borderRadius: 8,

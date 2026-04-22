@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
 
@@ -62,6 +62,15 @@ function useMaterialTypes() {
   return [materialTypes, load]
 }
 
+function useBodyTypes() {
+  const [bodyTypes, setBodyTypes] = useState([])
+  const load = useCallback(async () => {
+    try { const r = await fetch('/body-types'); setBodyTypes(await r.json()) } catch {}
+  }, [])
+  useEffect(() => { load() }, [load])
+  return [bodyTypes, load]
+}
+
 function useGstConfig() {
   const [gstConfig, setGstConfig] = useState([])
   const load = useCallback(async () => {
@@ -94,6 +103,7 @@ function getSizes(catData, category, subcategory, subsubcategory) {
 // ── Add Tab ──────────────────────────────────────────────────────────────────
 function AddTab({ onAdded }) {
   const showToast = useToast()
+  const navigate = useNavigate()
   const [nextMatnr, setNextMatnr] = useState('—')
   const { catData, categories, reload: reloadCats } = useCategoryData()
   const [brands] = useBrands()
@@ -101,13 +111,13 @@ function AddTab({ onAdded }) {
   const [fits] = useFits()
   const [materialTypes] = useMaterialTypes()
   const [gstConfig] = useGstConfig()
-  const [showPricingPrompt, setShowPricingPrompt] = useState(false)
-  const [lastMatnr, setLastMatnr] = useState(null)
+  const [bodyTypes] = useBodyTypes()
 
   const [form, setForm] = useState({
     brand: '', brandfamily: '', gender: '',
     category: '', subcategory: '', subsubcategory: '', size: '',
-    fit: '', color: '', material_type: '', tax_category: '',
+    fit: '', color: '', material_type: '', tax_category: '', body_type: '',
+    mrp: '', cost_price: '', sales_price: '',
   })
 
   const loadNextMatnr = useCallback(async () => {
@@ -146,18 +156,36 @@ function AddTab({ onAdded }) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to add item')
-      setLastMatnr(data.matnr)
-      showToast(`✅ ${form.brand} added! MATNR: ${data.matnr}`)
-      setShowPricingPrompt(true)
+      const newMatnr = data.matnr
+
+      // Auto-create a sales price entry if the user provided one
+      if (form.sales_price && parseFloat(form.sales_price) > 0) {
+        const today = new Date().toISOString().slice(0, 10)
+        await fetch('/pricing/sales-price', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            matnr: newMatnr,
+            unit_price: parseFloat(form.sales_price),
+            valid_from: today,
+            valid_to: '12319999',
+          }),
+        })
+        showToast(`✅ ${form.brand} saved (${newMatnr}) — redirecting to pricing`)
+      } else {
+        showToast(`✅ ${form.brand} saved (${newMatnr}) — set sales price now`)
+      }
       reset()
       onAdded()
+      // Always redirect to Sales → Pricing so the user can confirm or add more price entries
+      navigate(`/sales?tab=pricing&matnr=${newMatnr}`)
     } catch (err) {
       showToast(`❌ ${err.message}`, 'error')
     }
   }
 
   function reset() {
-    setForm({ brand: '', brandfamily: '', gender: '', category: '', subcategory: '', subsubcategory: '', size: '', fit: '', color: '', material_type: '', tax_category: '' })
+    setForm({ brand: '', brandfamily: '', gender: '', category: '', subcategory: '', subsubcategory: '', size: '', fit: '', color: '', material_type: '', tax_category: '', body_type: '', mrp: '', cost_price: '', sales_price: '' })
     loadNextMatnr()
   }
 
@@ -169,23 +197,6 @@ function AddTab({ onAdded }) {
     <>
       <h1 className="page-title">New Product</h1>
       <p className="page-sub">Add a new product to inventory. Pricing and stock are managed separately via Purchase Orders.</p>
-
-      {showPricingPrompt && (
-        <div style={{
-          background: 'var(--accent2)', border: '1px solid #e8d0a0', borderRadius: 12,
-          padding: '16px 20px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        }}>
-          <div>
-            <strong>Product saved!</strong> Would you like to set the sales price for <span className="mono">{lastMatnr}</span>?
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-primary" onClick={() => setShowPricingPrompt(false)}>
-              Go to Pricing →
-            </button>
-            <button className="btn btn-ghost" onClick={() => setShowPricingPrompt(false)}>Later</button>
-          </div>
-        </div>
-      )}
 
       <div className="card">
         <div style={{ marginBottom: 24, paddingBottom: 20, borderBottom: '1px solid var(--border)' }}>
@@ -271,6 +282,32 @@ function AddTab({ onAdded }) {
               {gstConfig.map(g => <option key={g.id || g.tax_category} value={g.tax_category}>{g.tax_category} ({g.gst_rate}%)</option>)}
             </select>
           </div>
+          <div className="form-group">
+            <label>Body Type</label>
+            <select value={form.body_type} onChange={set('body_type')}>
+              <option value="">Select body type…</option>
+              {bodyTypes.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20, marginTop: 4 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: 14 }}>Pricing</div>
+          <div className="form-grid">
+            <div className="form-group">
+              <label>Sales Price (₹) <span style={{ color: 'var(--danger)', fontWeight: 700 }}>*</span></label>
+              <input type="number" min="0" step="0.01" value={form.sales_price} onChange={set('sales_price')} placeholder="e.g. 2500" />
+              <span style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, display: 'block' }}>Selling price shown to customer — required for orders</span>
+            </div>
+            <div className="form-group">
+              <label>MRP (₹)</label>
+              <input type="number" min="0" step="0.01" value={form.mrp} onChange={set('mrp')} placeholder="e.g. 2999" />
+            </div>
+            <div className="form-group">
+              <label>Cost Price (₹)</label>
+              <input type="number" min="0" step="0.01" value={form.cost_price} onChange={set('cost_price')} placeholder="e.g. 1200" />
+            </div>
+          </div>
         </div>
 
         <div className="btn-row">
@@ -295,6 +332,7 @@ function ViewTab({ editMatnr }) {
   const [fits] = useFits()
   const [materialTypes] = useMaterialTypes()
   const [gstConfig] = useGstConfig()
+  const [bodyTypes] = useBodyTypes()
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -431,6 +469,7 @@ function ViewTab({ editMatnr }) {
           fits={fits}
           materialTypes={materialTypes}
           gstConfig={gstConfig}
+          bodyTypes={bodyTypes}
           onClose={() => setEditingItem(null)}
           onSaved={loadData}
         />
@@ -439,7 +478,7 @@ function ViewTab({ editMatnr }) {
   )
 }
 
-function EditItemModal({ item, catData, categories, brands, colors, fits, materialTypes, gstConfig, onClose, onSaved }) {
+function EditItemModal({ item, catData, categories, brands, colors, fits, materialTypes, gstConfig, bodyTypes, onClose, onSaved }) {
   const showToast = useToast()
   const [form, setForm] = useState({
     brand: item.brand || '', brandfamily: item.brandfamily || '',
@@ -447,6 +486,8 @@ function EditItemModal({ item, catData, categories, brands, colors, fits, materi
     subcategory: item.subcategory || '', subsubcategory: item.subsubcategory || '',
     size: item.size || '', fit: item.fit || '', color: item.color || '',
     material_type: item.material_type || '', tax_category: item.tax_category || '',
+    body_type: item.body_type || '',
+    mrp: item.mrp || '', cost_price: item.cost_price || '',
   })
 
   function set(field) { return e => setForm(f => ({ ...f, [field]: e.target.value })) }
@@ -568,6 +609,24 @@ function EditItemModal({ item, catData, categories, brands, colors, fits, materi
               {gstConfig.map(g => <option key={g.id || g.tax_category} value={g.tax_category}>{g.tax_category} ({g.gst_rate}%)</option>)}
             </select>
           </div>
+          <div className="form-group">
+            <label>Body Type</label>
+            <select value={form.body_type} onChange={set('body_type')}>
+              <option value="">Select body type…</option>
+              {(bodyTypes || []).map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label>MRP (₹)</label>
+            <input type="number" min="0" step="0.01" value={form.mrp} onChange={set('mrp')} placeholder="e.g. 2999" />
+          </div>
+          <div className="form-group">
+            <label>Cost Price (₹)</label>
+            <input type="number" min="0" step="0.01" value={form.cost_price} onChange={set('cost_price')} placeholder="e.g. 1200" />
+          </div>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+          💡 To update the <strong>Sales Price</strong>, go to <strong>Sales → Pricing</strong> tab.
         </div>
         <div className="modal-actions">
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
@@ -586,12 +645,14 @@ function ConfigTab() {
   const [fits, reloadFits] = useFits()
   const [materialTypes, reloadMaterialTypes] = useMaterialTypes()
   const [gstConfig, reloadGst] = useGstConfig()
+  const [bodyTypes, reloadBodyTypes] = useBodyTypes()
   const { catData, categories, reload: reloadCats } = useCategoryData()
   const [returnReasons, setReturnReasons] = useState([])
   const [l3Data, setL3Data] = useState([])
 
   const [newBrand, setNewBrand] = useState('')
   const [newMaterialType, setNewMaterialType] = useState('')
+  const [newBodyType, setNewBodyType] = useState('')
   const [newColorName, setNewColorName] = useState('')
   const [newColorHex, setNewColorHex] = useState('#808000')
   const [newFit, setNewFit] = useState('')
@@ -654,6 +715,14 @@ function ConfigTab() {
   }
   async function removeMaterialType(id) {
     try { await api(`/material-types/${id}`, 'DELETE', {}); reloadMaterialTypes() } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
+
+  async function addBodyType() {
+    if (!newBodyType.trim()) return
+    try { await api('/body-types', 'POST', { name: newBodyType.trim() }); setNewBodyType(''); reloadBodyTypes() } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
+  async function removeBodyType(id) {
+    try { await api(`/body-types/${id}`, 'DELETE', {}); reloadBodyTypes() } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   async function addReturnReason() {
@@ -782,6 +851,19 @@ function ConfigTab() {
           <div className="add-row">
             <input value={newMaterialType} onChange={e => setNewMaterialType(e.target.value)} placeholder="e.g. Cotton, Polyester, Wool" onKeyDown={e => e.key === 'Enter' && addMaterialType()} />
             <button className="btn btn-primary" onClick={addMaterialType}>Add</button>
+          </div>
+        </div>
+
+        {/* Body Types */}
+        <div className="config-card">
+          <div className="config-title">🧍 Body Types</div>
+          <div className="config-sub">Body type classifications for products and customers.</div>
+          <div className="tag-list">
+            {bodyTypes.map(b => <Tag key={b.id} label={b.name} onRemove={() => removeBodyType(b.id)} />)}
+          </div>
+          <div className="add-row">
+            <input value={newBodyType} onChange={e => setNewBodyType(e.target.value)} placeholder="e.g. Tall & Thin" onKeyDown={e => e.key === 'Enter' && addBodyType()} />
+            <button className="btn btn-primary" onClick={addBodyType}>Add</button>
           </div>
         </div>
 
