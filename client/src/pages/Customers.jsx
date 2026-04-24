@@ -2,11 +2,13 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
+import { db } from '../lib/supabase'
 
 function useBodyTypes() {
   const [bodyTypes, setBodyTypes] = useState([])
   useEffect(() => {
-    fetch('/body-types').then(r => r.json()).then(setBodyTypes).catch(() => {})
+    db.inventory().from('body_types').select('name')
+      .then(({ data }) => setBodyTypes(data?.map(r => r.name) || []))
   }, [])
   return bodyTypes
 }
@@ -33,20 +35,16 @@ function EditModal({ customer, onClose, onSaved }) {
 
   async function save() {
     if (!form.name.trim()) return showToast('Name is required', 'error')
-    try {
-      const res = await fetch(`/customers/${customer.kunnr}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Update failed')
-      showToast(`✅ ${form.name} updated!`)
-      onSaved()
-      onClose()
-    } catch (err) {
-      showToast(`❌ ${err.message}`, 'error')
-    }
+    const { error } = await db.customers().from('kna1').update({
+      name: form.name, number: form.number, address: form.address,
+      email: form.email, gstin: form.gstin, dob: form.dob || null,
+      anniversary: form.anniversary || null, notes: form.notes || null,
+      body_type: form.body_type || null
+    }).eq('kunnr', customer.kunnr)
+    if (error) { showToast(`❌ ${error.message}`, 'error'); return }
+    showToast(`✅ ${form.name} updated!`)
+    onSaved()
+    onClose()
   }
 
   return (
@@ -83,7 +81,7 @@ function EditModal({ customer, onClose, onSaved }) {
             <label>Body Type</label>
             <select value={form.body_type} onChange={set('body_type')}>
               <option value="">Select body type…</option>
-              {bodyTypes.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+              {bodyTypes.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -121,9 +119,10 @@ function AddTab({ onAdded }) {
 
   const loadNextKunnr = useCallback(async () => {
     try {
-      const res = await fetch('/next-kunnr')
-      const data = await res.json()
-      setNextKunnr(data.kunnr || '—')
+      const { data } = await db.customers().from('kna1').select('kunnr').order('kunnr', { ascending: false }).limit(1)
+      const maxNum = data?.[0] ? parseInt(data[0].kunnr) : 99999
+      const nextKunnr = String(maxNum + 1).padStart(6, '0')
+      setNextKunnr(nextKunnr)
     } catch {
       setNextKunnr('Auto')
     }
@@ -140,20 +139,17 @@ function AddTab({ onAdded }) {
 
   async function addCustomer() {
     if (!form.name.trim()) return showToast('Name is required', 'error')
-    try {
-      const res = await fetch('/addcustomer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to add customer')
-      showToast(`✅ ${form.name} added! KUNNR: ${data.kunnr}`)
-      reset()
-      onAdded()
-    } catch (err) {
-      showToast(`❌ ${err.message}`, 'error')
-    }
+    const { error } = await db.customers().from('kna1').insert({
+      kunnr: nextKunnr, name: form.name, number: form.number,
+      address: form.address, email: form.email, gstin: form.gstin,
+      dob: form.dob || null, anniversary: form.anniversary || null,
+      notes: form.notes || null, status: 'Active',
+      body_type: form.body_type || null
+    })
+    if (error) { showToast(`❌ ${error.message}`, 'error'); return }
+    showToast(`✅ ${form.name} added! KUNNR: ${nextKunnr}`)
+    reset()
+    onAdded()
   }
 
   return (
@@ -197,7 +193,7 @@ function AddTab({ onAdded }) {
             <label>Body Type</label>
             <select value={form.body_type} onChange={set('body_type')}>
               <option value="">Select body type…</option>
-              {bodyTypes.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+              {bodyTypes.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
           </div>
           <div className="form-group full">
@@ -227,33 +223,21 @@ function ViewTab() {
 
   const loadData = useCallback(async () => {
     setLoading(true)
-    try {
-      const res = await fetch('/customers')
-      if (!res.ok) throw new Error()
-      setAllData(await res.json())
-    } catch {
-      showToast('❌ Could not connect to server.', 'error')
-    } finally {
-      setLoading(false)
+    const { data, error } = await db.customers().from('kna1').select('*').order('kunnr')
+    if (error) {
+      showToast('❌ ' + error.message, 'error')
+    } else {
+      setAllData(data)
     }
+    setLoading(false)
   }, [showToast])
 
   useEffect(() => { loadData() }, [loadData])
 
   async function updateStatus(kunnr, name, status) {
-    try {
-      const res = await fetch(`/customers/${kunnr}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      showToast(`✅ ${name} status set to ${status}`)
-      loadData()
-    } catch (err) {
-      showToast(`❌ ${err.message}`, 'error')
-    }
+    const { error } = await db.customers().from('kna1').update({ status }).eq('kunnr', kunnr)
+    if (error) showToast(`❌ ${error.message}`, 'error')
+    else { showToast(`✅ ${name} status set to ${status}`); loadData() }
   }
 
   function downloadCSV() {
@@ -419,14 +403,17 @@ function UploadTab() {
         continue
       }
       try {
-        const res = await fetch('/addcustomer', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(obj),
+        const { data: kunnrData } = await db.customers().from('kna1').select('kunnr').order('kunnr', { ascending: false }).limit(1)
+        const maxNum = kunnrData?.[0] ? parseInt(kunnrData[0].kunnr) : 99999
+        const newKunnr = String(maxNum + 1).padStart(6, '0')
+        const { error } = await db.customers().from('kna1').insert({
+          kunnr: newKunnr, name: obj.name, number: obj.number || null,
+          address: obj.address || null, email: obj.email || null, gstin: obj.gstin || null,
+          dob: obj.dob || null, anniversary: obj.anniversary || null,
+          notes: obj.notes || null, status: 'Active', body_type: obj.body_type || null
         })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || 'Server error')
-        addLog(`Row ${i + 2}: ✅ Added ${obj.name} (${data.kunnr})`, 'success')
+        if (error) throw new Error(error.message)
+        addLog(`Row ${i + 2}: ✅ Added ${obj.name} (${newKunnr})`, 'success')
         ok++
       } catch (err) {
         addLog(`Row ${i + 2}: ❌ ${obj.name} — ${err.message}`, 'error')
