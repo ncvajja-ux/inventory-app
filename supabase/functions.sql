@@ -15,6 +15,10 @@ DECLARE
   v_max_num  INTEGER;
   v_item     JSONB;
 BEGIN
+  IF jsonb_array_length(p_items) = 0 THEN
+    RAISE EXCEPTION 'Order must contain at least one item';
+  END IF;
+
   SELECT COALESCE(MAX(CAST(SUBSTRING(order_id, 2) AS INTEGER)), 100000)
     INTO v_max_num FROM transactions.vbak WHERE order_id LIKE 'S%';
   v_order_id := 'S' || LPAD(CAST(v_max_num + 1 AS TEXT), 6, '0');
@@ -39,7 +43,12 @@ BEGIN
     );
     UPDATE inventory.mara
       SET quantity = quantity - (v_item->>'quantity')::INTEGER
-    WHERE matnr = v_item->>'matnr';
+    WHERE matnr = v_item->>'matnr'
+      AND quantity >= (v_item->>'quantity')::INTEGER;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Insufficient stock for product %', v_item->>'matnr';
+    END IF;
   END LOOP;
 
   RETURN v_order_id;
@@ -59,6 +68,14 @@ DECLARE
   v_item     JSONB;
 BEGIN
   SELECT * INTO v_orig FROM transactions.vbak WHERE order_id = p_original_order_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Original order % does not exist', p_original_order_id;
+  END IF;
+
+  IF v_orig.order_type <> 'S' THEN
+    RAISE EXCEPTION 'Order % is not a sales order and cannot be returned', p_original_order_id;
+  END IF;
 
   SELECT COALESCE(MAX(CAST(SUBSTRING(order_id, 2) AS INTEGER)), 100000)
     INTO v_max_num FROM transactions.vbak WHERE order_id LIKE 'R%';
@@ -119,21 +136,35 @@ $$;
 -- 4. Analytics: overview totals
 CREATE OR REPLACE FUNCTION analytics_overview()
 RETURNS JSONB LANGUAGE plpgsql AS $$
-DECLARE v JSONB;
+DECLARE
+  v_total_orders    BIGINT;
+  v_total_returns   BIGINT;
+  v_total_customers BIGINT;
+  v_total_products  BIGINT;
+  v_total_revenue   REAL;
 BEGIN
-  SELECT jsonb_build_object(
-    'total_orders',    COUNT(*) FILTER (WHERE order_type = 'S' AND status = 'CONFIRMED'),
-    'total_returns',   COUNT(*) FILTER (WHERE order_type = 'R' AND status = 'CONFIRMED'),
-    'total_customers', (SELECT COUNT(*) FROM customers.kna1),
-    'total_products',  (SELECT COUNT(*) FROM inventory.mara),
-    'total_revenue',   COALESCE((
-      SELECT SUM(vp.line_total)
-      FROM transactions.vbap vp
-      JOIN transactions.vbak vk ON vk.order_id = vp.order_id
-      WHERE vk.order_type = 'S' AND vk.status = 'CONFIRMED'
-    ), 0)
-  ) INTO v FROM transactions.vbak;
-  RETURN v;
+  SELECT
+    COUNT(*) FILTER (WHERE order_type = 'S' AND status = 'CONFIRMED'),
+    COUNT(*) FILTER (WHERE order_type = 'R' AND status = 'CONFIRMED')
+  INTO v_total_orders, v_total_returns
+  FROM transactions.vbak;
+
+  SELECT COUNT(*) INTO v_total_customers FROM customers.kna1;
+  SELECT COUNT(*) INTO v_total_products  FROM inventory.mara;
+
+  SELECT COALESCE(SUM(vp.line_total), 0)
+  INTO v_total_revenue
+  FROM transactions.vbap vp
+  JOIN transactions.vbak vk ON vk.order_id = vp.order_id
+  WHERE vk.order_type = 'S' AND vk.status = 'CONFIRMED';
+
+  RETURN jsonb_build_object(
+    'total_orders',    v_total_orders,
+    'total_returns',   v_total_returns,
+    'total_customers', v_total_customers,
+    'total_products',  v_total_products,
+    'total_revenue',   v_total_revenue
+  );
 END;
 $$;
 
