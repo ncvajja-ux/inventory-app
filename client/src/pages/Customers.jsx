@@ -8,7 +8,10 @@ function useBodyTypes() {
   const [bodyTypes, setBodyTypes] = useState([])
   useEffect(() => {
     db.inventory().from('body_types').select('name')
-      .then(({ data }) => setBodyTypes(data?.map(r => r.name) || []))
+      .then(({ data, error }) => {
+        if (error) console.error('Failed to load body types:', error.message)
+        setBodyTypes(data?.map(r => r.name) || [])
+      })
   }, [])
   return bodyTypes
 }
@@ -118,14 +121,16 @@ function AddTab({ onAdded }) {
   })
 
   const loadNextKunnr = useCallback(async () => {
-    try {
-      const { data } = await db.customers().from('kna1').select('kunnr').order('kunnr', { ascending: false }).limit(1)
-      const maxNum = data?.[0] ? parseInt(data[0].kunnr) : 99999
-      const nextKunnr = String(maxNum + 1).padStart(6, '0')
-      setNextKunnr(nextKunnr)
-    } catch {
-      setNextKunnr('Auto')
+    const { data, error } = await db.customers().from('kna1').select('kunnr').order('kunnr', { ascending: false }).limit(1)
+    if (error) {
+      console.error('Failed to load next KUNNR:', error.message)
+      // Fall back to a timestamp-based ID to avoid collision
+      setNextKunnr(String(Date.now()).slice(-6))
+      return
     }
+    const maxNum = data?.[0] ? parseInt(data[0].kunnr) : 99999
+    const nextKunnr = String(maxNum + 1).padStart(6, '0')
+    setNextKunnr(nextKunnr)
   }, [])
 
   useEffect(() => { loadNextKunnr() }, [loadNextKunnr])
@@ -223,13 +228,16 @@ function ViewTab() {
 
   const loadData = useCallback(async () => {
     setLoading(true)
-    const { data, error } = await db.customers().from('kna1').select('*').order('kunnr')
-    if (error) {
-      showToast('❌ ' + error.message, 'error')
-    } else {
-      setAllData(data)
+    try {
+      const { data, error } = await db.customers().from('kna1').select('*').order('kunnr')
+      if (error) {
+        showToast('❌ ' + error.message, 'error')
+      } else {
+        setAllData(data)
+      }
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }, [showToast])
 
   useEffect(() => { loadData() }, [loadData])
@@ -403,7 +411,13 @@ function UploadTab() {
         continue
       }
       try {
-        const { data: kunnrData } = await db.customers().from('kna1').select('kunnr').order('kunnr', { ascending: false }).limit(1)
+        const { data: kunnrData, error: kunnrError } = await db.customers().from('kna1').select('kunnr').order('kunnr', { ascending: false }).limit(1)
+        if (kunnrError) {
+          console.error('Failed to load next KUNNR:', kunnrError.message)
+          addLog(`Row ${i + 2}: ❌ ${obj.name} — could not determine next KUNNR: ${kunnrError.message}`, 'error')
+          fail++
+          continue
+        }
         const maxNum = kunnrData?.[0] ? parseInt(kunnrData[0].kunnr) : 99999
         const newKunnr = String(maxNum + 1).padStart(6, '0')
         const { error } = await db.customers().from('kna1').insert({
