@@ -12,27 +12,17 @@ export default function LockScreen({ onUnlock }) {
     if (!password || loading) return
     setLoading(true)
     setError('')
-    try {
-      const r = await fetch('/auth/unlock', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-      })
-      const data = await r.json()
-      if (data.ok) {
-        try { sessionStorage.setItem('app_unlocked', '1') } catch {}
-        onUnlock()
-      } else {
-        setError('Incorrect password')
-        setShake(true)
-        setPassword('')
-        setTimeout(() => { setShake(false); inputRef.current?.focus() }, 600)
-      }
-    } catch {
-      setError('Connection error — is the server running?')
-    } finally {
-      setLoading(false)
+    const expected = import.meta.env.VITE_APP_PASSWORD || ''
+    if (password === expected) {
+      try { sessionStorage.setItem('app_unlocked', '1') } catch {}
+      onUnlock()
+    } else {
+      setError('Incorrect password')
+      setShake(true)
+      setPassword('')
+      setTimeout(() => { setShake(false); inputRef.current?.focus() }, 600)
     }
+    setLoading(false)
   }
 
   return (

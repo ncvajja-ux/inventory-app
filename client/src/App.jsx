@@ -40,19 +40,15 @@ export default function App() {
   const [isLocked, setIsLocked] = useState(null)
 
   useEffect(() => {
-    // Already unlocked this session?
     try {
       if (sessionStorage.getItem('app_unlocked') === '1') {
         setIsLocked(false)
         return
       }
     } catch {}
-
-    // Ask server
-    fetch('/auth/status')
-      .then(r => r.json())
-      .then(data => setIsLocked(data.locked))
-      .catch(() => setIsLocked(false)) // if server unreachable, don't block
+    // No password configured = don't lock
+    const pwd = import.meta.env.VITE_APP_PASSWORD
+    setIsLocked(!!pwd)
   }, [])
 
   return (
