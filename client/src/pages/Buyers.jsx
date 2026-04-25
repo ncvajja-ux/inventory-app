@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
 import { INDIAN_STATES, INDIAN_CITIES, COUNTRIES, PAYMENT_TERMS } from '../data/referenceData'
+import { db } from '../lib/supabase'
 
 function BuyerForm({ initial = {}, onSubmit, onCancel, title, sub, badgeLabel, badgeValue }) {
   const [form, setForm] = useState({
@@ -129,7 +130,10 @@ function AddTab({ onAdded }) {
   const [formKey, setFormKey] = useState(0)
 
   const loadNextId = useCallback(async () => {
-    try { const r = await fetch('/next-buyer-id'); const d = await r.json(); setNextId(d.buyer_id || '—') } catch { setNextId('Auto') }
+    const { data, error } = await db.buyers().from('buyers').select('buyer_id').order('buyer_id', { ascending: false }).limit(1)
+    if (error) { setNextId('Auto'); return }
+    const maxNum = data && data.length > 0 ? parseInt(data[0].buyer_id, 10) || 0 : 0
+    setNextId(String(maxNum + 1).padStart(6, '0'))
   }, [])
 
   useEffect(() => { loadNextId() }, [loadNextId])
@@ -137,14 +141,9 @@ function AddTab({ onAdded }) {
   async function submit(form) {
     if (!form.company_name.trim()) return showToast('Company name is required', 'error')
     try {
-      const res = await fetch('/buyers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, name: form.company_name }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to add buyer')
-      showToast(`✅ ${form.company_name} added! ID: ${data.buyer_id}`)
+      const { data, error } = await db.buyers().from('buyers').insert({ ...form, name: form.company_name })
+      if (error) throw new Error(error.message || 'Failed to add buyer')
+      showToast(`✅ ${form.company_name} added!`)
       loadNextId()
       setFormKey(k => k + 1)
       onAdded()
@@ -227,13 +226,8 @@ function EditModal({ buyer, onClose, onSaved }) {
   async function submit(form) {
     if (!form.company_name.trim()) return showToast('Company name is required', 'error')
     try {
-      const res = await fetch(`/buyers/${buyer.buyer_id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, name: form.company_name }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Update failed')
+      const { error } = await db.buyers().from('buyers').update({ ...form, name: form.company_name }).eq('buyer_id', buyer.buyer_id)
+      if (error) throw new Error(error.message || 'Update failed')
       showToast(`✅ ${form.company_name} updated!`)
       onSaved()
       onClose()
@@ -270,26 +264,33 @@ function ViewTab() {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch('/buyers')
-      if (!res.ok) throw new Error()
-      setAllData(await res.json())
-    } catch { showToast('❌ Could not load buyers', 'error') } finally { setLoading(false) }
+      const { data, error } = await db.buyers().from('buyers').select('*').order('name')
+      if (error) throw new Error(error.message)
+      setAllData(data || [])
+    } catch (err) {
+      showToast(`❌ Could not load buyers: ${err.message}`, 'error')
+    } finally {
+      setLoading(false)
+    }
   }, [showToast])
 
   useEffect(() => { loadData() }, [loadData])
 
   async function updateStatus(id, name, status) {
     try {
-      const res = await fetch(`/buyers/${id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
+      const { error } = await db.buyers().from('buyers').update({ status }).eq('buyer_id', id)
+      if (error) throw new Error(error.message)
       showToast(`✅ ${name} status set to ${status}`)
       loadData()
-    } catch (err) { showToast(`❌ ${err.message}`, 'error') }
+    } catch (err) {
+      showToast(`❌ ${err.message}`, 'error')
+    }
+  }
+
+  async function searchBuyers(q) {
+    const { data, error } = await db.buyers().from('buyers').select('*').or(`name.ilike.%${q}%,buyer_id.ilike.%${q}%`).limit(10)
+    if (error) return allData.filter(r => Object.values(r).some(v => String(v ?? '').toLowerCase().includes(q.toLowerCase())))
+    return data || []
   }
 
   const filtered = query
