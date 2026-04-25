@@ -792,11 +792,12 @@ function ReturnsTab() {
   const [retCustResults, setRetCustResults] = useState([])
   const [retKunnr, setRetKunnr] = useState('')
   const [retCustDiscPct, setRetCustDiscPct] = useState(0)
+  const [confirming, setConfirming] = useState(false)
 
   useEffect(() => {
     db.transactions().from('return_reasons').select('*')
       .then(({ data }) => setReasons(Array.isArray(data) ? data : []))
-      .catch(() => {})
+      .catch(err => console.error('Failed to load return reasons:', err.message))
   }, [])
 
   async function fetchCustDiscForOrder(kunnr, orderDate) {
@@ -824,7 +825,7 @@ function ReturnsTab() {
       const pct = await fetchCustDiscForOrder(data.kunnr, data.created_at)
       setRetCustDiscPct(pct)
       setStep(2)
-    } catch { showToast('Could not fetch order', 'error') }
+    } catch (err) { showToast(err.message || 'Could not fetch order', 'error') }
   }
 
   async function searchReturnCustomer(q) {
@@ -870,7 +871,7 @@ function ReturnsTab() {
       const pct = await fetchCustDiscForOrder(data.kunnr, data.created_at)
       setRetCustDiscPct(pct)
       setStep(2)
-    } catch { showToast('Could not fetch order', 'error') }
+    } catch (err) { showToast(err.message || 'Could not fetch order', 'error') }
   }
 
   function goStep3() {
@@ -881,16 +882,18 @@ function ReturnsTab() {
   }
 
   async function confirmReturn() {
-    const items = returnItems.filter(i => i.selected && i.return_qty > 0)
-    const returnItemsMapped = items.map(i => ({
-      matnr: i.matnr,
-      quantity: i.return_qty,
-      price: parseFloat(i.price || i.effective_price || i.sales_price || i.mrp || 0),
-      mrp: parseFloat(i.mrp || 0),
-      discount_pct: parseFloat(i.discount_pct || 0),
-      gst_rate: parseFloat(i.gst_rate || 0),
-    }))
+    if (confirming) return
+    setConfirming(true)
     try {
+      const items = returnItems.filter(i => i.selected && i.return_qty > 0)
+      const returnItemsMapped = items.map(i => ({
+        matnr: i.matnr,
+        quantity: i.return_qty,
+        price: parseFloat(i.price || i.effective_price || i.sales_price || i.mrp || 0),
+        mrp: parseFloat(i.mrp || 0),
+        discount_pct: parseFloat(i.discount_pct || 0),
+        gst_rate: parseFloat(i.gst_rate || 0),
+      }))
       const { data: retId, error } = await supabase.rpc('place_return', {
         p_original_order_id: selectedOrder.order_id,
         p_items: returnItemsMapped,
@@ -899,7 +902,11 @@ function ReturnsTab() {
       if (error) { showToast(error.message, 'error'); return }
       showToast(`✅ Return ${retId} created`)
       navigate(`/invoice?order_id=${retId}`)
-    } catch (err) { showToast(`❌ ${err.message}`, 'error') }
+    } catch (err) {
+      showToast(`❌ ${err.message}`, 'error')
+    } finally {
+      setConfirming(false)
+    }
   }
 
   const retSelected = returnItems.filter(i => i.selected && i.return_qty > 0)
@@ -1138,8 +1145,8 @@ function ReturnsTab() {
             </div>
           </div>
 
-          <button className="btn" onClick={confirmReturn} style={{ background: 'var(--danger)', color: 'white', fontSize: 14, padding: '12px 28px', marginTop: 8 }}>
-            ↩️ Confirm Return & Restock
+          <button className="btn" onClick={confirmReturn} disabled={confirming} style={{ background: 'var(--danger)', color: 'white', fontSize: 14, padding: '12px 28px', marginTop: 8 }}>
+            {confirming ? '⏳ Confirming…' : '↩️ Confirm Return & Restock'}
           </button>
         </div>
       )}
@@ -1168,14 +1175,14 @@ function PricingTab() {
   const [pdEdit, setPdEdit] = useState(null)   // { id, matnr, brand, category, discount_pct, valid_from, valid_to }
 
   const loadSP = useCallback(async () => {
-    try { const { data } = await db.pricing().from('sales_price').select('*').order('valid_from', { ascending: false }); setSpData(data || []) } catch {}
-  }, [])
+    try { const { data } = await db.pricing().from('sales_price').select('*').order('valid_from', { ascending: false }); setSpData(data || []) } catch (err) { showToast(err.message || 'Failed to load pricing data', 'error') }
+  }, [showToast])
   const loadCD = useCallback(async () => {
-    try { const { data } = await db.pricing().from('customer_discount').select('*').order('kunnr'); setCdData(data || []) } catch {}
-  }, [])
+    try { const { data } = await db.pricing().from('customer_discount').select('*').order('kunnr'); setCdData(data || []) } catch (err) { showToast(err.message || 'Failed to load pricing data', 'error') }
+  }, [showToast])
   const loadPD = useCallback(async () => {
-    try { const { data } = await db.pricing().from('product_discount').select('*').order('matnr'); setPdData(data || []) } catch {}
-  }, [])
+    try { const { data } = await db.pricing().from('product_discount').select('*').order('matnr'); setPdData(data || []) } catch (err) { showToast(err.message || 'Failed to load pricing data', 'error') }
+  }, [showToast])
 
   useEffect(() => { loadSP(); loadCD(); loadPD() }, [loadSP, loadCD, loadPD])
 
