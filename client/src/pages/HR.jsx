@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
+import { db } from '../lib/supabase'
 
 const SALARY_DAYS = Array.from({length: 28}, (_, i) => i + 1)
 const PAY_MODES = ['cash', 'bank']
@@ -120,32 +121,53 @@ function AddTab({ onAdded }) {
   const loadMeta = useCallback(async () => {
     try {
       const [idRes, dRes, dgRes] = await Promise.all([
-        fetch('/hr/next-emp-id'),
-        fetch('/hr/departments'),
-        fetch('/hr/designations'),
+        db.hr().from('employees').select('emp_id').order('emp_id', { ascending: false }).limit(1),
+        db.hr().from('departments').select('*').order('name'),
+        db.hr().from('designations').select('*').order('name'),
       ])
-      const id = await idRes.json(); setNextId(id.emp_id || '—')
-      setDepts(await dRes.json())
-      setDesigs(await dgRes.json())
-    } catch { setNextId('Auto') }
+      if (idRes.error) throw idRes.error
+      if (dRes.error) throw dRes.error
+      if (dgRes.error) throw dgRes.error
+
+      const lastNum = idRes.data.length > 0
+        ? parseInt(idRes.data[0].emp_id.replace(/^E/, ''), 10)
+        : 0
+      setNextId('E' + String(lastNum + 1).padStart(5, '0'))
+      setDepts(dRes.data)
+      setDesigs(dgRes.data)
+    } catch (err) {
+      console.error('loadMeta error:', err)
+      setNextId('Auto')
+    }
   }, [])
 
   useEffect(() => { loadMeta() }, [loadMeta])
 
   async function submit(form) {
     try {
-      const res = await fetch('/hr/employees', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to add employee')
-      showToast(`✅ ${form.name} added! ID: ${data.emp_id}`)
+      const { data: idData, error: idError } = await db.hr()
+        .from('employees')
+        .select('emp_id')
+        .order('emp_id', { ascending: false })
+        .limit(1)
+      if (idError) throw idError
+
+      const lastNum = idData.length > 0
+        ? parseInt(idData[0].emp_id.replace(/^E/, ''), 10)
+        : 0
+      const emp_id = 'E' + String(lastNum + 1).padStart(5, '0')
+
+      const { error } = await db.hr().from('employees').insert({ emp_id, ...form })
+      if (error) throw error
+
+      showToast(`✅ ${form.name} added! ID: ${emp_id}`)
       loadMeta()
       setFormKey(k => k + 1)
       onAdded()
-    } catch (err) { showToast(`❌ ${err.message}`, 'error') }
+    } catch (err) {
+      console.error('add employee error:', err)
+      showToast(`❌ ${err.message}`, 'error')
+    }
   }
 
   return (
@@ -232,23 +254,30 @@ function EditModal({ emp, onClose, onSaved }) {
   const [desigs, setDesigs] = useState([])
 
   useEffect(() => {
-    Promise.all([fetch('/hr/departments'), fetch('/hr/designations')])
-      .then(([d, g]) => Promise.all([d.json(), g.json()]))
-      .then(([d, g]) => { setDepts(d); setDesigs(g) })
+    Promise.all([
+      db.hr().from('departments').select('*').order('name'),
+      db.hr().from('designations').select('*').order('name'),
+    ]).then(([dRes, dgRes]) => {
+      if (dRes.error) console.error('load departments error:', dRes.error)
+      else setDepts(dRes.data)
+      if (dgRes.error) console.error('load designations error:', dgRes.error)
+      else setDesigs(dgRes.data)
+    }).catch(err => console.error('EditModal load error:', err))
   }, [])
 
   async function submit(form) {
     try {
-      const res = await fetch(`/hr/employees/${emp.emp_id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Update failed')
+      const { error } = await db.hr()
+        .from('employees')
+        .update({ ...form })
+        .eq('emp_id', emp.emp_id)
+      if (error) throw error
       showToast(`✅ ${form.name} updated!`)
       onSaved(); onClose()
-    } catch (err) { showToast(`❌ ${err.message}`, 'error') }
+    } catch (err) {
+      console.error('update employee error:', err)
+      showToast(`❌ ${err.message}`, 'error')
+    }
   }
 
   return (
@@ -280,9 +309,16 @@ function ViewTab() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    try { const r = await fetch('/hr/employees'); setAll(await r.json()) }
-    catch { showToast('❌ Could not load employees', 'error') }
-    finally { setLoading(false) }
+    try {
+      const { data, error } = await db.hr().from('employees').select('*').order('name')
+      if (error) throw error
+      setAll(data)
+    } catch (err) {
+      console.error('load employees error:', err)
+      showToast('❌ Could not load employees', 'error')
+    } finally {
+      setLoading(false)
+    }
   }, [showToast])
 
   useEffect(() => { load() }, [load])
@@ -290,25 +326,33 @@ function ViewTab() {
   async function terminate(emp) {
     const today = new Date().toISOString().split('T')[0]
     try {
-      const res = await fetch(`/hr/employees/${emp.emp_id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...emp, end_date: today }),
-      })
-      if (!res.ok) throw new Error((await res.json()).error)
+      const { error } = await db.hr()
+        .from('employees')
+        .update({ ...emp, end_date: today })
+        .eq('emp_id', emp.emp_id)
+      if (error) throw error
       showToast(`✅ ${emp.name} terminated`)
       load()
-    } catch (err) { showToast(`❌ ${err.message}`, 'error') }
+    } catch (err) {
+      console.error('terminate employee error:', err)
+      showToast(`❌ ${err.message}`, 'error')
+    }
   }
 
   async function deleteEmp(emp) {
     if (!confirm(`Delete "${emp.name}" (${emp.emp_id})? This cannot be undone.`)) return
     try {
-      const res = await fetch(`/hr/employees/${emp.emp_id}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error((await res.json()).error)
+      const { error } = await db.hr()
+        .from('employees')
+        .delete()
+        .eq('emp_id', emp.emp_id)
+      if (error) throw error
       showToast(`🗑️ ${emp.name} deleted`)
       load()
-    } catch (err) { showToast(`❌ ${err.message}`, 'error') }
+    } catch (err) {
+      console.error('delete employee error:', err)
+      showToast(`❌ ${err.message}`, 'error')
+    }
   }
 
   const filtered = query
@@ -387,17 +431,43 @@ function PayrollTab() {
   const [newLine, setNewLine] = useState({ payment_type: 'salary', amount: '', pay_date: '', pay_mode: 'cash', notes: '' })
 
   useEffect(() => {
-    fetch('/hr/employees?status=active').then(r => r.json()).then(setEmployees).catch(() => {})
+    db.hr().from('employees').select('*').order('name').eq('status', 'active')
+      .then(({ data, error }) => {
+        if (error) console.error('load active employees error:', error)
+        else setEmployees(data)
+      })
   }, [])
 
   async function loadPayroll(emp, m) {
     if (!emp || !m) return
     setLoading(true)
     try {
-      const res = await fetch(`/hr/payroll/${emp.emp_id}/${m}`)
-      setPayroll(await res.json())
-    } catch { showToast('❌ Failed to load payroll', 'error') }
-    finally { setLoading(false) }
+      const { data: header, error: hErr } = await db.hr()
+        .from('salary_headers')
+        .select('*')
+        .eq('emp_id', emp.emp_id)
+        .eq('month', m)
+        .maybeSingle()
+      if (hErr) throw hErr
+
+      if (!header) {
+        setPayroll(null)
+        return
+      }
+
+      const { data: lines, error: lErr } = await db.hr()
+        .from('salary_lines')
+        .select('*')
+        .eq('header_id', header.header_id)
+      if (lErr) throw lErr
+
+      setPayroll({ ...header, lines: lines || [] })
+    } catch (err) {
+      console.error('load payroll error:', err)
+      showToast('❌ Failed to load payroll', 'error')
+    } finally {
+      setLoading(false)
+    }
   }
 
   function selectEmp(emp) { setSelEmp(emp); loadPayroll(emp, month) }
@@ -405,41 +475,95 @@ function PayrollTab() {
 
   async function openOrCreate() {
     if (!selEmp) return showToast('Select an employee first', 'error')
-    const res = await fetch('/hr/payroll', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emp_id: selEmp.emp_id, month }),
-    })
-    const data = await res.json()
-    if (!res.ok) return showToast(`❌ ${data.error}`, 'error')
-    setPayroll(data)
-    if (data.existed) showToast('Opened existing payroll record')
-    else showToast(`✅ Payroll record created for ${month}`)
+    try {
+      const { error } = await db.hr()
+        .from('salary_headers')
+        .upsert(
+          { header_id: 'PH' + Date.now(), emp_id: selEmp.emp_id, month, total_paid: 0, notes: '' },
+          { onConflict: 'emp_id,month' }
+        )
+      if (error) throw error
+      await loadPayroll(selEmp, month)
+      showToast(`✅ Payroll record opened for ${month}`)
+    } catch (err) {
+      console.error('openOrCreate payroll error:', err)
+      showToast(`❌ ${err.message}`, 'error')
+    }
   }
 
   async function addLine() {
     if (!newLine.amount || Number(newLine.amount) <= 0) return showToast('Amount must be greater than 0', 'error')
     if (!newLine.pay_date) return showToast('Pay date is required', 'error')
-    const res = await fetch(`/hr/payroll/${payroll.header_id}/lines`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...newLine, amount: parseFloat(newLine.amount) }),
-    })
-    const data = await res.json()
-    if (!res.ok) return showToast(`❌ ${data.error}`, 'error')
-    showToast('✅ Line added')
-    setNewLine({ payment_type: 'salary', amount: '', pay_date: '', pay_mode: 'cash', notes: '' })
-    loadPayroll(selEmp, month)
+    try {
+      const { error: lineErr } = await db.hr()
+        .from('salary_lines')
+        .insert({
+          line_id: 'SL' + Date.now(),
+          header_id: payroll.header_id,
+          payment_type: newLine.payment_type,
+          amount: parseFloat(newLine.amount),
+          pay_date: newLine.pay_date,
+          pay_mode: newLine.pay_mode,
+          notes: newLine.notes || null,
+        })
+      if (lineErr) throw lineErr
+
+      // Refresh lines and update header total_paid
+      const { data: lines, error: lErr } = await db.hr()
+        .from('salary_lines')
+        .select('*')
+        .eq('header_id', payroll.header_id)
+      if (lErr) throw lErr
+
+      const total_paid = (lines || []).reduce((s, l) => s + Number(l.amount), 0)
+      const { error: updateErr } = await db.hr()
+        .from('salary_headers')
+        .update({ total_paid })
+        .eq('header_id', payroll.header_id)
+      if (updateErr) throw updateErr
+
+      showToast('✅ Line added')
+      setNewLine({ payment_type: 'salary', amount: '', pay_date: '', pay_mode: 'cash', notes: '' })
+      loadPayroll(selEmp, month)
+    } catch (err) {
+      console.error('add payroll line error:', err)
+      showToast(`❌ ${err.message}`, 'error')
+    }
   }
 
   async function deleteLine(line_id) {
     if (!confirm('Remove this payment line?')) return
-    const res = await fetch(`/hr/payroll/lines/${line_id}`, { method: 'DELETE' })
-    if (!res.ok) return showToast('❌ Failed to delete line', 'error')
-    showToast('🗑️ Line removed')
-    loadPayroll(selEmp, month)
+    try {
+      const { error } = await db.hr()
+        .from('salary_lines')
+        .delete()
+        .eq('line_id', line_id)
+      if (error) throw error
+
+      // Update header total_paid after deletion
+      const { data: lines, error: lErr } = await db.hr()
+        .from('salary_lines')
+        .select('*')
+        .eq('header_id', payroll.header_id)
+      if (lErr) throw lErr
+
+      const total_paid = (lines || []).reduce((s, l) => s + Number(l.amount), 0)
+      const { error: updateErr } = await db.hr()
+        .from('salary_headers')
+        .update({ total_paid })
+        .eq('header_id', payroll.header_id)
+      if (updateErr) throw updateErr
+
+      showToast('🗑️ Line removed')
+      loadPayroll(selEmp, month)
+    } catch (err) {
+      console.error('delete payroll line error:', err)
+      showToast('❌ Failed to delete line', 'error')
+    }
   }
 
-  const gross = payroll?.lines?.filter(l => l.payment_type !== 'deduction').reduce((s, l) => s + l.amount, 0) || 0
-  const deductions = payroll?.lines?.filter(l => l.payment_type === 'deduction').reduce((s, l) => s + l.amount, 0) || 0
+  const gross = payroll?.lines?.filter(l => l.payment_type !== 'deduction').reduce((s, l) => s + Number(l.amount), 0) || 0
+  const deductions = payroll?.lines?.filter(l => l.payment_type === 'deduction').reduce((s, l) => s + Number(l.amount), 0) || 0
   const net = gross - deductions
   function setLine(field) { return e => setNewLine(l => ({ ...l, [field]: e.target.value })) }
 
@@ -564,18 +688,28 @@ function AttendanceTab() {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
+      const [y, m] = month.split('-').map(Number)
+      const nextMonth = m === 12
+        ? `${y + 1}-01-01`
+        : `${y}-${String(m + 1).padStart(2, '0')}-01`
+
       const [empRes, attRes] = await Promise.all([
-        fetch('/hr/employees?status=active'),
-        fetch(`/hr/attendance?month=${month}`),
+        db.hr().from('employees').select('*').order('name').eq('status', 'active'),
+        db.hr().from('attendance').select('*').gte('att_date', `${month}-01`).lt('att_date', nextMonth),
       ])
-      const emps = await empRes.json()
-      const atts = await attRes.json()
-      setEmployees(emps)
+      if (empRes.error) throw empRes.error
+      if (attRes.error) throw attRes.error
+
+      setEmployees(empRes.data)
       const map = {}
-      atts.forEach(a => { map[`${a.emp_id}_${a.att_date}`] = { status: a.status, att_id: a.att_id } })
+      attRes.data.forEach(a => { map[`${a.emp_id}_${a.att_date}`] = { status: a.status, att_id: a.att_id } })
       setRecords(map)
-    } catch { showToast('❌ Could not load attendance', 'error') }
-    finally { setLoading(false) }
+    } catch (err) {
+      console.error('load attendance error:', err)
+      showToast('❌ Could not load attendance', 'error')
+    } finally {
+      setLoading(false)
+    }
   }, [month, showToast])
 
   useEffect(() => { loadData() }, [loadData])
@@ -587,14 +721,18 @@ function AttendanceTab() {
     const next = ATT_CYCLE[(ATT_CYCLE.indexOf(current) + 1) % ATT_CYCLE.length]
     setRecords(r => ({ ...r, [key]: { ...r[key], status: next } }))
     try {
-      const res = await fetch('/hr/attendance', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emp_id, att_date: date, status: next }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      setRecords(r => ({ ...r, [key]: { status: next, att_id: data.att_id } }))
+      const { data, error } = await db.hr()
+        .from('attendance')
+        .upsert(
+          { att_id: `${emp_id}_${date}`, emp_id, att_date: date, status: next, notes: null },
+          { onConflict: 'emp_id,att_date' }
+        )
+        .select()
+        .maybeSingle()
+      if (error) throw error
+      setRecords(r => ({ ...r, [key]: { status: next, att_id: data?.att_id || `${emp_id}_${date}` } }))
     } catch (err) {
+      console.error('toggle attendance error:', err)
       setRecords(r => ({ ...r, [key]: { ...r[key], status: current } }))
       showToast(`❌ ${err.message}`, 'error')
     }
@@ -630,11 +768,42 @@ function AttendanceTab() {
       headers.forEach((h, i) => { obj[h] = (cols[i] || '').trim() })
       return obj
     }).filter(r => r.emp_id && r.date && r.status)
-    const res = await fetch('/hr/attendance/bulk', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(recs.map(r => ({ emp_id: r.emp_id, att_date: r.date, status: r.status, notes: r.notes || null }))),
+
+    const validStatuses = new Set(['full', 'half', 'absent', 'holiday'])
+    const toUpsert = []
+    const skippedRows = []
+
+    recs.forEach(r => {
+      if (!validStatuses.has(r.status)) {
+        skippedRows.push({ emp_id: r.emp_id, att_date: r.date, reason: `invalid status: ${r.status}` })
+        return
+      }
+      toUpsert.push({
+        att_id: `${r.emp_id}_${r.date}`,
+        emp_id: r.emp_id,
+        att_date: r.date,
+        status: r.status,
+        notes: r.notes || null,
+      })
     })
-    const result = await res.json()
+
+    let inserted = 0, updated = 0, errors = 0
+    try {
+      if (toUpsert.length > 0) {
+        const { error } = await db.hr()
+          .from('attendance')
+          .upsert(toUpsert, { onConflict: 'emp_id,att_date' })
+        if (error) throw error
+        // Supabase upsert doesn't distinguish insert vs update; approximate
+        inserted = toUpsert.length
+      }
+    } catch (err) {
+      console.error('bulk attendance upload error:', err)
+      errors = toUpsert.length
+      inserted = 0
+    }
+
+    const result = { inserted, updated, skipped: skippedRows.length, errors, skippedRows }
     setUploadLog(result)
     showToast(`Upload done: ${result.inserted} inserted, ${result.updated} updated, ${result.skipped} skipped`)
     loadData()
@@ -740,30 +909,44 @@ function AttendanceTab() {
 }
 
 // ─── Config Tab ───────────────────────────────────────────────────────────────
-function ConfigCard({ title, fetchUrl, addUrl, deleteUrl, itemKey }) {
+function ConfigCard({ title, table, itemKey }) {
   const showToast = useToast()
   const [items, setItems] = useState([])
   const [newName, setNewName] = useState('')
 
   const load = useCallback(async () => {
-    try { const r = await fetch(fetchUrl); setItems(await r.json()) } catch {}
-  }, [fetchUrl])
+    try {
+      const { data, error } = await db.hr().from(table).select('*').order('name')
+      if (error) throw error
+      setItems(data)
+    } catch (err) {
+      console.error(`load ${table} error:`, err)
+    }
+  }, [table])
 
   useEffect(() => { load() }, [load])
 
   async function add() {
     if (!newName.trim()) return showToast('Name is required', 'error')
-    const res = await fetch(addUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newName.trim() }) })
-    const data = await res.json()
-    if (!res.ok) return showToast(`❌ ${data.error}`, 'error')
-    showToast(`✅ ${newName.trim()} added`); setNewName(''); load()
+    try {
+      const { error } = await db.hr().from(table).insert({ name: newName.trim() })
+      if (error) throw error
+      showToast(`✅ ${newName.trim()} added`); setNewName(''); load()
+    } catch (err) {
+      console.error(`add ${table} error:`, err)
+      showToast(`❌ ${err.message}`, 'error')
+    }
   }
 
   async function remove(item) {
-    const res = await fetch(`${deleteUrl}/${item.id}`, { method: 'DELETE' })
-    const data = await res.json()
-    if (!res.ok) return showToast(`❌ ${data.error}`, 'error')
-    showToast('🗑️ Deleted'); load()
+    try {
+      const { error } = await db.hr().from(table).delete().eq('id', item.id)
+      if (error) throw error
+      showToast('🗑️ Deleted'); load()
+    } catch (err) {
+      console.error(`delete ${table} error:`, err)
+      showToast(`❌ ${err.message}`, 'error')
+    }
   }
 
   return (
@@ -795,8 +978,8 @@ function ConfigTab() {
       <h1 className="page-title">HR Config</h1>
       <p className="page-sub">Manage departments and designations.</p>
       <div style={{ display: 'flex', gap: 24 }}>
-        <ConfigCard title="Departments" fetchUrl="/hr/departments" addUrl="/hr/departments" deleteUrl="/hr/departments" itemKey="name" />
-        <ConfigCard title="Designations" fetchUrl="/hr/designations" addUrl="/hr/designations" deleteUrl="/hr/designations" itemKey="name" />
+        <ConfigCard title="Departments" table="departments" itemKey="name" />
+        <ConfigCard title="Designations" table="designations" itemKey="name" />
       </div>
     </>
   )
