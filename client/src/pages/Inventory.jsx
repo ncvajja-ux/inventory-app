@@ -18,8 +18,8 @@ function useCategoryData() {
         db.inventory().from('categories').select('*').order('category'),
         db.inventory().from('category_l3').select('*').order('category'),
       ])
-      if (catsErr) throw catsErr
-      if (l3Err) throw l3Err
+      if (catsErr) { console.error('Failed to load categories:', catsErr.message); return }
+      if (l3Err) { console.error('Failed to load category_l3:', l3Err.message); return }
       // Transform categories array into grouped object: { category: [subcategory rows] }
       const grouped = {}
       ;(catsRaw || []).forEach(row => {
@@ -28,7 +28,9 @@ function useCategoryData() {
       })
       setCategories(grouped)
       setCatData(l3Raw || [])
-    } catch {}
+    } catch (err) {
+      console.error('Failed to load categories:', err.message)
+    }
   }, [])
 
   useEffect(() => { loadAll() }, [loadAll])
@@ -40,8 +42,11 @@ function useBrands() {
   const load = useCallback(async () => {
     try {
       const { data, error } = await db.inventory().from('brands').select('name').order('name')
-      if (!error) setBrands(data || [])
-    } catch {}
+      if (error) { console.error('Failed to load brands:', error.message); return }
+      setBrands(data || [])
+    } catch (err) {
+      console.error('Failed to load brands:', err.message)
+    }
   }, [])
   useEffect(() => { load() }, [load])
   return [brands, load]
@@ -52,8 +57,11 @@ function useColors() {
   const load = useCallback(async () => {
     try {
       const { data, error } = await db.inventory().from('colors').select('name,hex').order('name')
-      if (!error) setColors(data || [])
-    } catch {}
+      if (error) { console.error('Failed to load colors:', error.message); return }
+      setColors(data || [])
+    } catch (err) {
+      console.error('Failed to load colors:', err.message)
+    }
   }, [])
   useEffect(() => { load() }, [load])
   return [colors, load]
@@ -64,8 +72,11 @@ function useFits() {
   const load = useCallback(async () => {
     try {
       const { data, error } = await db.inventory().from('fits').select('name').order('name')
-      if (!error) setFits(data || [])
-    } catch {}
+      if (error) { console.error('Failed to load fits:', error.message); return }
+      setFits(data || [])
+    } catch (err) {
+      console.error('Failed to load fits:', err.message)
+    }
   }, [])
   useEffect(() => { load() }, [load])
   return [fits, load]
@@ -76,8 +87,11 @@ function useMaterialTypes() {
   const load = useCallback(async () => {
     try {
       const { data, error } = await db.inventory().from('material_types').select('*').order('name')
-      if (!error) setMaterialTypes(data || [])
-    } catch {}
+      if (error) { console.error('Failed to load material_types:', error.message); return }
+      setMaterialTypes(data || [])
+    } catch (err) {
+      console.error('Failed to load material_types:', err.message)
+    }
   }, [])
   useEffect(() => { load() }, [load])
   return [materialTypes, load]
@@ -88,8 +102,11 @@ function useBodyTypes() {
   const load = useCallback(async () => {
     try {
       const { data, error } = await db.inventory().from('body_types').select('*').order('name')
-      if (!error) setBodyTypes(data || [])
-    } catch {}
+      if (error) { console.error('Failed to load body_types:', error.message); return }
+      setBodyTypes(data || [])
+    } catch (err) {
+      console.error('Failed to load body_types:', err.message)
+    }
   }, [])
   useEffect(() => { load() }, [load])
   return [bodyTypes, load]
@@ -100,8 +117,11 @@ function useGstConfig() {
   const load = useCallback(async () => {
     try {
       const { data, error } = await db.pricing().from('gst_config').select('*').order('tax_category')
-      if (!error) setGstConfig(data || [])
-    } catch {}
+      if (error) { console.error('Failed to load gst_config:', error.message); return }
+      setGstConfig(data || [])
+    } catch (err) {
+      console.error('Failed to load gst_config:', err.message)
+    }
   }, [])
   useEffect(() => { load() }, [load])
   return [gstConfig, load]
@@ -212,7 +232,7 @@ function AddTab({ onAdded }) {
           matnr: newMatnr,
           unit_price: parseFloat(form.sales_price),
           valid_from: today,
-          valid_to: '12319999',
+          valid_to: null,
         })
         if (spErr) showToast('Item saved but sales price failed: ' + spErr.message, 'error')
         else showToast(`✅ ${form.brand} saved (${newMatnr}) — redirecting to pricing`)
@@ -555,11 +575,14 @@ function EditItemModal({ item, catData, categories, brands, colors, fits, materi
     try {
       const { error } = await db.inventory().from('mara').update({
         brand: form.brand,
+        brandfamily: form.brandfamily,
+        gender: form.gender,
+        category: form.category,
+        subcategory: form.subcategory,
+        subsubcategory: form.subsubcategory || null,
         size: form.size,
-        quantity: parseInt(form.quantity),
-        price: parseFloat(form.price),
-        cost_price: parseFloat(form.cost_price),
-        mrp: parseFloat(form.mrp),
+        cost_price: parseFloat(form.cost_price) || 0,
+        mrp: parseFloat(form.mrp) || 0,
         color: form.color,
         fit: form.fit,
         tax_category: form.tax_category,
@@ -717,15 +740,21 @@ function ConfigTab() {
   const loadReturnReasons = useCallback(async () => {
     try {
       const { data, error } = await db.transactions().from('return_reasons').select('*').eq('active', 1).order('reason')
-      if (!error) setReturnReasons(data || [])
-    } catch {}
+      if (error) { console.error('Failed to load return_reasons:', error.message); return }
+      setReturnReasons(data || [])
+    } catch (err) {
+      console.error('Failed to load return_reasons:', err.message)
+    }
   }, [])
 
   const loadL3 = useCallback(async () => {
     try {
       const { data, error } = await db.inventory().from('category_l3').select('*').order('category')
-      if (!error) setL3Data(data || [])
-    } catch {}
+      if (error) { console.error('Failed to load category_l3:', error.message); return }
+      setL3Data(data || [])
+    } catch (err) {
+      console.error('Failed to load category_l3:', err.message)
+    }
   }, [])
 
   useEffect(() => { loadReturnReasons(); loadL3() }, [loadReturnReasons, loadL3])
