@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { useToast } from '../components/Toast'
+import { db, supabase } from '../lib/supabase'
 
 const fmt  = n  => '₹' + parseFloat(n || 0).toFixed(2)
 const fmtD = s  => s ? new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
@@ -15,14 +16,20 @@ export default function Invoice() {
   const [order, setOrder] = useState(null)
   const [paidAmountInput, setPaidAmountInput] = useState('')
 
-  async function loadOrder() {
-    if (!orderId) { setError('No order ID provided'); setLoading(false); return }
+  async function loadOrder(id) {
+    const orderIdToLoad = id || orderId
+    if (!orderIdToLoad) { setError('No order ID provided'); setLoading(false); return }
     try {
-      const res = await fetch(`/orders/${orderId}`)
-      if (!res.ok) throw new Error('Order not found')
-      const data = await res.json()
-      setOrder(data)
-      setPaidAmountInput(data.paid_amount > 0 ? String(data.paid_amount) : '')
+      const [{ data: header, error: hErr }, { data: items }, { data: gstCfg }] = await Promise.all([
+        db.transactions().from('vbak').select('*').eq('order_id', orderIdToLoad).single(),
+        db.transactions().from('vbap').select('*').eq('order_id', orderIdToLoad),
+        db.pricing().from('gst_config').select('*'),
+      ])
+      if (hErr) { showToast('Order not found', 'error'); setError('Order not found'); return }
+      const { data: cust } = await db.customers().from('kna1').select('*').eq('kunnr', header.kunnr).single()
+      const orderData = { ...header, ...cust, items: items || [], gst_config: gstCfg || [] }
+      setOrder(orderData)
+      setPaidAmountInput(orderData.paid_amount > 0 ? String(orderData.paid_amount) : '')
     } catch (err) {
       setError(err.message)
     } finally {
@@ -34,17 +41,18 @@ export default function Invoice() {
 
   async function updatePayment(status, autoAmount) {
     // If marking PAID with no amount entered, default to the order grand total
-    const paid = autoAmount != null ? autoAmount : (parseFloat(paidAmountInput) || 0)
+    const amount = autoAmount != null ? autoAmount : (parseFloat(paidAmountInput) || 0)
     try {
-      const res = await fetch(`/orders/${orderId}/payment`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payment_status: status, paid_amount: paid }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Update failed')
-      showToast('✅ Payment status updated')
-      loadOrder()
+      const newPaid = (parseFloat(order.paid_amount) || 0) + parseFloat(amount)
+      const orderTotal = order.items.reduce((s, i) => s + (i.line_total || 0), 0)
+      const newStatus = status === 'CANCELLED' ? 'CANCELLED' : (newPaid >= orderTotal ? 'PAID' : (status || 'PARTIAL'))
+      const { error } = await db.transactions().from('vbak').update({
+        paid_amount: newPaid,
+        payment_status: newStatus,
+      }).eq('order_id', order.order_id)
+      if (error) { showToast(error.message, 'error'); return }
+      await loadOrder(order.order_id)
+      showToast('Payment recorded', 'success')
     } catch (err) {
       showToast('❌ ' + err.message, 'error')
     }
