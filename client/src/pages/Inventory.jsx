@@ -2,23 +2,32 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
+import { db } from '../lib/supabase'
 
 const GENDERS = ['Male', 'Female', 'Unisex']
 const fmt = n => '₹' + parseFloat(n || 0).toFixed(2)
 
 // ── Category cascade hook ───────────────────────────────────────────────────
 function useCategoryData() {
-  const [catData, setCatData] = useState(null) // full L3 data from /category-l3
-  const [categories, setCategories] = useState({}) // from /categories
+  const [catData, setCatData] = useState(null) // full L3 data from category_l3
+  const [categories, setCategories] = useState({}) // from categories table
 
   const loadAll = useCallback(async () => {
     try {
-      const [catsRes, l3Res] = await Promise.all([
-        fetch('/categories'),
-        fetch('/category-l3'),
+      const [{ data: catsRaw, error: catsErr }, { data: l3Raw, error: l3Err }] = await Promise.all([
+        db.inventory().from('categories').select('*').order('category'),
+        db.inventory().from('category_l3').select('*').order('category'),
       ])
-      setCategories(await catsRes.json())
-      setCatData(await l3Res.json())
+      if (catsErr) throw catsErr
+      if (l3Err) throw l3Err
+      // Transform categories array into grouped object: { category: [subcategory rows] }
+      const grouped = {}
+      ;(catsRaw || []).forEach(row => {
+        if (!grouped[row.category]) grouped[row.category] = []
+        grouped[row.category].push(row)
+      })
+      setCategories(grouped)
+      setCatData(l3Raw || [])
     } catch {}
   }, [])
 
@@ -29,7 +38,10 @@ function useCategoryData() {
 function useBrands() {
   const [brands, setBrands] = useState([])
   const load = useCallback(async () => {
-    try { const r = await fetch('/brands'); setBrands(await r.json()) } catch {}
+    try {
+      const { data, error } = await db.inventory().from('brands').select('name').order('name')
+      if (!error) setBrands(data || [])
+    } catch {}
   }, [])
   useEffect(() => { load() }, [load])
   return [brands, load]
@@ -38,7 +50,10 @@ function useBrands() {
 function useColors() {
   const [colors, setColors] = useState([])
   const load = useCallback(async () => {
-    try { const r = await fetch('/colors'); setColors(await r.json()) } catch {}
+    try {
+      const { data, error } = await db.inventory().from('colors').select('name,hex').order('name')
+      if (!error) setColors(data || [])
+    } catch {}
   }, [])
   useEffect(() => { load() }, [load])
   return [colors, load]
@@ -47,7 +62,10 @@ function useColors() {
 function useFits() {
   const [fits, setFits] = useState([])
   const load = useCallback(async () => {
-    try { const r = await fetch('/fits'); setFits(await r.json()) } catch {}
+    try {
+      const { data, error } = await db.inventory().from('fits').select('name').order('name')
+      if (!error) setFits(data || [])
+    } catch {}
   }, [])
   useEffect(() => { load() }, [load])
   return [fits, load]
@@ -56,7 +74,10 @@ function useFits() {
 function useMaterialTypes() {
   const [materialTypes, setMaterialTypes] = useState([])
   const load = useCallback(async () => {
-    try { const r = await fetch('/material-types'); setMaterialTypes(await r.json()) } catch {}
+    try {
+      const { data, error } = await db.inventory().from('material_types').select('*').order('name')
+      if (!error) setMaterialTypes(data || [])
+    } catch {}
   }, [])
   useEffect(() => { load() }, [load])
   return [materialTypes, load]
@@ -65,7 +86,10 @@ function useMaterialTypes() {
 function useBodyTypes() {
   const [bodyTypes, setBodyTypes] = useState([])
   const load = useCallback(async () => {
-    try { const r = await fetch('/body-types'); setBodyTypes(await r.json()) } catch {}
+    try {
+      const { data, error } = await db.inventory().from('body_types').select('*').order('name')
+      if (!error) setBodyTypes(data || [])
+    } catch {}
   }, [])
   useEffect(() => { load() }, [load])
   return [bodyTypes, load]
@@ -74,7 +98,10 @@ function useBodyTypes() {
 function useGstConfig() {
   const [gstConfig, setGstConfig] = useState([])
   const load = useCallback(async () => {
-    try { const r = await fetch('/gst-config'); setGstConfig(await r.json()) } catch {}
+    try {
+      const { data, error } = await db.pricing().from('gst_config').select('*').order('tax_category')
+      if (!error) setGstConfig(data || [])
+    } catch {}
   }, [])
   useEffect(() => { load() }, [load])
   return [gstConfig, load]
@@ -122,9 +149,11 @@ function AddTab({ onAdded }) {
 
   const loadNextMatnr = useCallback(async () => {
     try {
-      const r = await fetch('/next-matnr')
-      const d = await r.json()
-      setNextMatnr(d.matnr || '—')
+      const { data, error } = await db.inventory().from('mara').select('matnr').order('matnr', { ascending: false }).limit(1)
+      if (error) throw error
+      const maxNum = data?.[0] ? parseInt(data[0].matnr) : 99999
+      const next = String(maxNum + 1).padStart(6, '0')
+      setNextMatnr(next)
     } catch { setNextMatnr('Auto') }
   }, [])
 
@@ -149,29 +178,44 @@ function AddTab({ onAdded }) {
     if (!form.brand) return showToast('Brand is required', 'error')
     if (!form.category) return showToast('Category is required', 'error')
     try {
-      const res = await fetch('/addinventory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+      // Compute next matnr
+      const { data: matnrData, error: matnrErr } = await db.inventory().from('mara').select('matnr').order('matnr', { ascending: false }).limit(1)
+      if (matnrErr) throw matnrErr
+      const maxNum = matnrData?.[0] ? parseInt(matnrData[0].matnr) : 99999
+      const newMatnr = String(maxNum + 1).padStart(6, '0')
+
+      const { error } = await db.inventory().from('mara').insert({
+        matnr: newMatnr,
+        brand: form.brand,
+        brandfamily: form.brandfamily,
+        size: form.size,
+        quantity: parseInt(form.quantity) || 0,
+        price: parseFloat(form.price) || 0,
+        cost_price: parseFloat(form.cost_price) || 0,
+        mrp: parseFloat(form.mrp) || 0,
+        gender: form.gender,
+        category: form.category,
+        subcategory: form.subcategory,
+        subsubcategory: form.subsubcategory || null,
+        color: form.color,
+        fit: form.fit,
+        tax_category: form.tax_category,
+        material_type: form.material_type || null,
+        body_type: form.body_type || null,
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to add item')
-      const newMatnr = data.matnr
+      if (error) { showToast(error.message, 'error'); return }
 
       // Auto-create a sales price entry if the user provided one
       if (form.sales_price && parseFloat(form.sales_price) > 0) {
         const today = new Date().toISOString().slice(0, 10)
-        await fetch('/pricing/sales-price', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            matnr: newMatnr,
-            unit_price: parseFloat(form.sales_price),
-            valid_from: today,
-            valid_to: '12319999',
-          }),
+        const { error: spErr } = await db.pricing().from('sales_price').insert({
+          matnr: newMatnr,
+          unit_price: parseFloat(form.sales_price),
+          valid_from: today,
+          valid_to: '12319999',
         })
-        showToast(`✅ ${form.brand} saved (${newMatnr}) — redirecting to pricing`)
+        if (spErr) showToast('Item saved but sales price failed: ' + spErr.message, 'error')
+        else showToast(`✅ ${form.brand} saved (${newMatnr}) — redirecting to pricing`)
       } else {
         showToast(`✅ ${form.brand} saved (${newMatnr}) — set sales price now`)
       }
@@ -337,9 +381,9 @@ function ViewTab({ editMatnr }) {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch('/inventory')
-      if (!res.ok) throw new Error()
-      setAllData(await res.json())
+      const { data, error } = await db.inventory().from('mara').select('*').order('matnr')
+      if (error) { showToast('❌ Could not load inventory', 'error'); return }
+      setAllData(data || [])
     } catch {
       showToast('❌ Could not load inventory', 'error')
     } finally {
@@ -359,9 +403,8 @@ function ViewTab({ editMatnr }) {
   async function deleteItem(matnr) {
     if (!confirm(`Delete item ${matnr}? This cannot be undone.`)) return
     try {
-      const res = await fetch(`/inventory/${matnr}`, { method: 'DELETE' })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
+      const { error } = await db.inventory().from('mara').delete().eq('matnr', matnr)
+      if (error) { showToast(`❌ ${error.message}`, 'error'); return }
       showToast(`🗑️ ${matnr} deleted`)
       loadData()
     } catch (err) {
@@ -510,13 +553,20 @@ function EditItemModal({ item, catData, categories, brands, colors, fits, materi
 
   async function save() {
     try {
-      const res = await fetch(`/inventory/${item.matnr}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Update failed')
+      const { error } = await db.inventory().from('mara').update({
+        brand: form.brand,
+        size: form.size,
+        quantity: parseInt(form.quantity),
+        price: parseFloat(form.price),
+        cost_price: parseFloat(form.cost_price),
+        mrp: parseFloat(form.mrp),
+        color: form.color,
+        fit: form.fit,
+        tax_category: form.tax_category,
+        body_type: form.body_type || null,
+        material_type: form.material_type || null,
+      }).eq('matnr', item.matnr)
+      if (error) { showToast(`❌ ${error.message}`, 'error'); return }
       showToast(`✅ ${item.matnr} updated!`)
       onSaved()
       onClose()
@@ -665,83 +715,133 @@ function ConfigTab() {
   const [newL3, setNewL3] = useState({ category: '', subcategory: '', name: '', sizes: '' })
 
   const loadReturnReasons = useCallback(async () => {
-    try { const r = await fetch('/return-reasons'); setReturnReasons(await r.json()) } catch {}
+    try {
+      const { data, error } = await db.transactions().from('return_reasons').select('*').eq('active', 1).order('reason')
+      if (!error) setReturnReasons(data || [])
+    } catch {}
   }, [])
 
   const loadL3 = useCallback(async () => {
-    try { const r = await fetch('/category-l3'); setL3Data(await r.json()) } catch {}
+    try {
+      const { data, error } = await db.inventory().from('category_l3').select('*').order('category')
+      if (!error) setL3Data(data || [])
+    } catch {}
   }, [])
 
   useEffect(() => { loadReturnReasons(); loadL3() }, [loadReturnReasons, loadL3])
 
-  async function api(path, method, body) {
-    const res = await fetch(path, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || 'Request failed')
-    return data
-  }
-
   async function addBrand() {
     if (!newBrand.trim()) return
-    try { await api('/brands', 'POST', { name: newBrand.trim() }); setNewBrand(''); reloadBrands() } catch (e) { showToast('❌ ' + e.message, 'error') }
+    try {
+      const { error } = await db.inventory().from('brands').insert({ name: newBrand.trim() })
+      if (error) throw error
+      setNewBrand('')
+      reloadBrands()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
   async function removeBrand(id) {
-    try { await api(`/brands/${id}`, 'DELETE', {}); reloadBrands() } catch (e) { showToast('❌ ' + e.message, 'error') }
+    try {
+      const { error } = await db.inventory().from('brands').delete().eq('id', id)
+      if (error) throw error
+      reloadBrands()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   async function addColor() {
     if (!newColorName.trim()) return
-    try { await api('/colors', 'POST', { name: newColorName.trim(), hex: newColorHex }); setNewColorName(''); reloadColors() } catch (e) { showToast('❌ ' + e.message, 'error') }
+    try {
+      const { error } = await db.inventory().from('colors').insert({ name: newColorName.trim(), hex: newColorHex })
+      if (error) throw error
+      setNewColorName('')
+      reloadColors()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
   async function removeColor(id) {
-    try { await api(`/colors/${id}`, 'DELETE', {}); reloadColors() } catch (e) { showToast('❌ ' + e.message, 'error') }
+    try {
+      const { error } = await db.inventory().from('colors').delete().eq('id', id)
+      if (error) throw error
+      reloadColors()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   async function addFit() {
     if (!newFit.trim()) return
-    try { await api('/fits', 'POST', { name: newFit.trim() }); setNewFit(''); reloadFits() } catch (e) { showToast('❌ ' + e.message, 'error') }
+    try {
+      const { error } = await db.inventory().from('fits').insert({ name: newFit.trim() })
+      if (error) throw error
+      setNewFit('')
+      reloadFits()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
   async function removeFit(id) {
-    try { await api(`/fits/${id}`, 'DELETE', {}); reloadFits() } catch (e) { showToast('❌ ' + e.message, 'error') }
+    try {
+      const { error } = await db.inventory().from('fits').delete().eq('id', id)
+      if (error) throw error
+      reloadFits()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   async function addMaterialType() {
     if (!newMaterialType.trim()) return
-    try { await api('/material-types', 'POST', { name: newMaterialType.trim() }); setNewMaterialType(''); reloadMaterialTypes() } catch (e) { showToast('❌ ' + e.message, 'error') }
+    try {
+      const { error } = await db.inventory().from('material_types').insert({ name: newMaterialType.trim() })
+      if (error) throw error
+      setNewMaterialType('')
+      reloadMaterialTypes()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
   async function removeMaterialType(id) {
-    try { await api(`/material-types/${id}`, 'DELETE', {}); reloadMaterialTypes() } catch (e) { showToast('❌ ' + e.message, 'error') }
+    try {
+      const { error } = await db.inventory().from('material_types').delete().eq('id', id)
+      if (error) throw error
+      reloadMaterialTypes()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   async function addBodyType() {
     if (!newBodyType.trim()) return
-    try { await api('/body-types', 'POST', { name: newBodyType.trim() }); setNewBodyType(''); reloadBodyTypes() } catch (e) { showToast('❌ ' + e.message, 'error') }
+    try {
+      const { error } = await db.inventory().from('body_types').insert({ name: newBodyType.trim() })
+      if (error) throw error
+      setNewBodyType('')
+      reloadBodyTypes()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
   async function removeBodyType(id) {
-    try { await api(`/body-types/${id}`, 'DELETE', {}); reloadBodyTypes() } catch (e) { showToast('❌ ' + e.message, 'error') }
+    try {
+      const { error } = await db.inventory().from('body_types').delete().eq('id', id)
+      if (error) throw error
+      reloadBodyTypes()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   async function addReturnReason() {
     if (!newReturnReason.trim()) return
-    try { await api('/return-reasons', 'POST', { reason: newReturnReason.trim() }); setNewReturnReason(''); loadReturnReasons() } catch (e) { showToast('❌ ' + e.message, 'error') }
+    try {
+      const { error } = await db.transactions().from('return_reasons').insert({ reason: newReturnReason.trim() })
+      if (error) throw error
+      setNewReturnReason('')
+      loadReturnReasons()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
   async function removeReturnReason(id) {
-    try { await api(`/return-reasons/${id}`, 'DELETE', {}); loadReturnReasons() } catch (e) { showToast('❌ ' + e.message, 'error') }
+    try {
+      const { error } = await db.transactions().from('return_reasons').delete().eq('id', id)
+      if (error) throw error
+      loadReturnReasons()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   async function addGst() {
     if (!newGst.tax_category || !newGst.gst_rate) return showToast('Category name and rate required', 'error')
     try {
-      await api('/gst-config', 'POST', {
+      const { error } = await db.pricing().from('gst_config').insert({
         tax_category: newGst.tax_category,
         gst_rate: parseFloat(newGst.gst_rate),
         valid_from: newGst.valid_from || new Date().toISOString().split('T')[0],
         valid_to: newGst.valid_to || '12319999',
       })
+      if (error) throw error
       setNewGst({ tax_category: '', gst_rate: '', valid_from: '', valid_to: '' })
       reloadGst()
     } catch (e) { showToast('❌ ' + e.message, 'error') }
@@ -751,7 +851,8 @@ function ConfigTab() {
     if (!newCatName.trim()) return showToast('Category name is required', 'error')
     if (!newCatFirstSub.trim()) return showToast('First sub-category name is required', 'error')
     try {
-      await api('/categories/new', 'POST', { category: newCatName.trim(), subcategory: newCatFirstSub.trim() })
+      const { error } = await db.inventory().from('categories').insert({ category: newCatName.trim(), subcategory: newCatFirstSub.trim() })
+      if (error) throw error
       setNewCatName('')
       setNewCatFirstSub('')
       reloadCats()
@@ -760,25 +861,44 @@ function ConfigTab() {
 
   async function addSubCategory() {
     if (!newSubCat.trim() || !newSubCatParent) return showToast('Select parent category', 'error')
-    try { await api('/categories', 'POST', { category: newSubCatParent, subcategory: newSubCat.trim() }); setNewSubCat(''); reloadCats() } catch (e) { showToast('❌ ' + e.message, 'error') }
+    try {
+      const { error } = await db.inventory().from('categories').insert({ category: newSubCatParent, subcategory: newSubCat.trim() })
+      if (error) throw error
+      setNewSubCat('')
+      reloadCats()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   async function addL3() {
     if (!newL3.category || !newL3.subcategory || !newL3.name) return showToast('Category, Sub-Category and name required', 'error')
     try {
-      await api('/category-l3', 'POST', { category: newL3.category, subcategory: newL3.subcategory, subsubcategory: newL3.name, sizes: newL3.sizes })
+      const { error } = await db.inventory().from('category_l3').insert({
+        category: newL3.category,
+        subcategory: newL3.subcategory,
+        subsubcategory: newL3.name,
+        sizes: newL3.sizes,
+      })
+      if (error) throw error
       setNewL3({ category: '', subcategory: '', name: '', sizes: '' })
       loadL3()
     } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   async function updateL3Sizes(id, sizes) {
-    try { await api(`/category-l3/${id}`, 'PUT', { sizes }); loadL3() } catch (e) { showToast('❌ ' + e.message, 'error') }
+    try {
+      const { error } = await db.inventory().from('category_l3').update({ sizes }).eq('id', id)
+      if (error) throw error
+      loadL3()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   async function removeL3(id) {
     if (!confirm('Remove this sub-sub-category?')) return
-    try { await api(`/category-l3/${id}`, 'DELETE', {}); loadL3() } catch (e) { showToast('❌ ' + e.message, 'error') }
+    try {
+      const { error } = await db.inventory().from('category_l3').delete().eq('id', id)
+      if (error) throw error
+      loadL3()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   const l3SubsForForm = newL3.category && categories[newL3.category] ? categories[newL3.category] : []
@@ -1093,14 +1213,31 @@ function UploadTab() {
         fail++; continue
       }
       try {
-        const res = await fetch('/addinventory', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(obj),
+        // Compute next matnr for this row
+        const { data: matnrData, error: matnrErr } = await db.inventory().from('mara').select('matnr').order('matnr', { ascending: false }).limit(1)
+        if (matnrErr) throw matnrErr
+        const maxNum = matnrData?.[0] ? parseInt(matnrData[0].matnr) : 99999
+        const newMatnr = String(maxNum + 1).padStart(6, '0')
+
+        const { error } = await db.inventory().from('mara').insert({
+          matnr: newMatnr,
+          brand: obj.brand,
+          brandfamily: obj.brandfamily || null,
+          gender: obj.gender || null,
+          category: obj.category,
+          subcategory: obj.subcategory || null,
+          subsubcategory: obj.subsubcategory || null,
+          size: obj.size || null,
+          fit: obj.fit || null,
+          color: obj.color || null,
+          tax_category: obj.tax_category || null,
+          quantity: 0,
+          price: 0,
+          cost_price: 0,
+          mrp: 0,
         })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || 'Server error')
-        addLog(`Row ${i + 2}: ✅ ${obj.brand} (${data.matnr})`, 'success')
+        if (error) throw error
+        addLog(`Row ${i + 2}: ✅ ${obj.brand} (${newMatnr})`, 'success')
         ok++
       } catch (err) {
         addLog(`Row ${i + 2}: ❌ ${err.message}`, 'error')
