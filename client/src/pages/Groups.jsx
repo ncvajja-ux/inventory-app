@@ -27,7 +27,7 @@ function useCustomerSearch() {
       const { data } = await db.customers().from('kna1').select('kunnr, name, number')
         .or(`name.ilike.%${q}%,number.ilike.%${q}%`).limit(10)
       setResults(data || [])
-    } catch {}
+    } catch (err) { console.error('Failed to search customers:', err.message) }
   }, [])
   return [results, search, () => setResults([])]
 }
