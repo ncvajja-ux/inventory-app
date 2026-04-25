@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom'
 import { ToastProvider } from './components/Toast'
 import { ThemeProvider } from './components/ThemeContext'
 import LockScreen from './components/LockScreen'
+import { supabase } from './lib/supabase'
 import LandingPage from './pages/LandingPage'
 import Customers from './pages/Customers'
 import CustomerDetail from './pages/CustomerDetail'
@@ -40,22 +41,26 @@ export default function App() {
   const [isLocked, setIsLocked] = useState(null)
 
   useEffect(() => {
-    try {
-      if (sessionStorage.getItem('app_unlocked') === '1') {
-        setIsLocked(false)
-        return
-      }
-    } catch {}
-    // No password configured = don't lock
-    const pwd = import.meta.env.VITE_APP_PASSWORD
-    setIsLocked(!!pwd)
+    // Check for existing Supabase session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsLocked(!session)
+    }).catch(() => {
+      setIsLocked(true)
+    })
+
+    // React to sign-in and sign-out
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsLocked(!session)
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
   return (
     <ThemeProvider>
       <ToastProvider>
         {isLocked === null ? null : isLocked ? (
-          <LockScreen onUnlock={() => setIsLocked(false)} />
+          <LockScreen />
         ) : (
           <AppRoutes />
         )}

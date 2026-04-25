@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
+import { supabase } from '../lib/supabase'
 
 export default function LockScreen({ onUnlock }) {
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -9,15 +11,12 @@ export default function LockScreen({ onUnlock }) {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!password || loading) return
+    if (!email || !password || loading) return
     setLoading(true)
     setError('')
-    const expected = import.meta.env.VITE_APP_PASSWORD || ''
-    if (password === expected) {
-      try { sessionStorage.setItem('app_unlocked', '1') } catch {}
-      onUnlock()
-    } else {
-      setError('Incorrect password')
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) {
+      setError(error.message)
       setShake(true)
       setPassword('')
       setTimeout(() => { setShake(false); inputRef.current?.focus() }, 600)
@@ -92,6 +91,38 @@ export default function LockScreen({ onUnlock }) {
 
         {/* Lock form */}
         <form onSubmit={handleSubmit}>
+          {/* Email input */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{
+              background: '#1a1a1a',
+              border: `1px solid ${error ? '#f87171' : '#2e2e2e'}`,
+              borderRadius: 10,
+              padding: '12px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              transition: 'border-color 0.2s',
+            }}>
+              <span style={{ fontSize: 16, flexShrink: 0 }}>✉️</span>
+              <input
+                type="email"
+                value={email}
+                onChange={e => { setEmail(e.target.value); setError('') }}
+                placeholder="Email address"
+                autoFocus
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  color: '#e8e8e8',
+                  fontFamily: "'DM Sans', sans-serif",
+                  fontSize: 15,
+                  width: '100%',
+                }}
+              />
+            </div>
+          </div>
+
           {/* Password input */}
           <div style={{
             animation: shake ? 'lock-shake 0.5s cubic-bezier(0.36,0.07,0.19,0.97)' : 'none',
@@ -114,7 +145,6 @@ export default function LockScreen({ onUnlock }) {
                 value={password}
                 onChange={e => { setPassword(e.target.value); setError('') }}
                 placeholder="Enter password"
-                autoFocus
                 style={{
                   background: 'transparent',
                   border: 'none',
@@ -142,12 +172,12 @@ export default function LockScreen({ onUnlock }) {
           {/* Unlock button */}
           <button
             type="submit"
-            disabled={loading || !password}
+            disabled={loading || !email || !password}
             style={{
               width: '100%',
               padding: '13px 24px',
-              background: loading || !password ? '#3a3020' : '#c9a84c',
-              color: loading || !password ? '#7a6230' : '#0f0f0f',
+              background: loading || !email || !password ? '#3a3020' : '#c9a84c',
+              color: loading || !email || !password ? '#7a6230' : '#0f0f0f',
               border: 'none',
               borderRadius: 8,
               fontFamily: "'DM Sans', sans-serif",
@@ -155,7 +185,7 @@ export default function LockScreen({ onUnlock }) {
               fontWeight: 700,
               letterSpacing: '0.1em',
               textTransform: 'uppercase',
-              cursor: loading || !password ? 'not-allowed' : 'pointer',
+              cursor: loading || !email || !password ? 'not-allowed' : 'pointer',
               transition: 'all 0.2s',
             }}
           >
