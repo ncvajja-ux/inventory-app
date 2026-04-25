@@ -1,12 +1,16 @@
 import { useState, useEffect, useCallback } from 'react'
 import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
+import { db } from '../lib/supabase'
 
 // ─── hooks ────────────────────────────────────────────────────────────────────
 function useGroups() {
   const [groups, setGroups] = useState([])
   const load = useCallback(async () => {
-    try { setGroups(await (await fetch('/groups')).json()) } catch {}
+    try {
+      const { data } = await db.groups().from('customer_groups').select('*').order('name')
+      setGroups(data || [])
+    } catch {}
   }, [])
   useEffect(() => { load() }, [load])
   return [groups, load]
@@ -16,7 +20,11 @@ function useCustomerSearch() {
   const [results, setResults] = useState([])
   const search = useCallback(async (q) => {
     if (!q || q.length < 2) { setResults([]); return }
-    try { setResults(await (await fetch(`/customers?q=${encodeURIComponent(q)}`)).json()) } catch {}
+    try {
+      const { data } = await db.customers().from('kna1').select('kunnr, name, number')
+        .or(`name.ilike.%${q}%,number.ilike.%${q}%`).limit(10)
+      setResults(data || [])
+    } catch {}
   }, [])
   return [results, search, () => setResults([])]
 }
@@ -32,37 +40,38 @@ function GroupCard({ group, onRefresh, showToast }) {
   const [results,  search, clearResults] = useCustomerSearch()
 
   const loadMembers = useCallback(async () => {
-    try { setMembers(await (await fetch(`/groups/${group.group_id}/members`)).json()) } catch {}
+    try {
+      const { data } = await db.groups().from('group_members').select('kunnr').eq('group_id', group.group_id)
+      const kunnrs = data?.map(m => m.kunnr) || []
+      const { data: custs } = kunnrs.length
+        ? await db.customers().from('kna1').select('kunnr, name, number').in('kunnr', kunnrs)
+        : { data: [] }
+      setMembers(custs || [])
+    } catch {}
   }, [group.group_id])
 
   useEffect(() => { if (expanded) loadMembers() }, [expanded, loadMembers])
 
   async function removeMember(kunnr) {
-    await fetch(`/groups/${group.group_id}/members/${kunnr}`, { method: 'DELETE' })
+    await db.groups().from('group_members').delete().eq('group_id', group.group_id).eq('kunnr', kunnr)
     loadMembers(); onRefresh()
   }
 
   async function addMember(kunnr) {
-    await fetch(`/groups/${group.group_id}/members`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kunnr }),
-    })
+    await db.groups().from('group_members').insert({ group_id: group.group_id, kunnr })
     setAddQ(''); clearResults(); loadMembers(); onRefresh()
   }
 
   async function saveEdit() {
     if (!editName.trim()) return
-    await fetch(`/groups/${group.group_id}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: editName.trim(), notes: editNotes.trim() || null }),
-    })
+    await db.groups().from('customer_groups').update({ name: editName.trim(), notes: editNotes.trim() || null }).eq('group_id', group.group_id)
     setEditing(false); onRefresh()
     showToast('Group updated', 'success')
   }
 
   async function deleteGroup() {
     if (!window.confirm(`Delete "${group.name}" and remove all its members?`)) return
-    await fetch(`/groups/${group.group_id}`, { method: 'DELETE' })
+    await db.groups().from('customer_groups').delete().eq('group_id', group.group_id)
     onRefresh(); showToast('Group deleted', 'success')
   }
 
@@ -208,13 +217,10 @@ function NewGroupTab({ onCreated, showToast }) {
     if (!name.trim()) return
     setSaving(true)
     try {
-      const r = await fetch('/groups', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), notes: notes.trim() || null }),
-      })
-      const d = await r.json()
-      if (d.group_id) { setName(''); setNotes(''); onCreated(); showToast(`Group "${name.trim()}" created`, 'success') }
-      else showToast('Failed to create group', 'error')
+      const { error } = await db.groups().from('customer_groups')
+        .insert({ group_id: crypto.randomUUID().slice(0, 8), name: name.trim(), notes: notes.trim() || null })
+      if (error) { showToast(error.message, 'error'); return }
+      setName(''); setNotes(''); onCreated(); showToast(`Group "${name.trim()}" created`, 'success')
     } finally { setSaving(false) }
   }
 
