@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
+import { db, supabase } from '../lib/supabase'
 
 const fmt = n => '₹' + parseFloat(n || 0).toFixed(2)
 const fmtD = s => s ? new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
@@ -116,26 +117,27 @@ function NewOrderTab() {
   // Restore customer from URL when navigating back
   useEffect(() => {
     if (urlKunnr && !customer) {
-      fetch(`/customers/${urlKunnr}`)
-        .then(r => r.json())
-        .then(c => { if (!c.error) setCustomer(c) })
+      db.customers().from('kna1').select('*').eq('kunnr', urlKunnr).single()
+        .then(({ data: custData }) => { if (custData) setCustomer(custData) })
         .catch(() => {})
     }
   }, [urlKunnr]) // eslint-disable-line
 
-  // Restore cart from server temp when navigating back to step 2 or 3
   useEffect(() => {
-    if (urlKunnr && step >= 2 && cart.length === 0) {
-      fetch(`/order/temp/${urlKunnr}`)
-        .then(r => r.json())
-        .then(order => { if (order?.items?.length) setCart(order.items) })
-        .catch(() => {})
+    async function loadFilters() {
+      try {
+        const [{ data: catData }, { data: brandData }] = await Promise.all([
+          db.inventory().from('categories').select('*'),
+          db.inventory().from('brands').select('name'),
+        ])
+        // Build categories map keyed by name for filter dropdown
+        const catMap = {}
+        ;(catData || []).forEach(c => { catMap[c.name] = c })
+        setCategories(catMap)
+        setBrands(brandData || [])
+      } catch { /* non-blocking */ }
     }
-  }, [urlKunnr, step]) // eslint-disable-line
-
-  useEffect(() => {
-    fetch('/categories').then(r => r.json()).then(setCategories).catch(() => {})
-    fetch('/brands').then(r => r.json()).then(setBrands).catch(() => {})
+    loadFilters()
   }, [])
 
   // Load products whenever step 2 is shown (direct URL load, back navigation, or fresh select)
@@ -146,16 +148,17 @@ function NewOrderTab() {
   async function loadProducts() {
     try {
       const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-      const [invRes, spRes, pdRes, gstRes] = await Promise.all([
-        fetch('/inventory'),
-        fetch('/pricing/sales-price'),
-        fetch('/pricing/product-discount'),
-        fetch('/gst-config'),
+      const [
+        { data: invData },
+        { data: spData },
+        { data: pdData },
+        { data: gstData },
+      ] = await Promise.all([
+        db.inventory().from('mara').select('*').gt('quantity', 0).order('brand'),
+        db.pricing().from('sales_price').select('*'),
+        db.pricing().from('product_discount').select('*'),
+        db.pricing().from('gst_config').select('*'),
       ])
-      const invData = await invRes.json()
-      const spData  = spRes.ok  ? await spRes.json()  : []
-      const pdData  = pdRes.ok  ? await pdRes.json()  : []
-      const gstData = gstRes.ok ? await gstRes.json() : []
 
       // Build map: tax_category -> gst_rate (take the active/latest valid entry)
       const gstMap = {}
@@ -208,7 +211,7 @@ function NewOrderTab() {
       }))
       setAllInventory(enriched)
       setProducts(enriched)
-    } catch { showToast('Could not load products', 'error') }
+    } catch (err) { showToast(err.message || 'Could not load products', 'error') }
   }
 
   useEffect(() => {
@@ -223,8 +226,11 @@ function NewOrderTab() {
   }, [filterCat, filterBrand, productSearch, allInventory])
 
   async function searchCustomers(q) {
-    try { return await fetch(`/customers/search?q=${encodeURIComponent(q)}`).then(r => r.json()) }
-    catch { return [] }
+    try {
+      const { data } = await db.customers().from('kna1').select('kunnr, name, number')
+        .or(`name.ilike.%${q}%,number.ilike.%${q}%,kunnr.ilike.%${q}%`).limit(10)
+      return data || []
+    } catch { return [] }
   }
 
   // Navigate to a wizard step — pushes a browser history entry
@@ -239,20 +245,13 @@ function NewOrderTab() {
   async function selectCustomer(c) {
     setCustomer(c)
     setCart([])
-    // Clear any stale temp cart for this customer
-    await fetch(`/order/temp/${c.kunnr}/clear`, { method: 'DELETE' }).catch(() => {})
     // Fetch customer discount
     try {
-      const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-      const cdRes = await fetch(`/pricing/customer-discount`)
-      const cdData = cdRes.ok ? await cdRes.json() : []
-      const custDisc = (cdData || []).find(d => {
-        if (d.kunnr !== c.kunnr) return false
-        const from = (d.valid_from || '').replace(/-/g, '')
-        const to   = (d.valid_to  || '12319999').replace(/-/g, '')
-        return today >= from && today <= to
-      })
-      setCustDiscountPct(custDisc ? parseFloat(custDisc.discount_pct) : 0)
+      const today = new Date().toISOString().split('T')[0]
+      const { data: cdRows } = await db.pricing().from('customer_discount').select('*')
+        .eq('kunnr', c.kunnr).lte('valid_from', today).or(`valid_to.is.null,valid_to.gte.${today}`)
+        .order('valid_from', { ascending: false }).limit(1)
+      setCustDiscountPct(cdRows?.[0]?.discount_pct || 0)
     } catch { setCustDiscountPct(0) }
     goStep(2, c.kunnr)
     loadProducts()
@@ -296,27 +295,21 @@ function NewOrderTab() {
       const conflictMsgs = []
       await Promise.all(entries.map(async ([matnr]) => {
         try {
-          const cc = await fetch(`/groups/conflict-check?kunnr=${kunnr}&matnr=${encodeURIComponent(matnr)}`).then(r => r.json())
-          if (cc.exactMatch?.length) cc.exactMatch.forEach(m => conflictMsgs.push(`⚠️ ${m.name} (${m.group_name}) already bought ${productMap[matnr]?.brand} ${matnr}`))
-          if (cc.styleMatch?.length)  cc.styleMatch.forEach(m  => conflictMsgs.push(`⚠️ ${m.name} (${m.group_name}) bought similar ${m.brand} ${m.category}`))
+          const { data: ccData } = await supabase.rpc('conflict_check', { p_kunnr: kunnr, p_matnr: matnr })
+          if (ccData?.[0]?.has_conflict) {
+            conflictMsgs.push(`⚠️ ${ccData[0].buyer_name} (${ccData[0].group_name}) already bought ${productMap[matnr]?.brand} ${matnr}`)
+          }
         } catch { /* non-blocking */ }
       }))
       if (conflictMsgs.length) showToast([...new Set(conflictMsgs)].join('\n'), 'warning')
     }
 
-    // Add every selected item to the server temp cart + local state
+    // Add every selected item to local cart state only (no server temp cart)
     let added = 0
-    await Promise.all(entries.map(async ([matnr, qty]) => {
+    entries.forEach(([matnr, qty]) => {
       const p = productMap[matnr]
       const sp = p.sales_price ?? p.mrp ?? 0
       const pdPct = p.prod_discount_pct || prodDiscounts[matnr] || 0
-      try {
-        await fetch(`/order/temp/${kunnr}/add`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ matnr, quantity: qty, price: sp, mrp: p.mrp || sp, discount_pct: pdPct, gst_rate: p.gst_rate || 0 }),
-        })
-      } catch { /* non-blocking */ }
       setCart(prev => {
         const idx = prev.findIndex(i => i.matnr === matnr)
         if (idx >= 0) {
@@ -327,35 +320,24 @@ function NewOrderTab() {
         return [...prev, { ...p, sales_price: sp, prod_discount_pct: pdPct, quantity: qty }]
       })
       added++
-    }))
+    })
 
     showToast(`✅ ${added} item${added > 1 ? 's' : ''} added to cart`)
     setSelectedItems({})
   }
 
-  async function updateCartQty(matnr, delta) {
-    const kunnr = customer?.kunnr || urlKunnr
+  function updateCartQty(matnr, delta) {
     const item = cart.find(i => i.matnr === matnr)
     if (!item) return
     const newQty = Math.max(1, item.quantity + delta)
-    // Update server temp cart
-    fetch(`/order/temp/${kunnr}/item/${matnr}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ quantity: newQty }),
-    }).catch(() => {})
     setCart(prev => prev.map(i => i.matnr === matnr ? { ...i, quantity: newQty } : i))
   }
 
-  async function removeFromCart(matnr) {
-    const kunnr = customer?.kunnr || urlKunnr
-    fetch(`/order/temp/${kunnr}/item/${matnr}`, { method: 'DELETE' }).catch(() => {})
+  function removeFromCart(matnr) {
     setCart(prev => prev.filter(i => i.matnr !== matnr))
   }
 
-  async function startNewOrder() {
-    const kunnr = customer?.kunnr || urlKunnr
-    if (kunnr) await fetch(`/order/temp/${kunnr}/clear`, { method: 'DELETE' }).catch(() => {})
+  function startNewOrder() {
     setCart([]); setCustomer(null); setSelectedItems({})
     setOrderForm({ payment_method: '', discount: '', salesperson: '', notes: '' })
     goStep(1)
@@ -384,19 +366,29 @@ function NewOrderTab() {
     const kunnr = customer?.kunnr || urlKunnr
     setPlacing(true)
     try {
-      // Use the server temp cart flow: place the order from temp cart
-      const res = await fetch(`/order/place/${kunnr}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customer_discount_pct: custDiscountPct || 0,
-          manual_discount: parseFloat(orderForm.discount) || 0,
+      const { data: orderId, error } = await supabase.rpc('place_order', {
+        p_kunnr: kunnr,
+        p_items: cart.map(item => {
+          const sp = parseFloat(item.sales_price ?? item.mrp ?? 0)
+          const pdPct = parseFloat(item.prod_discount_pct || prodDiscounts[item.matnr] || 0)
+          const effPrice = sp * (1 - pdPct / 100)
+          const gst = parseFloat(item.gst_rate || 0)
+          return {
+            matnr: item.matnr,
+            quantity: item.quantity,
+            price: effPrice,
+            mrp: item.mrp || 0,
+            discount_pct: pdPct,
+            gst_rate: gst,
+            line_total: effPrice * item.quantity,
+          }
         }),
+        p_customer_discount_pct: custDiscountPct || 0,
+        p_manual_discount: parseFloat(orderForm.discount) || 0,
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to place order')
-      showToast(`✅ Order ${data.order_id} placed!`)
-      navigate(`/invoice?order_id=${data.order_id}`)
+      if (error) { showToast(error.message, 'error'); return }
+      showToast(`✅ Order ${orderId} placed!`)
+      navigate(`/invoice?order_id=${orderId}`)
     } catch (err) {
       showToast(`❌ ${err.message}`, 'error')
     } finally {
@@ -668,14 +660,21 @@ function AllOrdersTab() {
   const loadOrders = useCallback(async () => {
     setLoading(true)
     try {
-      let url = '/orders'
-      const params = new URLSearchParams()
-      if (dateFrom) params.set('from', dateFrom)
-      if (dateTo) params.set('to', dateTo)
-      if (params.toString()) url += '?' + params.toString()
-      const res = await fetch(url)
-      setOrders(await res.json())
-    } catch { showToast('Could not load orders', 'error') } finally { setLoading(false) }
+      let query = db.transactions().from('vbak')
+        .select('order_id, kunnr, status, payment_status, paid_amount, order_type, created_at, vbap(line_total)')
+        .eq('status', 'CONFIRMED')
+        .order('created_at', { ascending: false })
+      if (dateFrom) query = query.gte('created_at', dateFrom)
+      if (dateTo) query = query.lte('created_at', dateTo + 'T23:59:59')
+      const { data, error } = await query
+      if (error) { showToast(error.message, 'error'); return }
+      // Compute order_total from vbap line items
+      const orders = (data || []).map(o => ({
+        ...o,
+        order_total: (o.vbap || []).reduce((s, l) => s + parseFloat(l.line_total || 0), 0),
+      }))
+      setOrders(orders)
+    } catch (err) { showToast(err.message || 'Could not load orders', 'error') } finally { setLoading(false) }
   }, [dateFrom, dateTo, showToast])
 
   useEffect(() => { loadOrders() }, [loadOrders])
@@ -795,31 +794,30 @@ function ReturnsTab() {
   const [retCustDiscPct, setRetCustDiscPct] = useState(0)
 
   useEffect(() => {
-    fetch('/return-reasons').then(r => r.json()).then(d => setReasons(Array.isArray(d) ? d : [])).catch(() => {})
+    db.transactions().from('return_reasons').select('*')
+      .then(({ data }) => setReasons(Array.isArray(data) ? data : []))
+      .catch(() => {})
   }, [])
 
   async function fetchCustDiscForOrder(kunnr, orderDate) {
     try {
-      const cdRes = await fetch('/pricing/customer-discount')
-      const cdData = cdRes.ok ? await cdRes.json() : []
       const day = (orderDate || '').slice(0, 10) // YYYY-MM-DD
-      const rec = cdData.find(d =>
-        d.kunnr === kunnr &&
-        (d.valid_from || '') <= day &&
-        (d.valid_to >= day || d.valid_to === '12319999' || !d.valid_to)
-      )
-      return rec ? parseFloat(rec.discount_pct) : 0
+      const { data: cdRows } = await db.pricing().from('customer_discount').select('*')
+        .eq('kunnr', kunnr).lte('valid_from', day).or(`valid_to.is.null,valid_to.gte.${day}`)
+        .order('valid_from', { ascending: false }).limit(1)
+      return cdRows?.[0]?.discount_pct ? parseFloat(cdRows[0].discount_pct) : 0
     } catch { return 0 }
   }
 
   async function fetchReturnOrder() {
     if (!orderIdInput.trim()) return
     try {
-      const res = await fetch(`/orders/${orderIdInput.trim()}`)
-      if (!res.ok) return showToast('Order not found', 'error')
-      const data = await res.json()
-      // Server returns flat object: { order_id, kunnr, ..., items: [...] }
-      const lines = data.items || []
+      const { data, error } = await db.transactions().from('vbak')
+        .select('*, vbap(*)')
+        .eq('order_id', orderIdInput.trim())
+        .single()
+      if (error || !data) return showToast('Order not found', 'error')
+      const lines = data.vbap || []
       setSelectedOrder(data)
       setOrderLines(lines)
       setReturnItems(lines.map(l => ({ ...l, return_qty: 0, selected: false })))
@@ -830,29 +828,42 @@ function ReturnsTab() {
   }
 
   async function searchReturnCustomer(q) {
-    try { const r = await fetch(`/customers/search?q=${encodeURIComponent(q)}`); return await r.json() } catch { return [] }
+    try {
+      const { data } = await db.customers().from('kna1').select('kunnr, name, number')
+        .or(`name.ilike.%${q}%,number.ilike.%${q}%,kunnr.ilike.%${q}%`).limit(10)
+      return data || []
+    } catch { return [] }
   }
 
   async function searchOrdersForReturn() {
     if (!retKunnr) return showToast('Select a customer first', 'error')
     try {
-      let url = `/customers/${retKunnr}/orders`
-      const p = new URLSearchParams()
-      if (retFrom) p.set('from', retFrom)
-      if (retTo) p.set('to', retTo)
-      if (p.toString()) url += '?' + p.toString()
-      const res = await fetch(url)
-      const data = await res.json()
-      setMatchingOrders(data.filter(o => o.order_type === 'S' && o.payment_status !== 'CANCELLED'))
+      let query = db.transactions().from('vbak')
+        .select('order_id, kunnr, order_type, payment_status, created_at, vbap(line_total)')
+        .eq('kunnr', retKunnr)
+        .eq('order_type', 'S')
+        .eq('status', 'CONFIRMED')
+        .neq('payment_status', 'CANCELLED')
+        .order('created_at', { ascending: false })
+      if (retFrom) query = query.gte('created_at', retFrom)
+      if (retTo) query = query.lte('created_at', retTo + 'T23:59:59')
+      const { data, error } = await query
+      if (error) { showToast(error.message, 'error'); return }
+      setMatchingOrders((data || []).map(o => ({
+        ...o,
+        order_total: (o.vbap || []).reduce((s, l) => s + parseFloat(l.line_total || 0), 0),
+      })))
     } catch { showToast('Search failed', 'error') }
   }
 
   async function selectReturnOrder(orderId) {
     try {
-      const res = await fetch(`/orders/${orderId}`)
-      const data = await res.json()
-      // Server returns flat object: { order_id, kunnr, ..., items: [...] }
-      const lines = data.items || []
+      const { data, error } = await db.transactions().from('vbak')
+        .select('*, vbap(*)')
+        .eq('order_id', orderId)
+        .single()
+      if (error || !data) return showToast('Order not found', 'error')
+      const lines = data.vbap || []
       setSelectedOrder(data)
       setOrderLines(lines)
       setReturnItems(lines.map(l => ({ ...l, return_qty: 0, selected: false })))
@@ -871,26 +882,23 @@ function ReturnsTab() {
 
   async function confirmReturn() {
     const items = returnItems.filter(i => i.selected && i.return_qty > 0)
-    const body = {
-      original_order_id: selectedOrder.order_id,
-      kunnr: selectedOrder.kunnr,
-      return_reason: retReason,
-      notes: retNotes,
-      items: items.map(i => ({
-        matnr: i.matnr,
-        quantity: i.return_qty,
-        price: parseFloat(i.price || i.effective_price || i.sales_price || i.mrp || 0),
-        mrp: parseFloat(i.mrp || 0),
-        discount_pct: parseFloat(i.discount_pct || 0),
-        gst_rate: parseFloat(i.gst_rate || 0),
-      })),
-    }
+    const returnItemsMapped = items.map(i => ({
+      matnr: i.matnr,
+      quantity: i.return_qty,
+      price: parseFloat(i.price || i.effective_price || i.sales_price || i.mrp || 0),
+      mrp: parseFloat(i.mrp || 0),
+      discount_pct: parseFloat(i.discount_pct || 0),
+      gst_rate: parseFloat(i.gst_rate || 0),
+    }))
     try {
-      const res = await fetch('/orders/return', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      showToast(`✅ Return ${data.order_id} created`)
-      navigate(`/invoice?order_id=${data.order_id}`)
+      const { data: retId, error } = await supabase.rpc('place_return', {
+        p_original_order_id: selectedOrder.order_id,
+        p_items: returnItemsMapped,
+        p_reason: retReason,
+      })
+      if (error) { showToast(error.message, 'error'); return }
+      showToast(`✅ Return ${retId} created`)
+      navigate(`/invoice?order_id=${retId}`)
     } catch (err) { showToast(`❌ ${err.message}`, 'error') }
   }
 
@@ -929,7 +937,7 @@ function ReturnsTab() {
             <div style={{ maxWidth: 500 }}>
               <SearchDropdown
                 placeholder="Type order ID or KUNNR to search…"
-                onSearch={async q => { try { return await fetch(`/orders/search?q=${encodeURIComponent(q)}`).then(r => r.json()) } catch { return [] } }}
+                onSearch={async q => { try { const { data } = await db.transactions().from('vbak').select('order_id, kunnr, created_at, vbap(line_total)').or(`order_id.ilike.%${q}%,kunnr.ilike.%${q}%`).eq('order_type', 'S').eq('status', 'CONFIRMED').limit(10); return (data || []).map(o => ({ ...o, order_total: (o.vbap || []).reduce((s,l) => s + parseFloat(l.line_total||0), 0) })) } catch { return [] } }}
                 onSelect={o => selectReturnOrder(o.order_id)}
                 renderItem={o => (
                   <div>
@@ -1160,13 +1168,13 @@ function PricingTab() {
   const [pdEdit, setPdEdit] = useState(null)   // { id, matnr, brand, category, discount_pct, valid_from, valid_to }
 
   const loadSP = useCallback(async () => {
-    try { const r = await fetch('/pricing/sales-price'); setSpData(await r.json()) } catch {}
+    try { const { data } = await db.pricing().from('sales_price').select('*').order('valid_from', { ascending: false }); setSpData(data || []) } catch {}
   }, [])
   const loadCD = useCallback(async () => {
-    try { const r = await fetch('/pricing/customer-discount'); setCdData(await r.json()) } catch {}
+    try { const { data } = await db.pricing().from('customer_discount').select('*').order('kunnr'); setCdData(data || []) } catch {}
   }, [])
   const loadPD = useCallback(async () => {
-    try { const r = await fetch('/pricing/product-discount'); setPdData(await r.json()) } catch {}
+    try { const { data } = await db.pricing().from('product_discount').select('*').order('matnr'); setPdData(data || []) } catch {}
   }, [])
 
   useEffect(() => { loadSP(); loadCD(); loadPD() }, [loadSP, loadCD, loadPD])
@@ -1186,21 +1194,28 @@ function PricingTab() {
   }, []) // eslint-disable-line
 
   async function searchMatnr(q) {
-    try { const r = await fetch(`/inventory/search?q=${encodeURIComponent(q)}`); return await r.json() } catch { return [] }
+    try {
+      const { data } = await db.inventory().from('mara').select('matnr, brand, category')
+        .or(`matnr.ilike.%${q}%,brand.ilike.%${q}%`).limit(10)
+      return data || []
+    } catch { return [] }
   }
   async function searchCust(q) {
-    try { const r = await fetch(`/customers/search?q=${encodeURIComponent(q)}`); return await r.json() } catch { return [] }
+    try {
+      const { data } = await db.customers().from('kna1').select('kunnr, name, number')
+        .or(`name.ilike.%${q}%,number.ilike.%${q}%,kunnr.ilike.%${q}%`).limit(10)
+      return data || []
+    } catch { return [] }
   }
 
   async function saveSP() {
     if (!spForm.matnr || !spForm.unit_price || !spForm.valid_from) return showToast('MATNR, price and valid from required', 'error')
     try {
-      const res = await fetch('/pricing/sales-price', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ matnr: spForm.matnr, unit_price: parseFloat(spForm.unit_price), valid_from: spForm.valid_from, valid_to: spForm.valid_to || '12319999' }),
+      const { error } = await db.pricing().from('sales_price').insert({
+        matnr: spForm.matnr, unit_price: parseFloat(spForm.unit_price),
+        valid_from: spForm.valid_from, valid_to: spForm.valid_to || null,
       })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d.error)
+      if (error) throw new Error(error.message)
       showToast('✅ Price saved')
       setSpForm({ matnr: '', matnr_label: '', valid_from: '', valid_to: '', unit_price: '' })
       setShowAddForm(false)
@@ -1211,12 +1226,11 @@ function PricingTab() {
   async function saveCD() {
     if (!cdForm.kunnr || !cdForm.discount || !cdForm.valid_from) return showToast('Customer, discount and valid from required', 'error')
     try {
-      const res = await fetch('/pricing/customer-discount', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kunnr: cdForm.kunnr, discount_pct: parseFloat(cdForm.discount), valid_from: cdForm.valid_from, valid_to: cdForm.valid_to || '12319999' }),
+      const { error } = await db.pricing().from('customer_discount').insert({
+        kunnr: cdForm.kunnr, discount_pct: parseFloat(cdForm.discount),
+        valid_from: cdForm.valid_from, valid_to: cdForm.valid_to || null,
       })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d.error)
+      if (error) throw new Error(error.message)
       showToast('✅ Discount saved')
       setCdForm({ kunnr: '', kunnr_label: '', discount: '', valid_from: '', valid_to: '' })
       setShowAddForm(false)
@@ -1227,12 +1241,11 @@ function PricingTab() {
   async function savePD() {
     if (!pdForm.matnr || !pdForm.discount || !pdForm.valid_from) return showToast('MATNR, discount and valid from required', 'error')
     try {
-      const res = await fetch('/pricing/product-discount', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ matnr: pdForm.matnr, discount_pct: parseFloat(pdForm.discount), valid_from: pdForm.valid_from, valid_to: pdForm.valid_to || '12319999' }),
+      const { error } = await db.pricing().from('product_discount').insert({
+        matnr: pdForm.matnr, discount_pct: parseFloat(pdForm.discount),
+        valid_from: pdForm.valid_from, valid_to: pdForm.valid_to || null,
       })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d.error)
+      if (error) throw new Error(error.message)
       showToast('✅ Discount saved')
       setPdForm({ matnr: '', matnr_label: '', discount: '', valid_from: '', valid_to: '' })
       setShowAddForm(false)
@@ -1243,12 +1256,10 @@ function PricingTab() {
   async function updateSP() {
     if (!spEdit.unit_price || !spEdit.valid_from) return showToast('Price and valid-from required', 'error')
     try {
-      const res = await fetch(`/pricing/sales-price/${spEdit.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ unit_price: parseFloat(spEdit.unit_price), valid_from: spEdit.valid_from, valid_to: spEdit.valid_to || null }),
-      })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d.error)
+      const { error } = await db.pricing().from('sales_price').update({
+        unit_price: parseFloat(spEdit.unit_price), valid_from: spEdit.valid_from, valid_to: spEdit.valid_to || null,
+      }).eq('id', spEdit.id)
+      if (error) throw new Error(error.message)
       showToast('✅ Price updated')
       setSpEdit(null)
       loadSP()
@@ -1258,12 +1269,10 @@ function PricingTab() {
   async function updateCD() {
     if (!cdEdit.discount_pct || !cdEdit.valid_from) return showToast('Discount and valid-from required', 'error')
     try {
-      const res = await fetch(`/pricing/customer-discount/${cdEdit.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ discount_pct: parseFloat(cdEdit.discount_pct), valid_from: cdEdit.valid_from, valid_to: cdEdit.valid_to || null }),
-      })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d.error)
+      const { error } = await db.pricing().from('customer_discount').update({
+        discount_pct: parseFloat(cdEdit.discount_pct), valid_from: cdEdit.valid_from, valid_to: cdEdit.valid_to || null,
+      }).eq('id', cdEdit.id)
+      if (error) throw new Error(error.message)
       showToast('✅ Discount updated')
       setCdEdit(null)
       loadCD()
@@ -1273,12 +1282,10 @@ function PricingTab() {
   async function updatePD() {
     if (!pdEdit.discount_pct || !pdEdit.valid_from) return showToast('Discount and valid-from required', 'error')
     try {
-      const res = await fetch(`/pricing/product-discount/${pdEdit.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ discount_pct: parseFloat(pdEdit.discount_pct), valid_from: pdEdit.valid_from, valid_to: pdEdit.valid_to || null }),
-      })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d.error)
+      const { error } = await db.pricing().from('product_discount').update({
+        discount_pct: parseFloat(pdEdit.discount_pct), valid_from: pdEdit.valid_from, valid_to: pdEdit.valid_to || null,
+      }).eq('id', pdEdit.id)
+      if (error) throw new Error(error.message)
       showToast('✅ Discount updated')
       setPdEdit(null)
       loadPD()
@@ -1288,7 +1295,10 @@ function PricingTab() {
   async function deleteRecord(type, id) {
     if (!confirm('Delete this pricing record?')) return
     try {
-      await fetch(`/pricing/${type}/${id}`, { method: 'DELETE' })
+      const tableMap = { 'sales-price': 'sales_price', 'customer-discount': 'customer_discount', 'product-discount': 'product_discount' }
+      const tableName = tableMap[type]
+      const { error } = await db.pricing().from(tableName).delete().eq('id', id)
+      if (error) throw new Error(error.message)
       if (type === 'sales-price') loadSP()
       else if (type === 'customer-discount') loadCD()
       else loadPD()
