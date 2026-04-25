@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useToast } from '../components/Toast'
+import { db, supabase } from '../lib/supabase'
 
 const fmt  = n  => '₹' + parseFloat(n || 0).toFixed(2)
 const fmtD = s  => s ? new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
@@ -22,9 +23,11 @@ function PhotoCard({ kunnr }) {
 
   // Load existing photo on mount
   useEffect(() => {
-    fetch(`/customers/${kunnr}/measurements`)
-      .then(r => r.json())
-      .then(d => { if (d.photo_data) setPhotoData(d.photo_data) })
+    db.customers().from('customer_measurements')
+      .select('photo_data')
+      .eq('kunnr', kunnr)
+      .maybeSingle()
+      .then(({ data }) => { if (data?.photo_data) setPhotoData(data.photo_data) })
       .catch(() => {})
   }, [kunnr])
 
@@ -53,12 +56,9 @@ function PhotoCard({ kunnr }) {
     if (!pending) return
     setSaving(true)
     try {
-      const res = await fetch(`/customers/${kunnr}/measurements`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ photo_data: pending }),
-      })
-      if (!res.ok) { const d = await res.json(); throw new Error(d.error) }
+      const { error } = await db.customers().from('customer_measurements')
+        .upsert({ kunnr, photo_data: pending, updated_at: new Date().toISOString() }, { onConflict: 'kunnr' })
+      if (error) throw new Error(error.message)
       setPhotoData(pending)
       setPending(null)
       showToast('✅ Photo saved')
@@ -69,15 +69,13 @@ function PhotoCard({ kunnr }) {
   async function removePhoto() {
     if (!confirm('Remove this photo?')) return
     try {
-      await fetch(`/customers/${kunnr}/measurements`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ photo_data: null }),
-      })
+      const { error } = await db.customers().from('customer_measurements')
+        .upsert({ kunnr, photo_data: null, updated_at: new Date().toISOString() }, { onConflict: 'kunnr' })
+      if (error) throw new Error(error.message)
       setPhotoData(null)
       setPending(null)
       showToast('Photo removed')
-    } catch { showToast('Could not remove photo', 'error') }
+    } catch (err) { showToast('Could not remove photo', 'error') }
   }
 
   const displaySrc = pending || photoData
@@ -181,12 +179,9 @@ function MeasurementsCard({ kunnr, initialData }) {
   async function save() {
     setSaving(true)
     try {
-      const res = await fetch(`/customers/${kunnr}/measurements`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      })
-      if (!res.ok) { const d = await res.json(); throw new Error(d.error) }
+      const { error } = await db.customers().from('customer_measurements')
+        .upsert({ kunnr, ...form, updated_at: new Date().toISOString() }, { onConflict: 'kunnr' })
+      if (error) { showToast('❌ ' + error.message, 'error'); return }
       showToast('✅ Measurements saved')
       setDirty(false)
     } catch (err) { showToast('❌ ' + err.message, 'error') }
@@ -229,22 +224,29 @@ function PreferencesCard({ kunnr, initialPrefs }) {
   const [adding, setAdding] = useState(false)
 
   useEffect(() => {
-    fetch('/inventory/meta/brands').then(r => r.json()).then(setBrands).catch(() => {})
-    fetch('/categories/list').then(r => r.json()).then(setCategories).catch(() => {})
-    fetch('/fits').then(r => r.json()).then(setFits).catch(() => {})
+    db.inventory().from('brands').select('name').order('name')
+      .then(({ data }) => setBrands((data || []).map(b => b.name)))
+      .catch(() => {})
+    db.inventory().from('categories').select('category').order('category')
+      .then(({ data }) => {
+        const unique = [...new Set((data || []).map(c => c.category))]
+        setCategories(unique)
+      })
+      .catch(() => {})
+    db.inventory().from('fits').select('id, name').order('name')
+      .then(({ data }) => setFits(data || []))
+      .catch(() => {})
   }, [])
 
   async function add() {
     if (!form.brand) return showToast('Select a brand', 'error')
     setAdding(true)
     try {
-      const res = await fetch(`/customers/${kunnr}/preferences`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed')
+      const { data, error } = await db.customers().from('customer_preferences')
+        .insert({ kunnr, brand: form.brand, category: form.category, size: form.size, fit: form.fit })
+        .select()
+        .single()
+      if (error) throw new Error(error.message || 'Failed')
       setPrefs(p => [...p, { ...form, id: data.id }])
       setForm({ brand: '', category: '', size: '', fit: '' })
       showToast('✅ Preference added')
@@ -254,7 +256,8 @@ function PreferencesCard({ kunnr, initialPrefs }) {
 
   async function remove(id) {
     try {
-      await fetch(`/customers/${kunnr}/preferences/${id}`, { method: 'DELETE' })
+      const { error } = await db.customers().from('customer_preferences').delete().eq('id', id)
+      if (error) throw new Error(error.message)
       setPrefs(p => p.filter(x => x.id !== id))
     } catch { showToast('Failed to remove', 'error') }
   }
@@ -349,12 +352,20 @@ function GroupsCard({ kunnr }) {
 
   const load = async () => {
     try {
-      const [mine, all] = await Promise.all([
-        fetch(`/customers/${kunnr}/groups`).then(r => r.json()),
-        fetch('/groups').then(r => r.json()),
+      const [{ data: memberGroups }, { data: allGroupsData }] = await Promise.all([
+        db.groups().from('group_members')
+          .select('group_id, customer_groups(name, notes)')
+          .eq('kunnr', kunnr),
+        db.groups().from('customer_groups').select('*').order('name'),
       ])
-      setGroups(mine || [])
-      setAllGroups(all || [])
+      // Flatten: attach name from nested customer_groups relation
+      const mine = (memberGroups || []).map(m => ({
+        group_id: m.group_id,
+        name: m.customer_groups?.name || m.group_id,
+        notes: m.customer_groups?.notes,
+      }))
+      setGroups(mine)
+      setAllGroups(allGroupsData || [])
     } catch {}
   }
 
@@ -364,10 +375,8 @@ function GroupsCard({ kunnr }) {
     if (!selected) return
     setSaving(true)
     try {
-      await fetch(`/groups/${selected}/members`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kunnr }),
-      })
+      const { error } = await db.groups().from('group_members').insert({ group_id: selected, kunnr })
+      if (error) { showToast('❌ ' + error.message, 'error'); return }
       setSelected('')
       await load()
       showToast('Added to group', 'success')
@@ -375,7 +384,9 @@ function GroupsCard({ kunnr }) {
   }
 
   async function leaveGroup(group_id, name) {
-    await fetch(`/groups/${group_id}/members/${kunnr}`, { method: 'DELETE' })
+    const { error } = await db.groups().from('group_members')
+      .delete().eq('group_id', group_id).eq('kunnr', kunnr)
+    if (error) { showToast('❌ ' + error.message, 'error'); return }
     await load()
     showToast(`Removed from ${name}`, 'success')
   }
@@ -448,32 +459,50 @@ export default function CustomerDetail() {
 
     async function loadAll() {
       try {
-        const [custRes, ordersRes, discRes, statsRes, measRes, prefsRes] = await Promise.all([
-          fetch(`/customers/${kunnr}`),
-          fetch(`/customers/${kunnr}/orders`),
-          fetch(`/customers/${kunnr}/discounts`),
-          fetch(`/customers/${kunnr}/stats`),
-          fetch(`/customers/${kunnr}/measurements`),
-          fetch(`/customers/${kunnr}/preferences`),
+        const today = new Date().toISOString().split('T')[0]
+        const [
+          { data: custData, error: custErr },
+          { data: ordersData },
+          { data: discData },
+          { data: measData },
+          { data: prefData },
+        ] = await Promise.all([
+          db.customers().from('kna1').select('*').eq('kunnr', kunnr).single(),
+          db.transactions().from('vbak').select('*, vbap(line_total)')
+            .eq('kunnr', kunnr).order('created_at', { ascending: false }),
+          db.pricing().from('customer_discount').select('*')
+            .eq('kunnr', kunnr).order('valid_from', { ascending: false }),
+          db.customers().from('customer_measurements').select('*').eq('kunnr', kunnr).maybeSingle(),
+          db.customers().from('customer_preferences').select('*').eq('kunnr', kunnr),
         ])
 
-        if (custRes.status === 404) throw new Error('Customer not found')
-
-        const [custData, ordersData, discData, statsData, measData, prefsData] = await Promise.all([
-          custRes.json(),
-          ordersRes.json(),
-          discRes.json(),
-          statsRes.json(),
-          measRes.json(),
-          prefsRes.json(),
-        ])
+        if (custErr) throw new Error(custErr.code === 'PGRST116' ? 'Customer not found' : custErr.message)
 
         setCust(custData)
-        setOrders(Array.isArray(ordersData) ? ordersData : [])
+
+        // Compute line_count and order_total from vbap, and compute stats
+        const enrichedOrders = (ordersData || []).map(o => {
+          const lines = o.vbap || []
+          const order_total = lines.reduce((s, l) => s + (l.line_total || 0), 0)
+          return { ...o, line_count: lines.length, order_total }
+        })
+        setOrders(enrichedOrders)
+
         setDiscounts(Array.isArray(discData) ? discData : [])
-        setStats(statsData || {})
         setMeasurements(measData || {})
-        setPreferences(Array.isArray(prefsData) ? prefsData : [])
+        setPreferences(Array.isArray(prefData) ? prefData : [])
+
+        // Compute stats client-side
+        const sales = enrichedOrders.filter(o => o.order_type === 'S' && o.status === 'CONFIRMED')
+        const returns = enrichedOrders.filter(o => o.order_type === 'R')
+        const pending = enrichedOrders.filter(o => o.payment_status === 'PENDING' || o.payment_status === 'PARTIALLY_PAID')
+        const total_revenue = sales.reduce((s, o) => s + (o.order_total || 0), 0)
+        setStats({
+          total_orders: enrichedOrders.length,
+          total_revenue,
+          pending_orders: pending.length,
+          total_returns: returns.length,
+        })
       } catch (err) {
         setError(err.message)
       } finally {
@@ -485,7 +514,11 @@ export default function CustomerDetail() {
   }, [kunnr])
 
   async function loadDiscounts() {
-    try { const r = await fetch(`/customers/${kunnr}/discounts`); setDiscounts(await r.json()) } catch {}
+    try {
+      const { data } = await db.pricing().from('customer_discount').select('*')
+        .eq('kunnr', kunnr).order('valid_from', { ascending: false })
+      setDiscounts(data || [])
+    } catch {}
   }
 
   async function saveDiscount() {
@@ -493,18 +526,13 @@ export default function CustomerDetail() {
     setSavingDisc(true)
     try {
       const today = new Date().toISOString().split('T')[0]
-      const res = await fetch('/pricing/customer-discount', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          kunnr,
-          discount_pct: parseFloat(discForm.discount_pct),
-          valid_from: discForm.valid_from || today,
-          valid_to: discForm.valid_to || '12319999',
-        }),
+      const { error } = await db.pricing().from('customer_discount').insert({
+        kunnr,
+        discount_pct: parseFloat(discForm.discount_pct),
+        valid_from: discForm.valid_from || today,
+        valid_to: discForm.valid_to || null,
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to save')
+      if (error) throw new Error(error.message || 'Failed to save')
       showToast('✅ Discount saved')
       setShowDiscModal(false)
       setDiscForm({ discount_pct: '', valid_from: '', valid_to: '' })
