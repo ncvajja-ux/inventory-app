@@ -259,7 +259,9 @@ function PreferencesCard({ kunnr, initialPrefs }) {
       const { error } = await db.customers().from('customer_preferences').delete().eq('id', id)
       if (error) throw new Error(error.message)
       setPrefs(p => p.filter(x => x.id !== id))
-    } catch { showToast('Failed to remove', 'error') }
+    } catch (err) {
+      showToast(err.message || 'Failed to remove preference', 'error')
+    }
   }
 
   return (
@@ -366,7 +368,9 @@ function GroupsCard({ kunnr }) {
       }))
       setGroups(mine)
       setAllGroups(allGroupsData || [])
-    } catch {}
+    } catch (err) {
+      console.error('Failed to load groups:', err.message)
+    }
   }
 
   useEffect(() => { load() }, [kunnr])
@@ -384,11 +388,15 @@ function GroupsCard({ kunnr }) {
   }
 
   async function leaveGroup(group_id, name) {
-    const { error } = await db.groups().from('group_members')
-      .delete().eq('group_id', group_id).eq('kunnr', kunnr)
-    if (error) { showToast('❌ ' + error.message, 'error'); return }
-    await load()
-    showToast(`Removed from ${name}`, 'success')
+    try {
+      const { error } = await db.groups().from('group_members')
+        .delete().eq('group_id', group_id).eq('kunnr', kunnr)
+      if (error) { showToast(error.message, 'error'); return }
+      await load()
+      showToast(`Removed from ${name}`, 'success')
+    } catch (err) {
+      showToast(err.message || 'Failed to remove from group', 'error')
+    }
   }
 
   const available = allGroups.filter(g => !groups.find(m => m.group_id === g.group_id))
@@ -518,7 +526,9 @@ export default function CustomerDetail() {
       const { data } = await db.pricing().from('customer_discount').select('*')
         .eq('kunnr', kunnr).order('valid_from', { ascending: false })
       setDiscounts(data || [])
-    } catch {}
+    } catch (err) {
+      console.error('Failed to reload discounts:', err.message)
+    }
   }
 
   async function saveDiscount() {
