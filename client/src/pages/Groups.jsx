@@ -8,9 +8,12 @@ function useGroups() {
   const [groups, setGroups] = useState([])
   const load = useCallback(async () => {
     try {
-      const { data } = await db.groups().from('customer_groups').select('*').order('name')
+      const { data, error } = await db.groups().from('customer_groups').select('*').order('name')
+      if (error) { console.error('Failed to load groups:', error.message); return }
       setGroups(data || [])
-    } catch {}
+    } catch (err) {
+      console.error('Failed to load groups:', err.message)
+    }
   }, [])
   useEffect(() => { load() }, [load])
   return [groups, load]
@@ -41,37 +44,45 @@ function GroupCard({ group, onRefresh, showToast }) {
 
   const loadMembers = useCallback(async () => {
     try {
-      const { data } = await db.groups().from('group_members').select('kunnr').eq('group_id', group.group_id)
+      const { data, error } = await db.groups().from('group_members').select('kunnr').eq('group_id', group.group_id)
+      if (error) { console.error('Failed to load group members:', error.message); return }
       const kunnrs = data?.map(m => m.kunnr) || []
-      const { data: custs } = kunnrs.length
+      const { data: custs, error: custsError } = kunnrs.length
         ? await db.customers().from('kna1').select('kunnr, name, number').in('kunnr', kunnrs)
         : { data: [] }
+      if (custsError) { console.error('Failed to load member customers:', custsError.message); return }
       setMembers(custs || [])
-    } catch {}
+    } catch (err) {
+      console.error('Failed to load group members:', err.message)
+    }
   }, [group.group_id])
 
   useEffect(() => { if (expanded) loadMembers() }, [expanded, loadMembers])
 
   async function removeMember(kunnr) {
-    await db.groups().from('group_members').delete().eq('group_id', group.group_id).eq('kunnr', kunnr)
+    const { error } = await db.groups().from('group_members').delete().eq('group_id', group.group_id).eq('kunnr', kunnr)
+    if (error) { showToast(error.message, 'error'); return }
     loadMembers(); onRefresh()
   }
 
   async function addMember(kunnr) {
-    await db.groups().from('group_members').insert({ group_id: group.group_id, kunnr })
+    const { error } = await db.groups().from('group_members').insert({ group_id: group.group_id, kunnr })
+    if (error) { showToast(error.message, 'error'); return }
     setAddQ(''); clearResults(); loadMembers(); onRefresh()
   }
 
   async function saveEdit() {
     if (!editName.trim()) return
-    await db.groups().from('customer_groups').update({ name: editName.trim(), notes: editNotes.trim() || null }).eq('group_id', group.group_id)
+    const { error } = await db.groups().from('customer_groups').update({ name: editName.trim(), notes: editNotes.trim() || null }).eq('group_id', group.group_id)
+    if (error) { showToast(error.message, 'error'); return }
     setEditing(false); onRefresh()
     showToast('Group updated', 'success')
   }
 
   async function deleteGroup() {
     if (!window.confirm(`Delete "${group.name}" and remove all its members?`)) return
-    await db.groups().from('customer_groups').delete().eq('group_id', group.group_id)
+    const { error } = await db.groups().from('customer_groups').delete().eq('group_id', group.group_id)
+    if (error) { showToast(error.message, 'error'); return }
     onRefresh(); showToast('Group deleted', 'success')
   }
 
