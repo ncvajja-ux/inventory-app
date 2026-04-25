@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/Toast'
+import { supabase, db } from '../lib/supabase'
 
 // ─── Dark theme ───────────────────────────────────────────────────────────────
 const DARK = {
@@ -257,6 +258,7 @@ function ReturnCustomersTable({ data }) {
 // ─── Main Analytics Component ─────────────────────────────────────────────────
 // ─── Product Match Tab ────────────────────────────────────────────────────────
 function ProductMatchTab() {
+  const showToast = useToast()
   const [query, setQuery]         = useState('')
   const [products, setProducts]   = useState([])
   const [selected, setSelected]   = useState(null)   // chosen product
@@ -270,17 +272,9 @@ function ProductMatchTab() {
     if (!q.trim()) { setProducts([]); return }
     setSearching(true)
     try {
-      const data = await fetch('/inventory').then(r => r.json())
-      const lower = q.toLowerCase()
-      setProducts(
-        (Array.isArray(data) ? data : []).filter(p =>
-          p.matnr?.includes(q) ||
-          p.brand?.toLowerCase().includes(lower) ||
-          p.category?.toLowerCase().includes(lower) ||
-          p.subcategory?.toLowerCase().includes(lower) ||
-          p.color?.toLowerCase().includes(lower)
-        ).slice(0, 30)
-      )
+      const { data: prods } = await db.inventory().from('mara').select('matnr, brand, category, body_type, size')
+        .or(`matnr.ilike.%${q}%,brand.ilike.%${q}%`).limit(20)
+      setProducts(prods || [])
     } catch { /* ignore */ } finally { setSearching(false) }
   }
 
@@ -291,8 +285,10 @@ function ProductMatchTab() {
     setMatchData(null)
     setLoading(true)
     try {
-      const data = await fetch(`/analytics/product-match?matnr=${encodeURIComponent(product.matnr)}`).then(r => r.json())
-      setMatchData(data)
+      const { data, error } = await supabase.rpc('analytics_product_match', { p_matnr: product.matnr })
+      if (error) { showToast(error.message, 'error'); return }
+      const results = (data || []).filter(r => r.indicator !== null).sort((a, b) => a.rank - b.rank)
+      setMatchData({ product, results })
     } catch { /* ignore */ } finally { setLoading(false) }
   }
 
@@ -502,35 +498,43 @@ export default function Analytics() {
   const loadAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [ovRes, msRes, ytcRes, ytbRes, pbRes, pcRes, rbmRes, rbbRes, rbrRes, trcRes, tppRes] = await Promise.all([
-        fetch('/analytics/overview'),
-        fetch(`/analytics/monthly-sales?year=${year}`),
-        fetch(`/analytics/ytd-by-category?year=${year}`),
-        fetch(`/analytics/ytd-by-brand?year=${year}`),
-        fetch(`/analytics/po-by-brand?year=${year}`),
-        fetch(`/analytics/po-by-category?year=${year}`),
-        fetch(`/analytics/returns-by-month?year=${year}`),
-        fetch(`/analytics/returns-by-brand?year=${year}`),
-        fetch(`/analytics/returns-by-reason?year=${year}`),
-        fetch(`/analytics/top-return-customers?year=${year}`),
-        fetch(`/analytics/top-profit-products?year=${year}`),
+      const selectedYear = parseInt(year, 10)
+      const [
+        { data: overview },
+        { data: monthlySales },
+        { data: byCategory },
+        { data: byBrand },
+        { data: poByBrand },
+        { data: poByCategory },
+        { data: returnsByMonth },
+        { data: returnsByBrand },
+        { data: returnsByReason },
+        { data: topReturnCusts },
+        { data: topProfitProds },
+      ] = await Promise.all([
+        supabase.rpc('analytics_overview'),
+        supabase.rpc('analytics_monthly_sales', { p_year: selectedYear }),
+        supabase.rpc('analytics_ytd_by_category', { p_year: selectedYear }),
+        supabase.rpc('analytics_ytd_by_brand', { p_year: selectedYear }),
+        supabase.rpc('analytics_po_by_brand', { p_year: selectedYear }),
+        supabase.rpc('analytics_po_by_category', { p_year: selectedYear }),
+        supabase.rpc('analytics_returns_by_month', { p_year: selectedYear }),
+        supabase.rpc('analytics_returns_by_brand', { p_year: selectedYear }),
+        supabase.rpc('analytics_returns_by_reason', { p_year: selectedYear }),
+        supabase.rpc('analytics_top_return_customers', { p_year: selectedYear }),
+        supabase.rpc('analytics_top_profit_products', { p_year: selectedYear }),
       ])
-      const [ov, ms, ytc, ytb, pb, pc, rbm, rbb, rbr, trc, tpp] = await Promise.all([
-        ovRes.json(), msRes.json(), ytcRes.json(), ytbRes.json(),
-        pbRes.json(), pcRes.json(), rbmRes.json(), rbbRes.json(),
-        rbrRes.json(), trcRes.json(), tppRes.json(),
-      ])
-      setOverview(ov)
-      setMonthlySales(Array.isArray(ms) ? ms : [])
-      setYtdCategory(Array.isArray(ytc) ? ytc : [])
-      setYtdBrand(Array.isArray(ytb) ? ytb : [])
-      setPoBrand(pb && typeof pb === 'object' ? pb : null)
-      setPoCategory(pc && typeof pc === 'object' ? pc : null)
-      setRetByMonth(Array.isArray(rbm) ? rbm : [])
-      setRetByBrand(Array.isArray(rbb) ? rbb : [])
-      setRetByReason(Array.isArray(rbr) ? rbr : [])
-      setTopReturnCusts(Array.isArray(trc) ? trc : [])
-      setTopProfitProds(Array.isArray(tpp) ? tpp : [])
+      setOverview(overview)
+      setMonthlySales(Array.isArray(monthlySales) ? monthlySales : [])
+      setYtdCategory(Array.isArray(byCategory) ? byCategory : [])
+      setYtdBrand(Array.isArray(byBrand) ? byBrand : [])
+      setPoBrand(poByBrand && typeof poByBrand === 'object' ? poByBrand : null)
+      setPoCategory(poByCategory && typeof poByCategory === 'object' ? poByCategory : null)
+      setRetByMonth(Array.isArray(returnsByMonth) ? returnsByMonth : [])
+      setRetByBrand(Array.isArray(returnsByBrand) ? returnsByBrand : [])
+      setRetByReason(Array.isArray(returnsByReason) ? returnsByReason : [])
+      setTopReturnCusts(Array.isArray(topReturnCusts) ? topReturnCusts : [])
+      setTopProfitProds(Array.isArray(topProfitProds) ? topProfitProds : [])
     } catch {
       showToast('Could not load analytics data', 'error')
     } finally {
