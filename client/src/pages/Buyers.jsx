@@ -293,6 +293,13 @@ function ViewTab() {
     return data || []
   }
 
+  async function deleteBuyer(buyer_id) {
+    const { error } = await db.buyers().from('buyers').delete().eq('buyer_id', buyer_id)
+    if (error) { showToast(error.message, 'error'); return }
+    showToast('Buyer deleted', 'success')
+    loadData()
+  }
+
   const filtered = query
     ? allData.filter(r => Object.values(r).some(v => String(v ?? '').toLowerCase().includes(query.toLowerCase())))
     : allData
@@ -357,6 +364,7 @@ function ViewTab() {
                       <option value="Blacklisted">Blacklisted</option>
                       <option value="Duplicate/Deleted">Duplicate/Deleted</option>
                     </select>
+                    <button className="action-btn btn-delete" onClick={() => { if (!window.confirm('Delete this buyer?')) return; deleteBuyer(row.buyer_id) }}>Delete</button>
                   </div>
                 </td>
               </tr>

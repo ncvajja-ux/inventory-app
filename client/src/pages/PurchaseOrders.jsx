@@ -427,7 +427,7 @@ function AllPOsTab() {
 
   async function updatePOPayment(poId, status) {
     try {
-      const { error } = await db.transactions().from('po_header').update({ payment_status: 'PAID' }).eq('po_id', poId)
+      const { error } = await db.transactions().from('po_header').update({ payment_status: status }).eq('po_id', poId)
       if (error) throw new Error(error.message)
       loadOrders()
       if (viewOrder && viewOrder.po_id === poId) {
@@ -487,7 +487,7 @@ function AllPOsTab() {
                 <td><strong>{o.buyer_name || o.buyer_id}</strong></td>
                 <td style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtD(o.po_date)}</td>
                 <td>{(o.po_items || []).length || o.line_count || '—'}</td>
-                <td className="right"><strong>{fmt(o.po_total)}</strong></td>
+                <td className="right"><strong>{fmt((o.po_items || []).reduce((s, l) => s + Number(l.line_total || 0), 0))}</strong></td>
                 <td>{payBadge(o.payment_status)}</td>
                 <td className="right">
                   <div className="actions">
