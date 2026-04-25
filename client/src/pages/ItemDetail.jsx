@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useToast } from '../components/Toast'
+import { db } from '../lib/supabase'
 
 const fmt  = n  => '₹' + parseFloat(n || 0).toFixed(2)
 const fmtD = s  => s ? new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
@@ -53,16 +54,9 @@ function ImageCard({ matnr, initialImage }) {
     if (!pending) return
     setSaving(true)
     try {
-      const res = await fetch(`/inventory/${matnr}/image`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_data: pending }),
-      })
-      if (!res.ok) {
-        let msg = `Server error (${res.status})`
-        try { const d = await res.json(); msg = d.error || msg } catch {}
-        throw new Error(msg)
-      }
+      const image_data = pending
+      const { error } = await db.inventory().from('mara').update({ image_data }).eq('matnr', matnr)
+      if (error) { showToast(error.message, 'error'); return }
       setImageData(pending)
       setPending(null)
       showToast('✅ Image saved')
@@ -76,12 +70,13 @@ function ImageCard({ matnr, initialImage }) {
   async function removeImage() {
     if (!confirm('Remove this product image?')) return
     try {
-      await fetch(`/inventory/${matnr}/image`, { method: 'DELETE' })
+      const { error } = await db.inventory().from('mara').update({ image_data: null }).eq('matnr', matnr)
+      if (error) { showToast(error.message, 'error'); return }
       setImageData(null)
       setPending(null)
       showToast('Image removed')
-    } catch {
-      showToast('Could not remove image', 'error')
+    } catch (err) {
+      showToast(err.message || 'Could not remove image', 'error')
     }
   }
 
@@ -183,26 +178,26 @@ export default function ItemDetail() {
 
     async function loadAll() {
       try {
-        const [prodRes, salesRes, poRes, pricingRes] = await Promise.all([
-          fetch(`/inventory/${matnr}`),
-          fetch(`/inventory/${matnr}/sales-history`),
-          fetch(`/inventory/${matnr}/po-history`),
-          fetch(`/inventory/${matnr}/pricing`),
+        const [
+          { data: prodData },
+          { data: salesData },
+          { data: poData },
+          { data: pricingData },
+        ] = await Promise.all([
+          db.inventory().from('mara').select('*').eq('matnr', matnr).single(),
+          db.transactions().from('vbap').select('*, vbak(order_id, kunnr, created_at, status)')
+            .eq('matnr', matnr).order('created_at', { ascending: false, referencedTable: 'vbak' }).limit(20),
+          db.transactions().from('po_items').select('*, po_header(po_id, po_date, buyer_id)')
+            .eq('matnr', matnr).order('po_date', { ascending: false, referencedTable: 'po_header' }).limit(20),
+          db.pricing().from('sales_price').select('*').eq('matnr', matnr).order('valid_from', { ascending: false }),
         ])
 
-        if (prodRes.status === 404) throw new Error('Product not found')
-
-        const [prodData, salesData, posData, pricingData] = await Promise.all([
-          prodRes.json(),
-          salesRes.json(),
-          poRes.json(),
-          pricingRes.json(),
-        ])
+        if (!prodData) throw new Error('Product not found')
 
         setProd(prodData)
-        setSales(Array.isArray(salesData) ? salesData : [])
-        setPOs(Array.isArray(posData) ? posData : [])
-        setPricing(Array.isArray(pricingData) ? pricingData : [])
+        setSales(salesData || [])
+        setPOs(poData || [])
+        setPricing(pricingData || [])
       } catch (err) {
         setError(err.message)
       } finally {
