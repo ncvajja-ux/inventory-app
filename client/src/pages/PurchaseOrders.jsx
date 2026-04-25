@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
 import { INDIAN_STATES, INDIAN_CITIES, COUNTRIES } from '../data/referenceData'
+import { db } from '../lib/supabase'
 
 const fmt  = n  => '₹' + parseFloat(n || 0).toFixed(2)
 const fmtD = s  => s ? new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
@@ -88,14 +89,25 @@ function NewPOTab({ onCreated }) {
   })
 
   useEffect(() => {
-    fetch('/next-po-id').then(r => r.json()).then(d => setNextPOId(d.po_id || '—')).catch(() => {})
+    async function loadNextPOId() {
+      const { data, error } = await db.transactions().from('po_header').select('po_id').order('po_id', { ascending: false }).limit(1)
+      if (error) return
+      const maxNum = data && data.length > 0 ? parseInt(data[0].po_id.replace(/\D/g, ''), 10) || 0 : 0
+      setNextPOId('P' + String(maxNum + 1).padStart(6, '0'))
+    }
+    loadNextPOId()
   }, [])
 
   async function searchBuyer(q) {
-    try { const r = await fetch(`/buyers/search?q=${encodeURIComponent(q)}`); return await r.json() } catch { return [] }
+    const { data, error } = await db.buyers().from('buyers').select('*').or(`name.ilike.%${q}%,buyer_id.ilike.%${q}%`).limit(10)
+    if (error) return []
+    return data || []
   }
+
   async function searchProduct(q) {
-    try { const r = await fetch(`/inventory/search?q=${encodeURIComponent(q)}`); return await r.json() } catch { return [] }
+    const { data, error } = await db.inventory().from('mara').select('matnr, brand, size, category').or(`matnr.ilike.%${q}%,brand.ilike.%${q}%,category.ilike.%${q}%`).limit(10)
+    if (error) return []
+    return data || []
   }
 
   function selectBuyer(b) {
@@ -124,32 +136,43 @@ function NewPOTab({ onCreated }) {
 
   async function confirmPO() {
     if (!lines.length) return showToast('Add at least one product', 'error')
-    const body = {
-      buyer_id: buyer.buyer_id,
-      po_date: reviewForm.po_date,
-      expected_delivery: reviewForm.expected_delivery,
-      notes: reviewForm.notes,
-      shipping: {
-        name: reviewForm.rv_name, phone: reviewForm.rv_phone,
-        addr1: reviewForm.rv_addr1, addr2: reviewForm.rv_addr2,
-        city: reviewForm.rv_city, state: reviewForm.rv_state,
-        country: reviewForm.rv_country, zip: reviewForm.rv_zip,
-        ship_city: reviewForm.rv_ship_city,
-      },
-      items: lines.map(l => ({ matnr: l.matnr, quantity: l.qty, unit_price: l.unit_price })),
-    }
+
+    // Compute next PO ID
+    const { data: headerData, error: headerIdError } = await db.transactions().from('po_header').select('po_id').order('po_id', { ascending: false }).limit(1)
+    if (headerIdError) return showToast(`❌ ${headerIdError.message}`, 'error')
+    const maxNum = headerData && headerData.length > 0 ? parseInt(headerData[0].po_id.replace(/\D/g, ''), 10) || 0 : 0
+    const po_id = 'P' + String(maxNum + 1).padStart(6, '0')
+
     try {
-      const res = await fetch('/purchase-orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+      // Insert PO header
+      const { error: insertHeaderError } = await db.transactions().from('po_header').insert({
+        po_id,
+        buyer_id: buyer.buyer_id,
+        po_date: reviewForm.po_date,
+        payment_terms: buyer.payment_terms || null,
+        notes: reviewForm.notes || null,
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed')
-      showToast(`✅ PO ${data.po_id} created!`)
+      if (insertHeaderError) throw new Error(insertHeaderError.message || 'Failed to create PO header')
+
+      // Insert PO line items
+      const linesArray = lines.map((l, i) => ({
+        po_id,
+        line_no: i + 1,
+        matnr: l.matnr,
+        quantity: l.qty,
+        unit_price: l.unit_price,
+        line_total: l.qty * l.unit_price,
+        status: 'Created',
+      }))
+      const { error: insertLinesError } = await db.transactions().from('po_items').insert(linesArray)
+      if (insertLinesError) throw new Error(insertLinesError.message || 'Failed to create PO lines')
+
+      showToast(`✅ PO ${po_id} created!`)
       setStep(1); setBuyer(null); setLines([])
       onCreated()
-    } catch (err) { showToast(`❌ ${err.message}`, 'error') }
+    } catch (err) {
+      showToast(`❌ ${err.message}`, 'error')
+    }
   }
 
   return (
@@ -166,7 +189,7 @@ function NewPOTab({ onCreated }) {
               placeholder="Name, phone, or Buyer ID…"
               onSearch={searchBuyer}
               onSelect={selectBuyer}
-              renderItem={b => <div><strong>{b.company_name}</strong> <span className="sri-kunnr">{b.buyer_id}</span></div>}
+              renderItem={b => <div><strong>{b.company_name || b.name}</strong> <span className="sri-kunnr">{b.buyer_id}</span></div>}
             />
           </div>
         </div>
@@ -177,7 +200,7 @@ function NewPOTab({ onCreated }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
             <div className="card-title" style={{ flex: 1 }}>Add Products</div>
             <div style={{ background: 'var(--accent2)', border: '1.5px solid #e8d0a0', borderRadius: 20, padding: '6px 14px', fontSize: 13, fontWeight: 600, color: '#92650a' }}>
-              🏢 {buyer?.company_name} <span style={{ fontFamily: 'monospace', fontSize: 11, marginLeft: 4 }}>{buyer?.buyer_id}</span>
+              🏢 {buyer?.company_name || buyer?.name} <span style={{ fontFamily: 'monospace', fontSize: 11, marginLeft: 4 }}>{buyer?.buyer_id}</span>
             </div>
           </div>
           <div className="card-sub">Search for products and add quantities and purchase prices.</div>
@@ -310,7 +333,7 @@ function NewPOTab({ onCreated }) {
           <div className="card">
             <div className="card-title">Summary</div>
             <div style={{ marginBottom: 12 }}>
-              <strong>{buyer?.company_name}</strong> <span className="mono">{buyer?.buyer_id}</span>
+              <strong>{buyer?.company_name || buyer?.name}</strong> <span className="mono">{buyer?.buyer_id}</span>
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -360,14 +383,17 @@ function AllPOsTab() {
   const loadOrders = useCallback(async () => {
     setLoading(true)
     try {
-      let url = '/purchase-orders'
-      const params = new URLSearchParams()
-      if (dateFrom) params.set('from', dateFrom)
-      if (dateTo) params.set('to', dateTo)
-      if (params.toString()) url += '?' + params.toString()
-      const res = await fetch(url)
-      setOrders(await res.json())
-    } catch { showToast('Could not load POs', 'error') } finally { setLoading(false) }
+      let q = db.transactions().from('po_header').select('*, po_items(*)').order('po_date', { ascending: false })
+      if (dateFrom) q = q.gte('po_date', dateFrom)
+      if (dateTo) q = q.lte('po_date', dateTo)
+      const { data, error } = await q
+      if (error) throw new Error(error.message)
+      setOrders(data || [])
+    } catch (err) {
+      showToast(`Could not load POs: ${err.message}`, 'error')
+    } finally {
+      setLoading(false)
+    }
   }, [dateFrom, dateTo, showToast])
 
   useEffect(() => { loadOrders() }, [loadOrders])
@@ -384,40 +410,32 @@ function AllPOsTab() {
 
   async function updateLineStatus(poId, lineNo, status) {
     try {
-      const res = await fetch(`/purchase-orders/${poId}/line/${lineNo}/status`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d.error || 'Update failed')
-      if (d.warning) {
-        showToast(`⚠️ ${d.warning}`, 'error')
-      } else {
-        showToast(status === 'Goods Receipt' ? `✅ GR confirmed — +${d.qty_added} units added to stock` : `✅ Line ${lineNo} → ${status}`)
-      }
+      const { error } = await db.transactions().from('po_items').update({ status }).eq('po_id', poId).eq('line_no', lineNo)
+      if (error) throw new Error(error.message || 'Update failed')
+      showToast(status === 'Goods Receipt' ? `✅ GR confirmed for line ${lineNo}` : `✅ Line ${lineNo} → ${status}`)
+
       // Refresh modal
       if (viewOrder) {
-        const r = await fetch(`/purchase-orders/${poId}`)
-        const d = await r.json()
-        setViewOrder(d)
+        const { data: refreshed, error: refreshError } = await db.transactions().from('po_header').select('*, po_items(*)').eq('po_id', poId).single()
+        if (!refreshError && refreshed) setViewOrder(refreshed)
       }
       loadOrders()
-    } catch (e) { showToast(`❌ ${e.message}`, 'error') }
+    } catch (e) {
+      showToast(`❌ ${e.message}`, 'error')
+    }
   }
 
   async function updatePOPayment(poId, status) {
     try {
-      await fetch(`/purchase-orders/${poId}/payment`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payment_status: status }),
-      })
+      const { error } = await db.transactions().from('po_header').update({ payment_status: 'PAID' }).eq('po_id', poId)
+      if (error) throw new Error(error.message)
       loadOrders()
       if (viewOrder && viewOrder.po_id === poId) {
         setViewOrder(prev => ({ ...prev, payment_status: status }))
       }
-    } catch (e) { showToast('Update failed', 'error') }
+    } catch (e) {
+      showToast(`Update failed: ${e.message}`, 'error')
+    }
   }
 
   return (
@@ -468,14 +486,14 @@ function AllPOsTab() {
                 <td><span className="mono">{o.po_id}</span></td>
                 <td><strong>{o.buyer_name || o.buyer_id}</strong></td>
                 <td style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtD(o.po_date)}</td>
-                <td>{o.line_count || '—'}</td>
+                <td>{(o.po_items || []).length || o.line_count || '—'}</td>
                 <td className="right"><strong>{fmt(o.po_total)}</strong></td>
                 <td>{payBadge(o.payment_status)}</td>
                 <td className="right">
                   <div className="actions">
                     <button className="action-btn btn-view-sm" onClick={async () => {
-                      const res = await fetch(`/purchase-orders/${o.po_id}`)
-                      const data = await res.json()
+                      const { data, error } = await db.transactions().from('po_header').select('*, po_items(*)').eq('po_id', o.po_id).single()
+                      if (error) { showToast(`❌ ${error.message}`, 'error'); return }
                       setViewOrder(data)
                     }}>View</button>
                   </div>
@@ -516,7 +534,7 @@ function AllPOsTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(viewOrder.items || viewOrder.lines || []).map((l, i) => {
+                  {(viewOrder.po_items || viewOrder.items || viewOrder.lines || []).map((l, i) => {
                     const lineNo = l.line_no || (i + 1)
                     const status = l.status || 'Created'
                     const isGR = status === 'Goods Receipt'
