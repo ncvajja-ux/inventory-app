@@ -412,6 +412,21 @@ function AllPOsTab() {
     try {
       const { error } = await db.transactions().from('po_items').update({ status }).eq('po_id', poId).eq('line_no', lineNo)
       if (error) throw new Error(error.message || 'Update failed')
+
+      // When GR is confirmed, increment inventory stock
+      if (status === 'Goods Receipt' && viewOrder) {
+        const line = (viewOrder.po_items || []).find(l => (l.line_no || 0) === lineNo)
+        if (line?.matnr && line?.quantity) {
+          const { data: maraData } = await db.inventory().from('mara').select('quantity').eq('matnr', line.matnr).single()
+          if (maraData) {
+            const { error: stockError } = await db.inventory().from('mara')
+              .update({ quantity: (maraData.quantity || 0) + line.quantity })
+              .eq('matnr', line.matnr)
+            if (stockError) showToast(`⚠️ GR saved but stock update failed: ${stockError.message}`, 'error')
+          }
+        }
+      }
+
       showToast(status === 'Goods Receipt' ? `✅ GR confirmed for line ${lineNo}` : `✅ Line ${lineNo} → ${status}`)
 
       // Refresh modal
