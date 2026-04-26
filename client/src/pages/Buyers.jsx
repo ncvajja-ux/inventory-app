@@ -142,7 +142,7 @@ function AddTab({ onAdded }) {
     if (!form.company_name.trim()) return showToast('Company name is required', 'error')
     try {
       const { company_name, ...rest } = form
-      const { data, error } = await db.buyers().from('buyers').insert({ ...rest, name: company_name })
+      const { data, error } = await db.buyers().from('buyers').insert({ ...rest, buyer_id: nextId, name: company_name })
       if (error) throw new Error(error.message || 'Failed to add buyer')
       showToast(`✅ ${form.company_name} added!`)
       loadNextId()
