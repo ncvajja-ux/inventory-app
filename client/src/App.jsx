@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { ToastProvider } from './components/Toast'
 import { ThemeProvider } from './components/ThemeContext'
+import { RoleContext } from './components/RoleContext'
 import LockScreen from './components/LockScreen'
 import { supabase } from './lib/supabase'
 import LandingPage from './pages/LandingPage'
@@ -17,7 +18,16 @@ import Analytics from './pages/Analytics'
 import HR from './pages/HR'
 import Groups from './pages/Groups'
 
-function AppRoutes() {
+const VALID_ROLES = ['admin', 'sales']
+
+function ProtectedRoute({ role, allowedRoles, children }) {
+  if (!allowedRoles.includes(role)) {
+    return <Navigate to="/" replace />
+  }
+  return children
+}
+
+function AppRoutes({ role }) {
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
@@ -27,10 +37,22 @@ function AppRoutes() {
       <Route path="/inventory/:matnr" element={<ItemDetail />} />
       <Route path="/sales" element={<Sales />} />
       <Route path="/invoice" element={<Invoice />} />
-      <Route path="/buyers" element={<Buyers />} />
-      <Route path="/purchase-orders" element={<PurchaseOrders />} />
+      <Route path="/buyers" element={
+        <ProtectedRoute role={role} allowedRoles={['admin']}>
+          <Buyers />
+        </ProtectedRoute>
+      } />
+      <Route path="/purchase-orders" element={
+        <ProtectedRoute role={role} allowedRoles={['admin']}>
+          <PurchaseOrders />
+        </ProtectedRoute>
+      } />
       <Route path="/analytics" element={<Analytics />} />
-      <Route path="/hr" element={<HR />} />
+      <Route path="/hr" element={
+        <ProtectedRoute role={role} allowedRoles={['admin']}>
+          <HR />
+        </ProtectedRoute>
+      } />
       <Route path="/groups" element={<Groups />} />
     </Routes>
   )
@@ -39,18 +61,28 @@ function AppRoutes() {
 export default function App() {
   // null = checking, true = locked, false = unlocked
   const [isLocked, setIsLocked] = useState(null)
+  const [role, setRole] = useState(null)
+
+  function resolveRole(session) {
+    if (!session) return null
+    const r = session.user?.app_metadata?.role
+    return VALID_ROLES.includes(r) ? r : 'sales'
+  }
 
   useEffect(() => {
     // Check for existing Supabase session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setIsLocked(!session)
+      setRole(resolveRole(session))
     }).catch(() => {
       setIsLocked(true)
+      setRole(null)
     })
 
     // React to sign-in and sign-out
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setIsLocked(!session)
+      setRole(resolveRole(session))
     })
 
     return () => subscription.unsubscribe()
@@ -59,11 +91,13 @@ export default function App() {
   return (
     <ThemeProvider>
       <ToastProvider>
-        {isLocked === null ? null : isLocked ? (
-          <LockScreen />
-        ) : (
-          <AppRoutes />
-        )}
+        <RoleContext.Provider value={role ?? 'sales'}>
+          {isLocked === null ? null : isLocked ? (
+            <LockScreen />
+          ) : (
+            <AppRoutes role={role ?? 'sales'} />
+          )}
+        </RoleContext.Provider>
       </ToastProvider>
     </ThemeProvider>
   )

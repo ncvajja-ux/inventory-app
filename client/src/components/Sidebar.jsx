@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useTheme } from './ThemeContext'
+import { useRole } from './RoleContext'
 
 const ALL_NAV = [
   { href: '/',                icon: '🏠', label: 'Home' },
@@ -54,9 +55,20 @@ const SECTION_TABS = {
   ],
 }
 
+const ALLOWED = {
+  admin: null, // null = all pages allowed
+  sales: new Set(['/', '/customers', '/sales', '/invoice', '/inventory', '/analytics', '/groups']),
+}
+
 export default function Sidebar({ section, activeTab, onTabChange }) {
   const location = useLocation()
   const { theme, toggleTheme } = useTheme()
+  const role = useRole()
+
+  function canSee(path) {
+    if (role === 'admin' || !ALLOWED[role]) return true
+    return ALLOWED[role].has(path)
+  }
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem('sidebarCollapsed') === 'true' } catch { return false }
   })
@@ -106,7 +118,7 @@ export default function Sidebar({ section, activeTab, onTabChange }) {
       <>
         {!collapsed && <span className="nav-section">Navigate</span>}
         {collapsed && <div className="nav-divider" />}
-        {ALL_NAV.map(link => {
+        {ALL_NAV.filter(link => canSee(link.href)).map(link => {
           const isActive = link.href === '/'
             ? location.pathname === '/'
             : location.pathname.startsWith(link.href)
