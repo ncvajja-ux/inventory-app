@@ -141,7 +141,8 @@ function AddTab({ onAdded }) {
   async function submit(form) {
     if (!form.company_name.trim()) return showToast('Company name is required', 'error')
     try {
-      const { data, error } = await db.buyers().from('buyers').insert({ ...form, name: form.company_name })
+      const { company_name, ...rest } = form
+      const { data, error } = await db.buyers().from('buyers').insert({ ...rest, name: company_name })
       if (error) throw new Error(error.message || 'Failed to add buyer')
       showToast(`✅ ${form.company_name} added!`)
       loadNextId()
@@ -226,7 +227,8 @@ function EditModal({ buyer, onClose, onSaved }) {
   async function submit(form) {
     if (!form.company_name.trim()) return showToast('Company name is required', 'error')
     try {
-      const { error } = await db.buyers().from('buyers').update({ ...form, name: form.company_name }).eq('buyer_id', buyer.buyer_id)
+      const { company_name, ...rest } = form
+      const { error } = await db.buyers().from('buyers').update({ ...rest, name: company_name }).eq('buyer_id', buyer.buyer_id)
       if (error) throw new Error(error.message || 'Update failed')
       showToast(`✅ ${form.company_name} updated!`)
       onSaved()
