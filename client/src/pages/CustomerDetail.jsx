@@ -504,7 +504,9 @@ export default function CustomerDetail() {
         const sales = enrichedOrders.filter(o => o.order_type === 'S' && o.status === 'CONFIRMED')
         const returns = enrichedOrders.filter(o => o.order_type === 'R')
         const pending = enrichedOrders.filter(o => o.payment_status === 'PENDING' || o.payment_status === 'PARTIALLY_PAID')
-        const total_revenue = sales.reduce((s, o) => s + (o.order_total || 0), 0)
+        const total_revenue = enrichedOrders
+          .filter(o => o.status === 'CONFIRMED')
+          .reduce((s, o) => o.order_type === 'R' ? s - (o.order_total || 0) : s + (o.order_total || 0), 0)
         setStats({
           total_orders: enrichedOrders.length,
           total_revenue,
