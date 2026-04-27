@@ -731,6 +731,7 @@ function ConfigTab() {
   const [newFit, setNewFit] = useState('')
   const [newReturnReason, setNewReturnReason] = useState('')
   const [newGst, setNewGst] = useState({ tax_category: '', gst_rate: '', valid_from: '', valid_to: '' })
+  const [editingGst, setEditingGst] = useState(null) // { id, tax_category, gst_rate }
   const [newCatName, setNewCatName] = useState('')
   const [newCatFirstSub, setNewCatFirstSub] = useState('')
   const [newSubCat, setNewSubCat] = useState('')
@@ -858,6 +859,28 @@ function ConfigTab() {
       const { error } = await db.transactions().from('return_reasons').delete().eq('id', id)
       if (error) throw error
       loadReturnReasons()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
+
+  async function updateGst() {
+    if (!editingGst?.gst_rate) return showToast('Rate is required', 'error')
+    try {
+      const { error } = await db.pricing().from('gst_config')
+        .update({ gst_rate: parseFloat(editingGst.gst_rate) })
+        .eq('id', editingGst.id)
+      if (error) throw error
+      setEditingGst(null)
+      reloadGst()
+      showToast('✅ GST rate updated')
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
+
+  async function deleteGst(id) {
+    if (!window.confirm('Delete this GST category?')) return
+    try {
+      const { error } = await db.pricing().from('gst_config').delete().eq('id', id)
+      if (error) throw error
+      reloadGst()
     } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
@@ -1022,9 +1045,29 @@ function ConfigTab() {
           <div className="config-sub">Tax category with GST rate. Leave Valid To blank for open-ended.</div>
           <div style={{ marginBottom: 16 }}>
             {gstConfig.map(g => (
-              <div key={g.id || g.tax_category} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
-                <span><strong>{g.tax_category}</strong> — {g.gst_rate}%</span>
-                <span style={{ fontSize: 11, color: 'var(--muted)' }}>{g.valid_from} → {g.valid_to === '12319999' ? 'Open' : g.valid_to}</span>
+              <div key={g.id || g.tax_category} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--border)', fontSize: 13, gap: 8 }}>
+                {editingGst?.id === g.id ? (
+                  <>
+                    <span style={{ flex: 1 }}><strong>{g.tax_category}</strong></span>
+                    <input
+                      type="number" min="0" max="100" step="0.5"
+                      value={editingGst.gst_rate}
+                      onChange={e => setEditingGst(x => ({ ...x, gst_rate: e.target.value }))}
+                      style={{ width: 70, padding: '3px 8px', borderRadius: 6, border: '1.5px solid var(--accent)', fontSize: 13, background: 'var(--card)', color: 'var(--ink)' }}
+                      autoFocus
+                    />
+                    <span style={{ fontSize: 13 }}>%</span>
+                    <button className="btn btn-primary" style={{ fontSize: 12, padding: '4px 12px' }} onClick={updateGst}>Save</button>
+                    <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => setEditingGst(null)}>Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ flex: 1 }}><strong>{g.tax_category}</strong> — {g.gst_rate}%</span>
+                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>{g.valid_from} → {g.valid_to === '12319999' ? 'Open' : g.valid_to}</span>
+                    <button className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => setEditingGst({ id: g.id, tax_category: g.tax_category, gst_rate: String(g.gst_rate) })}>Edit</button>
+                    <button className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 10px', color: 'var(--danger)' }} onClick={() => deleteGst(g.id)}>Delete</button>
+                  </>
+                )}
               </div>
             ))}
           </div>
