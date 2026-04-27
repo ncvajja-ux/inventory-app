@@ -894,14 +894,20 @@ function ReturnsTab() {
     setConfirming(true)
     try {
       const items = returnItems.filter(i => i.selected && i.return_qty > 0)
-      const returnItemsMapped = items.map(i => ({
-        matnr: i.matnr,
-        quantity: i.return_qty,
-        price: parseFloat(i.price || i.effective_price || i.sales_price || i.mrp || 0),
-        mrp: parseFloat(i.mrp || 0),
-        discount_pct: parseFloat(i.discount_pct || 0),
-        gst_rate: parseFloat(i.gst_rate || 0),
-      }))
+      const returnItemsMapped = items.map(i => {
+        const origLineTotal = parseFloat(i.line_total || 0)
+        const origQty = parseFloat(i.quantity || 1)
+        const perUnitTotal = origQty > 0 ? origLineTotal / origQty : 0
+        return {
+          matnr: i.matnr,
+          quantity: i.return_qty,
+          price: parseFloat(i.price || i.effective_price || i.sales_price || i.mrp || 0),
+          mrp: parseFloat(i.mrp || 0),
+          discount_pct: parseFloat(i.discount_pct || 0),
+          gst_rate: parseFloat(i.gst_rate || 0),
+          line_total: perUnitTotal * i.return_qty,   // proportional share of original discounted line_total
+        }
+      })
       const { data: retId, error } = await supabase.rpc('place_return', {
         p_original_order_id: selectedOrder.order_id,
         p_items: returnItemsMapped,
