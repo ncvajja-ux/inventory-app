@@ -645,7 +645,7 @@ function NewOrderTab() {
           <button className="place-order-btn" onClick={placeOrder} disabled={placing || !cart.length}>
             {placing ? '⏳ Placing…' : '✅ Place Order'}
           </button>
-          <button onClick={startNewOrder} style={{ marginTop: 8, width: '100%', padding: 10, borderRadius: 8, border: '1.5px solid var(--border)', background: 'white', fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--muted)' }}>
+          <button onClick={startNewOrder} style={{ marginTop: 8, width: '100%', padding: 10, borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--card)', fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--muted)' }}>
             🗑️ Clear Cart & Start Over
           </button>
         </div>
@@ -733,7 +733,7 @@ function AllOrdersTab() {
         </div>
         <div className="form-group">
           <label>Type</label>
-          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding: '9px 14px', border: '1.5px solid var(--border)', borderRadius: 8, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: 'white' }}>
+          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding: '9px 14px', border: '1.5px solid var(--border)', borderRadius: 8, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: 'var(--card)', color: 'var(--ink)' }}>
             <option value="ALL">All Types</option>
             <option value="S">Sales Only</option>
             <option value="R">Returns Only</option>
@@ -1023,7 +1023,7 @@ function ReturnsTab() {
                 {matchingOrders.map(o => (
                   <div key={o.order_id} onClick={() => selectReturnOrder(o.order_id)} style={{
                     padding: '10px 14px', borderRadius: 8, border: '1.5px solid var(--border)',
-                    marginBottom: 8, cursor: 'pointer', background: 'white', display: 'flex', justifyContent: 'space-between',
+                    marginBottom: 8, cursor: 'pointer', background: 'var(--card)', display: 'flex', justifyContent: 'space-between',
                   }}>
                     <span><strong>{o.order_id}</strong> · {fmtD(o.created_at)}</span>
                     <span>{fmt(o.order_total)}</span>

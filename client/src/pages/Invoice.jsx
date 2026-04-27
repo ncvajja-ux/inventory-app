@@ -158,7 +158,7 @@ export default function Invoice() {
               </div>
             </div>
             {o.return_reason && (
-              <div style={{ background: 'white', border: '1px solid #fecaca', borderRadius: 8, padding: '6px 14px', fontSize: 13 }}>
+              <div style={{ background: 'var(--card)', border: '1px solid #fecaca', borderRadius: 8, padding: '6px 14px', fontSize: 13 }}>
                 {o.return_reason}
               </div>
             )}
@@ -339,7 +339,7 @@ export default function Invoice() {
         .print-header { display: none; border-bottom: 2px solid var(--ink); padding-bottom: 16px; margin-bottom: 24px; }
         .topbar.no-print { background: var(--card); border-bottom: 1px solid var(--border); padding: 0 40px; height: 64px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 50; }
         .topbar-left { display: flex; align-items: center; gap: 16px; }
-        .btn-print { background: white; border: 1.5px solid var(--border); color: var(--ink); padding: 9px 20px; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .btn-print { background: var(--card); border: 1.5px solid var(--border); color: var(--ink); padding: 9px 20px; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
         .btn-print:hover { border-color: var(--accent); color: var(--accent); }
         .btn-success { background: var(--success); color: white; padding: 9px 20px; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; border: none; cursor: pointer; }
         .btn-danger { background: #fee2e2; color: var(--danger); padding: 9px 20px; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; border: none; cursor: pointer; }

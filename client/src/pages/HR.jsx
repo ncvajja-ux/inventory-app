@@ -849,7 +849,7 @@ function AttendanceTab() {
                 <tr><td colSpan={days.length + 1} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>No employees.</td></tr>
               ) : displayEmps.map(emp => (
                 <tr key={emp.emp_id} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '6px 12px', fontWeight: 600, fontSize: 13, position: 'sticky', left: 0, background: 'white', zIndex: 1, borderRight: '1px solid var(--border)' }}>
+                  <td style={{ padding: '6px 12px', fontWeight: 600, fontSize: 13, position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1, borderRight: '1px solid var(--border)' }}>
                     <div>{emp.name}</div>
                     <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400 }}>{emp.emp_id}</div>
                   </td>

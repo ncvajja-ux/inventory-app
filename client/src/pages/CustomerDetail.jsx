@@ -287,7 +287,7 @@ function PreferencesCard({ kunnr, initialPrefs }) {
               )}
               {p.size && (
                 <span style={{
-                  background: 'white', border: '1px solid var(--border)',
+                  background: 'var(--card)', border: '1px solid var(--border)',
                   borderRadius: 4, padding: '1px 6px', fontSize: 11, fontWeight: 700,
                 }}>{p.size}</span>
               )}
@@ -587,7 +587,7 @@ export default function CustomerDetail() {
     <div style={{ fontFamily: "'DM Sans', sans-serif", background: 'var(--bg)', minHeight: '100vh' }}>
       {/* Topbar */}
       <div style={{
-        background: 'white', borderBottom: '1px solid var(--border)',
+        background: 'var(--card)', borderBottom: '1px solid var(--border)',
         padding: '0 40px', height: 64, display: 'flex', alignItems: 'center',
         justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 50,
       }}>
@@ -595,7 +595,7 @@ export default function CustomerDetail() {
           <Link to="/customers" style={{
             display: 'flex', alignItems: 'center', gap: 8,
             padding: '8px 14px', border: '1.5px solid var(--border)', borderRadius: 8,
-            fontSize: 13, fontWeight: 600, color: 'var(--muted)', textDecoration: 'none', background: 'white',
+            fontSize: 13, fontWeight: 600, color: 'var(--muted)', textDecoration: 'none', background: 'var(--card)',
           }}>← Customers</Link>
           <span style={{
             fontFamily: 'Courier New, monospace', fontSize: 13,
