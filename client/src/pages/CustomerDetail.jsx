@@ -289,6 +289,7 @@ function PreferencesCard({ kunnr, initialPrefs }) {
                 <span style={{
                   background: 'var(--card)', border: '1px solid var(--border)',
                   borderRadius: 4, padding: '1px 6px', fontSize: 11, fontWeight: 700,
+                  color: 'var(--ink)',
                 }}>{p.size}</span>
               )}
               <button onClick={() => remove(p.id)} style={{
