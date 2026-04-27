@@ -366,25 +366,33 @@ function NewOrderTab() {
     const kunnr = customer?.kunnr || urlKunnr
     setPlacing(true)
     try {
+      // Compute gross before header discounts so we can distribute them proportionally
+      const orderLines = cart.map(item => {
+        const sp = parseFloat(item.sales_price ?? item.mrp ?? 0)
+        const pdPct = parseFloat(item.prod_discount_pct || prodDiscounts[item.matnr] || 0)
+        const effPrice = sp * (1 - pdPct / 100)
+        const gst = parseFloat(item.gst_rate || 0)
+        return { item, effPrice, pdPct, gst, lineGross: effPrice * item.quantity }
+      })
+      const totalGross = orderLines.reduce((s, l) => s + l.lineGross, 0)
+      const custDiscAmt = totalGross * (custDiscountPct || 0) / 100
+      const manualDiscAmt = parseFloat(orderForm.discount) || 0
+      const grandTotal = totalGross - custDiscAmt - manualDiscAmt
+      const discountFactor = totalGross > 0 ? grandTotal / totalGross : 1
+
       const { data: orderId, error } = await supabase.rpc('place_order', {
         p_kunnr: kunnr,
-        p_items: cart.map(item => {
-          const sp = parseFloat(item.sales_price ?? item.mrp ?? 0)
-          const pdPct = parseFloat(item.prod_discount_pct || prodDiscounts[item.matnr] || 0)
-          const effPrice = sp * (1 - pdPct / 100)
-          const gst = parseFloat(item.gst_rate || 0)
-          return {
-            matnr: item.matnr,
-            quantity: item.quantity,
-            price: effPrice,
-            mrp: item.mrp || 0,
-            discount_pct: pdPct,
-            gst_rate: gst,
-            line_total: effPrice * item.quantity,
-          }
-        }),
+        p_items: orderLines.map(({ item, effPrice, pdPct, gst, lineGross }) => ({
+          matnr: item.matnr,
+          quantity: item.quantity,
+          price: effPrice,
+          mrp: item.mrp || 0,
+          discount_pct: pdPct,
+          gst_rate: gst,
+          line_total: lineGross * discountFactor,   // actual revenue after all discounts
+        })),
         p_customer_discount_pct: custDiscountPct || 0,
-        p_manual_discount: parseFloat(orderForm.discount) || 0,
+        p_manual_discount: manualDiscAmt,
       })
       if (error) { showToast(error.message, 'error'); return }
       showToast(`✅ Order ${orderId} placed!`)
