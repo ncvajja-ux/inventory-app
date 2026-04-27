@@ -26,8 +26,20 @@ export default function Invoice() {
         db.pricing().from('gst_config').select('*'),
       ])
       if (hErr) { showToast('Order not found', 'error'); setError('Order not found'); return }
+
+      // Enrich line items with product details from mara
+      const matnrs = (items || []).map(i => i.matnr).filter(Boolean)
+      let maraMap = {}
+      if (matnrs.length) {
+        const { data: maraRows } = await db.inventory().from('mara')
+          .select('matnr, brand, category, subcategory, subsubcategory, size, color, fit, body_type')
+          .in('matnr', matnrs)
+        maraMap = Object.fromEntries((maraRows || []).map(m => [m.matnr, m]))
+      }
+      const enrichedItems = (items || []).map(i => ({ ...i, ...maraMap[i.matnr] }))
+
       const { data: cust } = await db.customers().from('kna1').select('*').eq('kunnr', header.kunnr).single()
-      const orderData = { ...header, ...cust, items: items || [], gst_config: gstCfg || [] }
+      const orderData = { ...header, ...cust, items: enrichedItems, gst_config: gstCfg || [] }
       setOrder(orderData)
       setPaidAmountInput(orderData.paid_amount > 0 ? String(orderData.paid_amount) : '')
     } catch (err) {
