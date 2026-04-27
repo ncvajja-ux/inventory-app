@@ -668,17 +668,26 @@ function AllOrdersTab() {
   const loadOrders = useCallback(async () => {
     setLoading(true)
     try {
-      let query = db.transactions().from('vbak')
+      let q = db.transactions().from('vbak')
         .select('order_id, kunnr, status, payment_status, paid_amount, order_type, created_at, vbap(line_total)')
         .eq('status', 'CONFIRMED')
         .order('created_at', { ascending: false })
-      if (dateFrom) query = query.gte('created_at', dateFrom)
-      if (dateTo) query = query.lte('created_at', dateTo + 'T23:59:59')
-      const { data, error } = await query
+      if (dateFrom) q = q.gte('created_at', dateFrom)
+      if (dateTo) q = q.lte('created_at', dateTo + 'T23:59:59')
+      const { data, error } = await q
       if (error) { showToast(error.message, 'error'); return }
-      // Compute order_total from vbap line items
+
+      // Batch-fetch customer names
+      const kunnrs = [...new Set((data || []).map(o => o.kunnr).filter(Boolean))]
+      let custMap = {}
+      if (kunnrs.length) {
+        const { data: custs } = await db.customers().from('kna1').select('kunnr, name').in('kunnr', kunnrs)
+        custMap = Object.fromEntries((custs || []).map(c => [c.kunnr, c.name]))
+      }
+
       const orders = (data || []).map(o => ({
         ...o,
+        customer_name: custMap[o.kunnr] || '—',
         order_total: (o.vbap || []).reduce((s, l) => s + parseFloat(l.line_total || 0), 0),
       }))
       setOrders(orders)
@@ -696,7 +705,10 @@ function AllOrdersTab() {
     return Object.values(o).some(v => String(v ?? '').toLowerCase().includes(q))
   })
 
-  const totalRevenue = filtered.filter(o => o.order_type !== 'R').reduce((s, o) => s + parseFloat(o.order_total || 0), 0)
+  const totalRevenue = filtered.reduce((s, o) => {
+    const amt = parseFloat(o.order_total || 0)
+    return o.order_type === 'R' ? s - amt : s + amt
+  }, 0)
 
   function payBadge(ps) {
     const map = { PAID: 'paid', PENDING: 'pending', CANCELLED: 'cancelled', PARTIALLY_PAID: 'partial' }
