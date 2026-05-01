@@ -112,6 +112,10 @@ BEGIN
   JOIN inventory.products p ON p.sku_id = m.sku_id
   WHERE m.matnr = p_matnr;
 
+  IF NOT FOUND THEN
+    RETURN;
+  END IF;
+
   RETURN QUERY
   SELECT DISTINCT ON (k.kunnr)
     k.kunnr, k.name, k.number, k.body_type,
