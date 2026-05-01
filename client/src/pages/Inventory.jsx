@@ -388,7 +388,7 @@ function AddTab({ onAdded }) {
 }
 
 // ── Browse Tab (product list with expandable size variants) ──────────────────
-function ProductRow({ product, onRefresh }) {
+function ProductRow({ product, onRefresh, onEdit, onDelete }) {
   const showToast = useToast()
   const [expanded, setExpanded] = useState(false)
   const [addingSizeForm, setAddingSizeForm] = useState(null) // { size, qty }
@@ -459,6 +459,10 @@ function ProductRow({ product, onRefresh }) {
           <div>{product.fit || '—'}</div>
           <div style={{ textAlign: 'right' }}><strong>{totalStock}</strong> <span style={{ fontSize: 11, color: 'var(--muted)' }}>units</span></div>
           <div style={{ textAlign: 'right' }}>{product.mrp ? '₹' + product.mrp : '—'}</div>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
+          <button className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => onEdit(product)}>Edit</button>
+          <button className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 10px', color: 'var(--danger)' }} onClick={() => onDelete(product.sku_id)}>Delete</button>
         </div>
       </div>
 
