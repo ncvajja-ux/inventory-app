@@ -148,10 +148,9 @@ function getSizes(catData, category, subcategory, subsubcategory) {
 }
 
 // ── Add Tab ──────────────────────────────────────────────────────────────────
+// New AddTab — creates a product (SKU), no sizes required
 function AddTab({ onAdded }) {
   const showToast = useToast()
-  const navigate = useNavigate()
-  const [nextMatnr, setNextMatnr] = useState('—')
   const { catData, categories, reload: reloadCats } = useCategoryData()
   const [brands] = useBrands()
   const [colors] = useColors()
@@ -159,40 +158,28 @@ function AddTab({ onAdded }) {
   const [materialTypes] = useMaterialTypes()
   const [gstConfig] = useGstConfig()
   const [bodyTypes] = useBodyTypes()
+  const [formKey, setFormKey] = useState(0)
+  const [nextSkuCode, setNextSkuCode] = useState('—')
+
+  const loadNextSkuCode = useCallback(async () => {
+    try {
+      const { data } = await db.inventory().from('products')
+        .select('sku_code').order('sku_id', { ascending: false }).limit(1)
+      const maxNum = data?.[0]?.sku_code
+        ? parseInt(data[0].sku_code.replace('P', ''), 10) || 100000
+        : 100000
+      setNextSkuCode('P' + String(maxNum + 1).padStart(6, '0'))
+    } catch { setNextSkuCode('Auto') }
+  }, [])
+
+  useEffect(() => { loadNextSkuCode() }, [loadNextSkuCode])
 
   const [form, setForm] = useState({
     brand: '', brandfamily: '', gender: '',
-    category: '', subcategory: '', subsubcategory: '', size: '',
-    fit: '', color: '', material_type: '', tax_category: '', body_type: '',
-    mrp: '', cost_price: '', sales_price: '',
+    category: '', subcategory: '', subsubcategory: '',
+    color: '', fit: '', tax_category: '', body_type: '',
+    material_type: '', mrp: '', cost_price: '',
   })
-  const [availableSizes, setAvailableSizes] = useState([])
-
-  useEffect(() => {
-    if (!form.category || !form.subcategory || !form.subsubcategory) { setAvailableSizes([]); return }
-    db.inventory().from('category_l3').select('sizes')
-      .eq('category', form.category)
-      .eq('subcategory', form.subcategory)
-      .eq('subsubcategory', form.subsubcategory)
-      .single()
-      .then(({ data }) => {
-        const s = data?.sizes ? data.sizes.split(',').map(x => x.trim()).filter(Boolean) : []
-        setAvailableSizes(s)
-      })
-      .catch(() => setAvailableSizes([]))
-  }, [form.category, form.subcategory, form.subsubcategory])
-
-  const loadNextMatnr = useCallback(async () => {
-    try {
-      const { data, error } = await db.inventory().from('mara').select('matnr').order('matnr', { ascending: false }).limit(1)
-      if (error) throw error
-      const maxNum = data?.[0] ? parseInt(data[0].matnr) : 99999
-      const next = String(maxNum + 1).padStart(6, '0')
-      setNextMatnr(next)
-    } catch { setNextMatnr('Auto') }
-  }, [])
-
-  useEffect(() => { loadNextMatnr() }, [loadNextMatnr])
 
   function set(field) { return e => setForm(f => ({ ...f, [field]: e.target.value })) }
 
@@ -201,9 +188,8 @@ function AddTab({ onAdded }) {
       const val = e.target.value
       setForm(f => {
         const next = { ...f, [field]: val }
-        if (field === 'category') { next.subcategory = ''; next.subsubcategory = ''; next.size = '' }
-        if (field === 'subcategory') { next.subsubcategory = ''; next.size = '' }
-        if (field === 'subsubcategory') { next.size = '' }
+        if (field === 'category') { next.subcategory = ''; next.subsubcategory = '' }
+        if (field === 'subcategory') { next.subsubcategory = '' }
         return next
       })
     }
@@ -213,75 +199,52 @@ function AddTab({ onAdded }) {
     if (!form.brand) return showToast('Brand is required', 'error')
     if (!form.category) return showToast('Category is required', 'error')
     try {
-      // Compute next matnr
-      const { data: matnrData, error: matnrErr } = await db.inventory().from('mara').select('matnr').order('matnr', { ascending: false }).limit(1)
-      if (matnrErr) throw matnrErr
-      const maxNum = matnrData?.[0] ? parseInt(matnrData[0].matnr) : 99999
-      const newMatnr = String(maxNum + 1).padStart(6, '0')
+      const { data: latest } = await db.inventory().from('products')
+        .select('sku_code').order('sku_id', { ascending: false }).limit(1)
+      const maxNum = latest?.[0]?.sku_code
+        ? parseInt(latest[0].sku_code.replace('P', ''), 10) || 100000
+        : 100000
+      const sku_code = 'P' + String(maxNum + 1).padStart(6, '0')
 
-      const { error } = await db.inventory().from('mara').insert({
-        matnr: newMatnr,
+      const { error } = await db.inventory().from('products').insert({
+        sku_code,
         brand: form.brand,
-        brandfamily: form.brandfamily,
-        size: form.size,
-        quantity: parseInt(form.quantity) || 0,
-        price: parseFloat(form.price) || 0,
-        cost_price: parseFloat(form.cost_price) || 0,
-        mrp: parseFloat(form.mrp) || 0,
-        gender: form.gender,
+        brandfamily: form.brandfamily || null,
+        gender: form.gender || null,
         category: form.category,
-        subcategory: form.subcategory,
+        subcategory: form.subcategory || null,
         subsubcategory: form.subsubcategory || null,
-        color: form.color,
-        fit: form.fit,
-        tax_category: form.tax_category,
-        material_type: form.material_type || null,
+        color: form.color || null,
+        fit: form.fit || null,
+        tax_category: form.tax_category || null,
         body_type: form.body_type || null,
+        material_type: form.material_type || null,
+        mrp: parseFloat(form.mrp) || 0,
+        cost_price: parseFloat(form.cost_price) || 0,
       })
-      if (error) { showToast(error.message, 'error'); return }
-
-      // Auto-create a sales price entry if the user provided one
-      if (form.sales_price && parseFloat(form.sales_price) > 0) {
-        const today = new Date().toISOString().slice(0, 10)
-        const { error: spErr } = await db.pricing().from('sales_price').insert({
-          matnr: newMatnr,
-          unit_price: parseFloat(form.sales_price),
-          valid_from: today,
-          valid_to: null,
-        })
-        if (spErr) showToast('Item saved but sales price failed: ' + spErr.message, 'error')
-        else showToast(`✅ ${form.brand} saved (${newMatnr}) — redirecting to pricing`)
-      } else {
-        showToast(`✅ ${form.brand} saved (${newMatnr}) — set sales price now`)
-      }
-      reset()
+      if (error) throw new Error(error.message)
+      showToast(`✅ Product ${sku_code} created!`)
+      setFormKey(k => k + 1)
+      loadNextSkuCode()
       onAdded()
-      // Always redirect to Sales → Pricing so the user can confirm or add more price entries
-      navigate(`/sales?tab=pricing&matnr=${newMatnr}`)
-    } catch (err) {
-      showToast(`❌ ${err.message}`, 'error')
-    }
+    } catch (err) { showToast(`❌ ${err.message}`, 'error') }
   }
 
-  function reset() {
-    setForm({ brand: '', brandfamily: '', gender: '', category: '', subcategory: '', subsubcategory: '', size: '', fit: '', color: '', material_type: '', tax_category: '', body_type: '', mrp: '', cost_price: '', sales_price: '' })
-    loadNextMatnr()
-  }
-
-  const subcats = getSubcategories(categories, form.category)
-  const l3options = getL3Options(catData, form.category, form.subcategory)
-  const sizes = getSizes(catData, form.category, form.subcategory, form.subsubcategory)
+  const subcats = form.category ? (categories[form.category] || []) : []
+  const l3options = (catData || []).filter(r =>
+    r.category === form.category && r.subcategory === form.subcategory
+  )
 
   return (
-    <>
-      <h1 className="page-title">New Product</h1>
-      <p className="page-sub">Add a new product to inventory. Pricing and stock are managed separately via Purchase Orders.</p>
-
+    <div key={formKey}>
+      <h1 className="page-title">Add Product</h1>
+      <p className="page-sub">Create a new product (SKU). Add size variants after saving.</p>
       <div className="card">
+        {/* SKU Code badge */}
         <div style={{ marginBottom: 24, paddingBottom: 20, borderBottom: '1px solid var(--border)' }}>
-          <label>Auto-Assigned MATNR</label>
+          <label>AUTO-ASSIGNED SKU CODE</label>
           <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div className="id-badge">{nextMatnr}</div>
+            <div className="id-badge">{nextSkuCode}</div>
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>Assigned automatically on save</span>
           </div>
         </div>
@@ -291,7 +254,7 @@ function AddTab({ onAdded }) {
             <label>Brand *</label>
             <select value={form.brand} onChange={set('brand')}>
               <option value="">Select brand…</option>
-              {brands.map(b => <option key={b.name || b} value={b.name || b}>{b.name || b}</option>)}
+              {brands.map(b => <option key={b.name}>{b.name}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -302,7 +265,7 @@ function AddTab({ onAdded }) {
             <label>Gender</label>
             <select value={form.gender} onChange={set('gender')}>
               <option value="">Select…</option>
-              {GENDERS.map(g => <option key={g}>{g}</option>)}
+              {['Male','Female','Unisex'].map(g => <option key={g}>{g}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -315,86 +278,68 @@ function AddTab({ onAdded }) {
           <div className="form-group">
             <label>Sub-Category</label>
             <select value={form.subcategory} onChange={setAndCascade('subcategory')} disabled={!form.category}>
-              <option value="">Select category first…</option>
-              {subcats.map(s => <option key={s.id} value={s.subcategory}>{s.subcategory}</option>)}
+              <option value="">Select…</option>
+              {subcats.map(r => <option key={r.subcategory}>{r.subcategory}</option>)}
             </select>
           </div>
           <div className="form-group">
             <label>Sub-Sub-Category</label>
-            <select value={form.subsubcategory} onChange={setAndCascade('subsubcategory')} disabled={!form.subcategory}>
-              <option value="">Select sub-category first…</option>
+            <select value={form.subsubcategory} onChange={set('subsubcategory')} disabled={!form.subcategory}>
+              <option value="">Select…</option>
               {l3options.map(r => <option key={r.subsubcategory}>{r.subsubcategory}</option>)}
             </select>
           </div>
           <div className="form-group">
-            <label>Size</label>
-            <select value={form.size} onChange={set('size')} disabled={!form.subsubcategory || availableSizes.length === 0}>
-              <option value="">{!form.subsubcategory ? 'Select sub-sub-category first…' : availableSizes.length === 0 ? 'No sizes configured' : 'Select size…'}</option>
-              {availableSizes.map(s => <option key={s}>{s}</option>)}
+            <label>Color</label>
+            <select value={form.color} onChange={set('color')}>
+              <option value="">Select…</option>
+              {colors.map(c => <option key={c.name}>{c.name}</option>)}
             </select>
           </div>
           <div className="form-group">
             <label>Fit</label>
             <select value={form.fit} onChange={set('fit')}>
               <option value="">Select fit…</option>
-              {fits.map(f => <option key={f.name || f} value={f.name || f}>{f.name || f}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Color</label>
-            <select value={form.color} onChange={set('color')}>
-              <option value="">Select color…</option>
-              {colors.map(c => <option key={c.name || c} value={c.name || c}>{c.name || c}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Material Type</label>
-            <select value={form.material_type} onChange={set('material_type')}>
-              <option value="">Select material…</option>
-              {materialTypes.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Tax Category</label>
-            <select value={form.tax_category} onChange={set('tax_category')}>
-              <option value="">Select tax category…</option>
-              {gstConfig.map(g => <option key={g.id || g.tax_category} value={g.tax_category}>{g.tax_category} ({g.gst_rate}%)</option>)}
+              {fits.map(f => <option key={f.name}>{f.name}</option>)}
             </select>
           </div>
           <div className="form-group">
             <label>Body Type</label>
             <select value={form.body_type} onChange={set('body_type')}>
-              <option value="">Select body type…</option>
-              {bodyTypes.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+              <option value="">Select…</option>
+              {bodyTypes.map(b => <option key={b.name}>{b.name}</option>)}
             </select>
           </div>
-        </div>
-
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20, marginTop: 4 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: 14 }}>Pricing</div>
-          <div className="form-grid">
-            <div className="form-group">
-              <label>Sales Price (₹) <span style={{ color: 'var(--danger)', fontWeight: 700 }}>*</span></label>
-              <input type="number" min="0" step="0.01" value={form.sales_price} onChange={set('sales_price')} placeholder="e.g. 2500" />
-              <span style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, display: 'block' }}>Selling price shown to customer — required for orders</span>
-            </div>
-            <div className="form-group">
-              <label>MRP (₹)</label>
-              <input type="number" min="0" step="0.01" value={form.mrp} onChange={set('mrp')} placeholder="e.g. 2999" />
-            </div>
-            <div className="form-group">
-              <label>Cost Price (₹)</label>
-              <input type="number" min="0" step="0.01" value={form.cost_price} onChange={set('cost_price')} placeholder="e.g. 1200" />
-            </div>
+          <div className="form-group">
+            <label>Material Type</label>
+            <select value={form.material_type} onChange={set('material_type')}>
+              <option value="">Select…</option>
+              {materialTypes.map(m => <option key={m.name}>{m.name}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label>GST Category</label>
+            <select value={form.tax_category} onChange={set('tax_category')}>
+              <option value="">Select…</option>
+              {gstConfig.map(g => <option key={g.id} value={g.tax_category}>{g.tax_category} ({g.gst_rate}%)</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label>MRP (₹)</label>
+            <input type="number" value={form.mrp} onChange={set('mrp')} placeholder="0.00" min="0" step="0.01" />
+          </div>
+          <div className="form-group">
+            <label>Cost Price (₹)</label>
+            <input type="number" value={form.cost_price} onChange={set('cost_price')} placeholder="0.00" min="0" step="0.01" />
           </div>
         </div>
 
-        <div className="btn-row">
-          <button className="btn btn-primary" onClick={save}>💾 Save Item</button>
-          <button className="btn btn-ghost" onClick={reset}>Clear</button>
+        <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
+          <button className="btn btn-primary" onClick={save}>Save Product</button>
+          <button className="btn btn-ghost" onClick={() => { setFormKey(k => k + 1); setForm({ brand:'',brandfamily:'',gender:'',category:'',subcategory:'',subsubcategory:'',color:'',fit:'',tax_category:'',body_type:'',material_type:'',mrp:'',cost_price:'' }) }}>Clear</button>
         </div>
       </div>
-    </>
+    </div>
   )
 }
 
