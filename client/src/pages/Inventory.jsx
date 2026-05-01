@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Link, useSearchParams, useNavigate } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
 import { db } from '../lib/supabase'
@@ -1359,7 +1359,7 @@ export default function Inventory() {
     <div className="page-layout">
       <Sidebar section="Inventory" activeTab={tab} onTabChange={t => { setTab(t); if (t === 'view') setRefreshKey(k => k + 1) }} />
       <div className="main">
-        {tab === 'add' && <AddTab onAdded={() => { setTab('view'); setRefreshKey(k => k + 1) }} />}
+        {tab === 'add' && <AddTab onAdded={() => { setRefreshKey(k => k + 1) }} />}
         {tab === 'view' && <ViewTab key={refreshKey} editMatnr={editMatnr} />}
         {tab === 'cats' && <ConfigTab />}
         {tab === 'upload' && <UploadTab />}
