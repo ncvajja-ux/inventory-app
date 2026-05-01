@@ -34,7 +34,7 @@ function AppRoutes({ role }) {
       <Route path="/customers" element={<Customers />} />
       <Route path="/customers/:kunnr" element={<CustomerDetail />} />
       <Route path="/inventory" element={<Inventory />} />
-      <Route path="/inventory/:matnr" element={<ItemDetail />} />
+      <Route path="/inventory/product/:skuId" element={<ItemDetail />} />
       <Route path="/sales" element={<Sales />} />
       <Route path="/invoice" element={<Invoice />} />
       <Route path="/buyers" element={
