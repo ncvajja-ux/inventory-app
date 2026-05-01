@@ -16,10 +16,10 @@ CREATE SCHEMA IF NOT EXISTS hr;
 CREATE TABLE IF NOT EXISTS inventory.products (
   sku_id         SERIAL PRIMARY KEY,
   sku_code       TEXT UNIQUE NOT NULL,   -- e.g. "P100001"
-  brand          TEXT,
+  brand          TEXT NOT NULL,
   brandfamily    TEXT,
   gender         TEXT,
-  category       TEXT,
+  category       TEXT NOT NULL,
   subcategory    TEXT,
   subsubcategory TEXT,
   color          TEXT,
@@ -39,9 +39,10 @@ CREATE TABLE IF NOT EXISTS inventory.products (
 CREATE TABLE IF NOT EXISTS inventory.mara (
   matnr    TEXT PRIMARY KEY CHECK (length(matnr) = 6),
   sku_id   INTEGER NOT NULL REFERENCES inventory.products(sku_id) ON DELETE CASCADE,
-  size     TEXT,
+  size     TEXT NOT NULL,
   quantity INTEGER DEFAULT 0,
-  reserved INTEGER DEFAULT 0
+  reserved INTEGER DEFAULT 0,
+  UNIQUE (sku_id, size)
 );
 
 -- ── inventory meta tables ───────────────────────────────────
@@ -111,7 +112,8 @@ CREATE TABLE IF NOT EXISTS customers.customer_preferences (
   brand    TEXT,
   category TEXT,
   fit      TEXT,
-  size     TEXT
+  size     TEXT,
+  UNIQUE (kunnr, brand, category)
 );
 
 -- ── transactions ─────────────────────────────────────────────
