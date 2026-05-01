@@ -140,3 +140,105 @@ BEGIN
   ORDER BY k.kunnr, rank;
 END;
 $$;
+
+-- analytics_overview
+CREATE OR REPLACE FUNCTION analytics_overview()
+RETURNS JSONB LANGUAGE plpgsql AS $$
+DECLARE
+  v_total_orders    BIGINT;
+  v_total_returns   BIGINT;
+  v_total_customers BIGINT;
+  v_total_products  BIGINT;
+  v_total_revenue   REAL;
+BEGIN
+  SELECT
+    COUNT(*) FILTER (WHERE order_type = 'S' AND status = 'CONFIRMED'),
+    COUNT(*) FILTER (WHERE order_type = 'R' AND status = 'CONFIRMED')
+  INTO v_total_orders, v_total_returns
+  FROM transactions.vbak;
+
+  SELECT COUNT(*) INTO v_total_customers FROM customers.kna1;
+  SELECT COUNT(*) INTO v_total_products  FROM inventory.products;
+
+  SELECT COALESCE(SUM(vp.line_total), 0)
+  INTO v_total_revenue
+  FROM transactions.vbap vp
+  JOIN transactions.vbak vk ON vk.order_id = vp.order_id
+  WHERE vk.order_type = 'S' AND vk.status = 'CONFIRMED';
+
+  RETURN jsonb_build_object(
+    'total_orders',    v_total_orders,
+    'total_returns',   v_total_returns,
+    'total_customers', v_total_customers,
+    'total_products',  v_total_products,
+    'total_revenue',   v_total_revenue
+  );
+END;
+$$;
+
+-- analytics_monthly_sales
+CREATE OR REPLACE FUNCTION analytics_monthly_sales(p_year INT)
+RETURNS TABLE(month TEXT, total REAL, orders BIGINT) LANGUAGE plpgsql AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    TO_CHAR(vk.created_at, 'Mon') AS month,
+    COALESCE(SUM(vp.line_total), 0)::REAL AS total,
+    COUNT(DISTINCT vk.order_id) AS orders
+  FROM transactions.vbak vk
+  LEFT JOIN transactions.vbap vp ON vp.order_id = vk.order_id
+  WHERE vk.order_type = 'S' AND vk.status = 'CONFIRMED'
+    AND EXTRACT(YEAR FROM vk.created_at) = p_year
+  GROUP BY TO_CHAR(vk.created_at, 'Mon'), EXTRACT(MONTH FROM vk.created_at)
+  ORDER BY EXTRACT(MONTH FROM vk.created_at);
+END;
+$$;
+
+-- analytics_returns_by_month
+CREATE OR REPLACE FUNCTION analytics_returns_by_month(p_year INT)
+RETURNS TABLE(month TEXT, total REAL, returns BIGINT) LANGUAGE plpgsql AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    TO_CHAR(vk.created_at, 'Mon') AS month,
+    COALESCE(SUM(vp.line_total), 0)::REAL AS total,
+    COUNT(DISTINCT vk.order_id) AS returns
+  FROM transactions.vbak vk
+  LEFT JOIN transactions.vbap vp ON vp.order_id = vk.order_id
+  WHERE vk.order_type = 'R' AND vk.status = 'CONFIRMED'
+    AND EXTRACT(YEAR FROM vk.created_at) = p_year
+  GROUP BY TO_CHAR(vk.created_at, 'Mon'), EXTRACT(MONTH FROM vk.created_at)
+  ORDER BY EXTRACT(MONTH FROM vk.created_at);
+END;
+$$;
+
+-- analytics_returns_by_reason
+CREATE OR REPLACE FUNCTION analytics_returns_by_reason(p_year INT)
+RETURNS TABLE(reason TEXT, count BIGINT) LANGUAGE plpgsql AS $$
+BEGIN
+  RETURN QUERY
+  SELECT vk.return_reason AS reason, COUNT(*) AS count
+  FROM transactions.vbak vk
+  WHERE vk.order_type = 'R' AND vk.status = 'CONFIRMED'
+    AND EXTRACT(YEAR FROM vk.created_at) = p_year
+    AND vk.return_reason IS NOT NULL
+  GROUP BY vk.return_reason ORDER BY count DESC;
+END;
+$$;
+
+-- analytics_top_return_customers
+CREATE OR REPLACE FUNCTION analytics_top_return_customers(p_year INT)
+RETURNS TABLE(kunnr TEXT, name TEXT, return_count BIGINT, return_value REAL) LANGUAGE plpgsql AS $$
+BEGIN
+  RETURN QUERY
+  SELECT vk.kunnr, k.name,
+    COUNT(DISTINCT vk.order_id) AS return_count,
+    COALESCE(SUM(vp.line_total), 0)::REAL AS return_value
+  FROM transactions.vbak vk
+  JOIN customers.kna1 k ON k.kunnr = vk.kunnr
+  LEFT JOIN transactions.vbap vp ON vp.order_id = vk.order_id
+  WHERE vk.order_type = 'R' AND vk.status = 'CONFIRMED'
+    AND EXTRACT(YEAR FROM vk.created_at) = p_year
+  GROUP BY vk.kunnr, k.name ORDER BY return_count DESC LIMIT 10;
+END;
+$$;
