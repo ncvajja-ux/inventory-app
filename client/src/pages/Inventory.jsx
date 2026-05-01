@@ -640,6 +640,12 @@ function EditProductModal({ product, onClose, onSaved }) {
               {subcats.map(r => <option key={r.subcategory}>{r.subcategory}</option>)}
             </select>
           </div>
+          <div className="form-group"><label>Sub-Sub-Category</label>
+            <select value={form.subsubcategory} onChange={set('subsubcategory')} disabled={!form.subcategory}>
+              <option value="">Select…</option>
+              {(catData || []).filter(r => r.category === form.category && r.subcategory === form.subcategory).map(r => <option key={r.subsubcategory}>{r.subsubcategory}</option>)}
+            </select>
+          </div>
           <div className="form-group"><label>Color</label>
             <select value={form.color} onChange={set('color')}>
               <option value="">Select…</option>
@@ -983,7 +989,7 @@ function ConfigTab() {
   }
 
   async function removeL3(id) {
-    if (!confirm('Remove this sub-sub-category?')) return
+    if (!window.confirm('Remove this sub-sub-category?')) return
     try {
       const { error } = await db.inventory().from('category_l3').delete().eq('id', id)
       if (error) throw error
@@ -1277,152 +1283,18 @@ function L3Row({ row, onUpdate, onRemove }) {
 
 // ── Upload Tab ────────────────────────────────────────────────────────────────
 function UploadTab() {
-  const showToast = useToast()
-  const [dragging, setDragging] = useState(false)
-  const [logs, setLogs] = useState([])
-  const [summary, setSummary] = useState(null)
-  const [uploading, setUploading] = useState(false)
-
-  function addLog(msg, type = 'info') {
-    setLogs(l => [...l, { msg, type }])
-  }
-
-  function downloadTemplate() {
-    const tsv = 'brand\tbrandfamily\tgender\tcategory\tsubcategory\tsubsubcategory\tsize\tfit\tcolor\ttax_category\nNike\tAir Max\tMale\tFootwear\tSneakers\tRunning\t10\tRegular\tBlack\tStandard 12%'
-    const blob = new Blob([tsv], { type: 'text/tab-separated-values' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = 'inventory_template.tsv'; a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  async function processFile(file) {
-    if (!file) return
-    setLogs([]); setSummary(null); setUploading(true)
-    addLog(`📂 Reading: ${file.name}`)
-
-    const text = await file.text()
-    const sep = file.name.endsWith('.tsv') || text.includes('\t') ? '\t' : ','
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
-    if (lines.length < 2) {
-      addLog('❌ File must have a header + at least one data row.', 'error')
-      setUploading(false); return
-    }
-
-    const headers = lines[0].split(sep).map(h => h.trim().toLowerCase())
-    const rows = lines.slice(1)
-    addLog(`✅ Found ${rows.length} rows`)
-
-    let ok = 0, fail = 0
-    for (let i = 0; i < rows.length; i++) {
-      const cols = rows[i].split(sep)
-      const obj = {}
-      headers.forEach((h, idx) => { obj[h] = (cols[idx] || '').trim() })
-      if (!obj.brand || !obj.category) {
-        addLog(`Row ${i + 2}: ⚠️ Skipped — missing brand or category`, 'warn')
-        fail++; continue
-      }
-      try {
-        // Compute next matnr for this row
-        const { data: matnrData, error: matnrErr } = await db.inventory().from('mara').select('matnr').order('matnr', { ascending: false }).limit(1)
-        if (matnrErr) throw matnrErr
-        const maxNum = matnrData?.[0] ? parseInt(matnrData[0].matnr) : 99999
-        const newMatnr = String(maxNum + 1).padStart(6, '0')
-
-        const { error } = await db.inventory().from('mara').insert({
-          matnr: newMatnr,
-          brand: obj.brand,
-          brandfamily: obj.brandfamily || null,
-          gender: obj.gender || null,
-          category: obj.category,
-          subcategory: obj.subcategory || null,
-          subsubcategory: obj.subsubcategory || null,
-          size: obj.size || null,
-          fit: obj.fit || null,
-          color: obj.color || null,
-          tax_category: obj.tax_category || null,
-          quantity: 0,
-          price: 0,
-          cost_price: 0,
-          mrp: 0,
-        })
-        if (error) throw error
-        addLog(`Row ${i + 2}: ✅ ${obj.brand} (${newMatnr})`, 'success')
-        ok++
-      } catch (err) {
-        addLog(`Row ${i + 2}: ❌ ${err.message}`, 'error')
-        fail++
-      }
-    }
-
-    setSummary({ ok, fail, total: rows.length })
-    setUploading(false)
-    showToast(`Upload complete: ${ok} added, ${fail} failed`)
-  }
-
   return (
-    <>
-      <h1 className="page-title">Mass Upload</h1>
-      <p className="page-sub">Upload multiple products at once. Stock is added via Purchase Orders, pricing via Sales Pricing.</p>
-
-      <div className="card">
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>📋 Template Format</div>
-          <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Values must match your configured brands, categories, fits, colors and tax categories exactly.</div>
-          <code style={{ display: 'block', background: 'var(--bg)', borderRadius: 8, padding: '10px 14px', fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'auto' }}>
-            brand · brandfamily · gender · category · subcategory · subsubcategory · size · fit · color · tax_category
-          </code>
-        </div>
-
-        <div
-          className={`drop-zone${dragging ? ' drag-over' : ''}`}
-          onDragOver={e => { e.preventDefault(); setDragging(true) }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={e => { e.preventDefault(); setDragging(false); processFile(e.dataTransfer.files[0]) }}
-          onClick={() => document.getElementById('inv-file-input').click()}
-          style={{
-            border: '2px dashed var(--border)', borderRadius: 12, padding: '48px 24px',
-            textAlign: 'center', cursor: 'pointer',
-            background: dragging ? 'rgba(0,0,0,0.03)' : 'transparent', transition: 'all 0.2s',
-          }}
-        >
-          <div style={{ fontSize: 36, marginBottom: 12 }}>📂</div>
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>Drop your TSV / CSV here</div>
-          <div style={{ fontSize: 12, color: 'var(--muted)' }}>CSV or TSV · Max 500 rows</div>
-          <input id="inv-file-input" type="file" accept=".tsv,.csv,.txt" style={{ display: 'none' }} onChange={e => processFile(e.target.files[0])} />
-        </div>
-
-        <div className="btn-row" style={{ marginTop: 16 }}>
-          <button className="btn btn-ghost" onClick={downloadTemplate}>⬇ Download Template</button>
-        </div>
-
-        {summary && (
-          <div style={{
-            marginTop: 20, padding: '12px 16px', borderRadius: 8,
-            background: summary.fail === 0 ? 'rgba(34,197,94,0.1)' : 'rgba(234,179,8,0.1)',
-            border: `1px solid ${summary.fail === 0 ? '#22c55e' : '#eab308'}`,
-          }}>
-            <strong>Upload Complete:</strong> {summary.ok} added, {summary.fail} failed out of {summary.total} rows
-          </div>
-        )}
-
-        {logs.length > 0 && (
-          <div style={{
-            marginTop: 16, background: '#0f1117', borderRadius: 8,
-            padding: '12px 16px', maxHeight: 260, overflowY: 'auto',
-            fontFamily: 'monospace', fontSize: 12,
-          }}>
-            {logs.map((log, i) => (
-              <div key={i} style={{
-                color: log.type === 'error' ? '#f87171' : log.type === 'warn' ? '#fbbf24' : log.type === 'success' ? '#4ade80' : '#94a3b8',
-                marginBottom: 2,
-              }}>{log.msg}</div>
-            ))}
-            {uploading && <div style={{ color: '#60a5fa', marginTop: 4 }}>⏳ Processing…</div>}
-          </div>
-        )}
+    <div>
+      <h1 className="page-title">Bulk Upload</h1>
+      <div className="card" style={{ padding: 32, textAlign: 'center' }}>
+        <div style={{ fontSize: 32, marginBottom: 12 }}>🚧</div>
+        <h3 style={{ marginBottom: 8 }}>Upload temporarily unavailable</h3>
+        <p style={{ color: 'var(--muted)', fontSize: 14 }}>
+          Bulk upload is being updated for the new product/SKU model.<br />
+          Add products individually via the Add tab, then expand each product to add size variants.
+        </p>
       </div>
-    </>
+    </div>
   )
 }
 
@@ -1433,7 +1305,7 @@ export default function Inventory() {
 
   return (
     <div className="page-layout">
-      <Sidebar section="Inventory" activeTab={tab} onTabChange={t => { setTab(t); if (t === 'view') setRefreshKey(k => k + 1) }} />
+      <Sidebar section="Inventory" activeTab={tab} onTabChange={t => { setTab(t) }} />
       <div className="main">
         {tab === 'add' && <AddTab onAdded={() => { setRefreshKey(k => k + 1) }} />}
         {tab === 'view' && <BrowseTab refreshKey={refreshKey} />}
