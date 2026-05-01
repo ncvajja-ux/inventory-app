@@ -1,11 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useState, useEffect, useCallback } from 'react'
 import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
 import { db } from '../lib/supabase'
 
-const GENDERS = ['Male', 'Female', 'Unisex']
-const fmt = n => '₹' + parseFloat(n || 0).toFixed(2)
 
 // ── Category cascade hook ───────────────────────────────────────────────────
 function useCategoryData() {
@@ -125,6 +122,53 @@ function useGstConfig() {
   }, [])
   useEffect(() => { load() }, [load])
   return [gstConfig, load]
+}
+
+function useProducts() {
+  const [products, setProducts] = useState([])
+  const [loading, setLoading] = useState(true)
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const { data, error } = await db.inventory().from('products')
+        .select('*, mara(matnr, size, quantity, reserved)')
+        .order('sku_id', { ascending: false })
+      if (error) throw error
+      setProducts(data || [])
+    } catch (err) { console.error(err.message) }
+    finally { setLoading(false) }
+  }, [])
+  useEffect(() => { load() }, [load])
+  return [products, load, loading]
+}
+
+// Loads available sizes from category_l3 for a given category/subcategory/subsubcategory
+function SizePicker({ category, subcategory, subsubcategory, value, onChange }) {
+  const [sizes, setSizes] = useState([])
+  useEffect(() => {
+    if (!category || !subcategory || !subsubcategory) { setSizes([]); return }
+    db.inventory().from('category_l3').select('sizes')
+      .eq('category', category).eq('subcategory', subcategory).eq('subsubcategory', subsubcategory)
+      .single()
+      .then(({ data }) => {
+        setSizes(data?.sizes ? data.sizes.split(',').map(s => s.trim()).filter(Boolean) : [])
+      })
+      .catch(() => setSizes([]))
+  }, [category, subcategory, subsubcategory])
+
+  return (
+    <div className="form-group" style={{ margin: 0, minWidth: 120 }}>
+      <label style={{ fontSize: 11 }}>Size</label>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        style={{ padding: '8px 10px', borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, width: '100%' }}
+      >
+        <option value="">{sizes.length === 0 ? 'No sizes configured' : 'Select size…'}</option>
+        {sizes.map(s => <option key={s}>{s}</option>)}
+      </select>
+    </div>
+  )
 }
 
 // ── Cascade selects helpers ──────────────────────────────────────────────────
@@ -343,13 +387,171 @@ function AddTab({ onAdded }) {
   )
 }
 
-// ── View Tab ─────────────────────────────────────────────────────────────────
-function ViewTab({ editMatnr }) {
+// ── Browse Tab (product list with expandable size variants) ──────────────────
+function ProductRow({ product, onRefresh }) {
   const showToast = useToast()
-  const [allData, setAllData] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [query, setQuery] = useState('')
-  const [editingItem, setEditingItem] = useState(null)
+  const [expanded, setExpanded] = useState(false)
+  const [addingSizeForm, setAddingSizeForm] = useState(null) // { size, qty }
+  const [editingSize, setEditingSize] = useState(null) // { matnr, quantity }
+
+  const variants = product.mara || []
+  const totalStock = variants.reduce((s, v) => s + (v.quantity || 0), 0)
+
+  async function saveAddSize() {
+    if (!addingSizeForm?.size) return showToast('Select a size', 'error')
+    if (variants.find(v => v.size === addingSizeForm.size)) return showToast('This size already exists', 'error')
+    try {
+      const { data: latest } = await db.inventory().from('mara')
+        .select('matnr').order('matnr', { ascending: false }).limit(1)
+      const maxNum = latest?.[0]?.matnr ? parseInt(latest[0].matnr, 10) : 99999
+      const matnr = String(maxNum + 1).padStart(6, '0')
+
+      const { error } = await db.inventory().from('mara').insert({
+        matnr,
+        sku_id: product.sku_id,
+        size: addingSizeForm.size,
+        quantity: parseInt(addingSizeForm.qty) || 0,
+      })
+      if (error) throw error
+      showToast(`✅ Size ${addingSizeForm.size} added (${matnr})`)
+      setAddingSizeForm(null)
+      onRefresh()
+    } catch (err) { showToast(`❌ ${err.message}`, 'error') }
+  }
+
+  async function saveEditSize() {
+    if (!editingSize) return
+    try {
+      const { error } = await db.inventory().from('mara')
+        .update({ quantity: parseInt(editingSize.quantity) || 0 })
+        .eq('matnr', editingSize.matnr)
+      if (error) throw error
+      showToast('✅ Quantity updated')
+      setEditingSize(null)
+      onRefresh()
+    } catch (err) { showToast(`❌ ${err.message}`, 'error') }
+  }
+
+  async function deleteVariant(matnr, size) {
+    if (!window.confirm(`Delete size ${size} (${matnr})?`)) return
+    try {
+      const { error } = await db.inventory().from('mara').delete().eq('matnr', matnr)
+      if (error) throw error
+      onRefresh()
+    } catch (err) { showToast(`❌ ${err.message}`, 'error') }
+  }
+
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
+      {/* Product header row */}
+      <div
+        onClick={() => setExpanded(e => !e)}
+        style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', cursor: 'pointer' }}
+      >
+        <span style={{ fontSize: 12, color: 'var(--muted)', transform: expanded ? 'rotate(90deg)' : 'none', display: 'inline-block', transition: '0.2s' }}>▶</span>
+        {product.image_data && (
+          <img src={product.image_data} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6 }} />
+        )}
+        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr 80px 80px 80px 80px', gap: 8, alignItems: 'center', fontSize: 13 }}>
+          <div><strong>{product.brand}</strong> <span style={{ color: 'var(--muted)', fontSize: 11 }}>{product.sku_code}</span></div>
+          <div style={{ color: 'var(--muted)' }}>{[product.category, product.subcategory, product.subsubcategory].filter(Boolean).join(' · ')}</div>
+          <div>{product.color || '—'}</div>
+          <div>{product.fit || '—'}</div>
+          <div style={{ textAlign: 'right' }}><strong>{totalStock}</strong> <span style={{ fontSize: 11, color: 'var(--muted)' }}>units</span></div>
+          <div style={{ textAlign: 'right' }}>{product.mrp ? '₹' + product.mrp : '—'}</div>
+        </div>
+      </div>
+
+      {/* Expanded: size variants */}
+      {expanded && (
+        <div style={{ padding: '0 16px 16px', borderTop: '1px solid var(--border)' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginTop: 12 }}>
+            <thead>
+              <tr style={{ color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase' }}>
+                <th style={{ padding: '6px 8px', textAlign: 'left' }}>MATNR</th>
+                <th style={{ padding: '6px 8px', textAlign: 'left' }}>Size</th>
+                <th style={{ padding: '6px 8px', textAlign: 'right' }}>Qty</th>
+                <th style={{ padding: '6px 8px', textAlign: 'right' }}>Reserved</th>
+                <th style={{ padding: '6px 8px', textAlign: 'right' }}>Available</th>
+                <th style={{ padding: '6px 8px' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {variants.length === 0 && (
+                <tr><td colSpan={6} style={{ padding: '12px 8px', color: 'var(--muted)', fontSize: 12 }}>No size variants yet. Add one below.</td></tr>
+              )}
+              {variants.map(v => (
+                <tr key={v.matnr} style={{ borderTop: '1px solid var(--border)' }}>
+                  <td style={{ padding: '8px', fontFamily: 'monospace', fontSize: 12 }}>{v.matnr}</td>
+                  <td style={{ padding: '8px' }}>{v.size || '—'}</td>
+                  <td style={{ padding: '8px', textAlign: 'right' }}>
+                    {editingSize?.matnr === v.matnr ? (
+                      <input
+                        type="number" min="0"
+                        value={editingSize.quantity}
+                        onChange={e => setEditingSize(s => ({ ...s, quantity: e.target.value }))}
+                        style={{ width: 60, padding: '2px 6px', borderRadius: 6, border: '1.5px solid var(--accent)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13 }}
+                        autoFocus
+                      />
+                    ) : v.quantity}
+                  </td>
+                  <td style={{ padding: '8px', textAlign: 'right', color: 'var(--muted)' }}>{v.reserved || 0}</td>
+                  <td style={{ padding: '8px', textAlign: 'right' }}>{(v.quantity || 0) - (v.reserved || 0)}</td>
+                  <td style={{ padding: '8px', textAlign: 'right' }}>
+                    <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                      {editingSize?.matnr === v.matnr ? (
+                        <>
+                          <button className="btn btn-primary" style={{ fontSize: 11, padding: '3px 10px' }} onClick={saveEditSize}>Save</button>
+                          <button className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => setEditingSize(null)}>Cancel</button>
+                        </>
+                      ) : (
+                        <>
+                          <button className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => setEditingSize({ matnr: v.matnr, quantity: String(v.quantity || 0) })}>Edit Qty</button>
+                          <button className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 10px', color: 'var(--danger)' }} onClick={() => deleteVariant(v.matnr, v.size)}>Delete</button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {/* Add size form */}
+          {addingSizeForm ? (
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'flex-end' }}>
+              <SizePicker
+                category={product.category}
+                subcategory={product.subcategory}
+                subsubcategory={product.subsubcategory}
+                value={addingSizeForm.size}
+                onChange={size => setAddingSizeForm(f => ({ ...f, size }))}
+              />
+              <div className="form-group" style={{ margin: 0, width: 100 }}>
+                <label style={{ fontSize: 11 }}>Opening Qty</label>
+                <input type="number" min="0" value={addingSizeForm.qty}
+                  onChange={e => setAddingSizeForm(f => ({ ...f, qty: e.target.value }))}
+                  style={{ padding: '8px 10px', borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, width: '100%' }}
+                />
+              </div>
+              <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={saveAddSize}>Add</button>
+              <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => setAddingSizeForm(null)}>Cancel</button>
+            </div>
+          ) : (
+            <button
+              className="btn btn-ghost"
+              style={{ marginTop: 12, fontSize: 12 }}
+              onClick={() => setAddingSizeForm({ size: '', qty: 0 })}
+            >+ Add Size</button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function EditProductModal({ product, onClose, onSaved }) {
+  const showToast = useToast()
   const { catData, categories } = useCategoryData()
   const [brands] = useBrands()
   const [colors] = useColors()
@@ -357,315 +559,187 @@ function ViewTab({ editMatnr }) {
   const [materialTypes] = useMaterialTypes()
   const [gstConfig] = useGstConfig()
   const [bodyTypes] = useBodyTypes()
-
-  const loadData = useCallback(async () => {
-    setLoading(true)
-    try {
-      const { data, error } = await db.inventory().from('mara').select('*').order('matnr')
-      if (error) { showToast('❌ Could not load inventory', 'error'); return }
-      setAllData(data || [])
-    } catch {
-      showToast('❌ Could not load inventory', 'error')
-    } finally {
-      setLoading(false)
-    }
-  }, [showToast])
-
-  useEffect(() => { loadData() }, [loadData])
-
-  // Auto-open edit modal when arriving from ItemDetail via ?edit=MATNR
-  useEffect(() => {
-    if (!editMatnr || loading || allData.length === 0) return
-    const item = allData.find(r => r.matnr === editMatnr)
-    if (item) setEditingItem(item)
-  }, [editMatnr, loading, allData])
-
-  async function deleteItem(matnr) {
-    if (!confirm(`Delete item ${matnr}? This cannot be undone.`)) return
-    try {
-      const { error } = await db.inventory().from('mara').delete().eq('matnr', matnr)
-      if (error) { showToast(`❌ ${error.message}`, 'error'); return }
-      showToast(`🗑️ ${matnr} deleted`)
-      loadData()
-    } catch (err) {
-      showToast(`❌ ${err.message}`, 'error')
-    }
-  }
-
-  function downloadCSV() {
-    if (!allData.length) return
-    const headers = ['MATNR', 'Brand', 'BrandFamily', 'Category', 'SubCategory', 'SubSubCategory', 'Size', 'Fit', 'Color', 'Gender', 'TaxCategory', 'InStock', 'Reserved', 'Available', 'CostPrice', 'MRP']
-    const rows = allData.map(r => [
-      r.matnr, r.brand, r.brandfamily, r.category, r.subcategory, r.subsubcategory,
-      r.size, r.fit, r.color, r.gender, r.tax_category,
-      r.quantity, r.reserved, (r.quantity || 0) - (r.reserved || 0), r.cost_price, r.mrp,
-    ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
-    const csv = [headers.join(','), ...rows].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = `inventory_${new Date().toISOString().slice(0, 10)}.csv`; a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  const filtered = query
-    ? allData.filter(r => Object.values(r).some(v => String(v ?? '').toLowerCase().includes(query.toLowerCase())))
-    : allData
-
-  const totalUnits = allData.reduce((s, r) => s + (r.quantity || 0), 0)
-
-  return (
-    <>
-      <h1 className="page-title">Stock Overview</h1>
-      <p className="page-sub">All inventory items from the database.</p>
-
-      <div className="toolbar">
-        <div className="search-wrap">
-          <span className="search-icon">🔍</span>
-          <input placeholder="Search inventory…" value={query} onChange={e => setQuery(e.target.value)} />
-        </div>
-        <button className="btn btn-ghost" onClick={loadData}>↺ Refresh</button>
-        <button className="btn btn-ghost" onClick={downloadCSV}>⬇ Download CSV</button>
-      </div>
-
-      <div className="stats">
-        <div className="stat-pill">Items <strong>{allData.length}</strong></div>
-        <div className="stat-pill">Total Units <strong>{totalUnits}</strong></div>
-      </div>
-
-      <div className="table-card">
-        <table>
-          <thead>
-            <tr>
-              {['MATNR', 'Brand', 'Category', 'Sub-Cat', 'L3', 'Size', 'Fit', 'Color', 'Gender', 'In Stock', 'Reserved', 'Available', 'Price', 'Actions'].map(h => (
-                <th key={h}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr className="state-row"><td colSpan={14}><span className="spinner" /> Loading…</td></tr>
-            ) : filtered.length === 0 ? (
-              <tr className="state-row"><td colSpan={14}>No items found.</td></tr>
-            ) : filtered.map(row => {
-              const avail = (row.quantity || 0) - (row.reserved || 0)
-              const qClass = row.quantity === 0 ? 'qty-zero' : row.quantity < 5 ? 'qty-low' : 'qty-ok'
-              return (
-                <tr key={row.matnr}>
-                  <td>
-                    <Link to={`/inventory/${row.matnr}`} className="mono" style={{ color: '#92650a', textDecoration: 'none', fontWeight: 700 }}>
-                      {row.matnr}
-                    </Link>
-                  </td>
-                  <td>{row.brand || '—'}</td>
-                  <td>{row.category || '—'}</td>
-                  <td>{row.subcategory || '—'}</td>
-                  <td>{row.subsubcategory || '—'}</td>
-                  <td>{row.size || '—'}</td>
-                  <td>{row.fit || '—'}</td>
-                  <td>{row.color || '—'}</td>
-                  <td>{row.gender || '—'}</td>
-                  <td><span className={`qty-badge ${qClass}`}>{row.quantity || 0}</span></td>
-                  <td>{row.reserved || 0}</td>
-                  <td>{avail < 0 ? 0 : avail}</td>
-                  <td>{fmt(row.mrp || row.cost_price)}</td>
-                  <td>
-                    <div className="actions">
-                      <button className="action-btn btn-edit" onClick={() => setEditingItem(row)}>Edit</button>
-                      <button className="action-btn btn-delete" onClick={() => deleteItem(row.matnr)}>Delete</button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {editingItem && (
-        <EditItemModal
-          item={editingItem}
-          catData={catData}
-          categories={categories}
-          brands={brands}
-          colors={colors}
-          fits={fits}
-          materialTypes={materialTypes}
-          gstConfig={gstConfig}
-          bodyTypes={bodyTypes}
-          onClose={() => setEditingItem(null)}
-          onSaved={loadData}
-        />
-      )}
-    </>
-  )
-}
-
-function EditItemModal({ item, catData, categories, brands, colors, fits, materialTypes, gstConfig, bodyTypes, onClose, onSaved }) {
-  const showToast = useToast()
   const [form, setForm] = useState({
-    brand: item.brand || '', brandfamily: item.brandfamily || '',
-    gender: item.gender || '', category: item.category || '',
-    subcategory: item.subcategory || '', subsubcategory: item.subsubcategory || '',
-    size: item.size || '', fit: item.fit || '', color: item.color || '',
-    material_type: item.material_type || '', tax_category: item.tax_category || '',
-    body_type: item.body_type || '',
-    mrp: item.mrp || '', cost_price: item.cost_price || '',
+    brand: product.brand || '',
+    brandfamily: product.brandfamily || '',
+    gender: product.gender || '',
+    category: product.category || '',
+    subcategory: product.subcategory || '',
+    subsubcategory: product.subsubcategory || '',
+    color: product.color || '',
+    fit: product.fit || '',
+    tax_category: product.tax_category || '',
+    body_type: product.body_type || '',
+    material_type: product.material_type || '',
+    mrp: String(product.mrp || ''),
+    cost_price: String(product.cost_price || ''),
   })
 
   function set(field) { return e => setForm(f => ({ ...f, [field]: e.target.value })) }
-  function setAndCascade(field) {
-    return e => {
-      const val = e.target.value
-      setForm(f => {
-        const next = { ...f, [field]: val }
-        if (field === 'category') { next.subcategory = ''; next.subsubcategory = ''; next.size = '' }
-        if (field === 'subcategory') { next.subsubcategory = ''; next.size = '' }
-        if (field === 'subsubcategory') { next.size = '' }
-        return next
-      })
-    }
-  }
-
-  const subcats = getSubcategories(categories, form.category)
-  const l3options = getL3Options(catData, form.category, form.subcategory)
-  const sizes = getSizes(catData, form.category, form.subcategory, form.subsubcategory)
 
   async function save() {
     try {
-      const { error } = await db.inventory().from('mara').update({
+      const { error } = await db.inventory().from('products').update({
         brand: form.brand,
-        brandfamily: form.brandfamily,
-        gender: form.gender,
+        brandfamily: form.brandfamily || null,
+        gender: form.gender || null,
         category: form.category,
-        subcategory: form.subcategory,
+        subcategory: form.subcategory || null,
         subsubcategory: form.subsubcategory || null,
-        size: form.size,
-        cost_price: parseFloat(form.cost_price) || 0,
-        mrp: parseFloat(form.mrp) || 0,
-        color: form.color,
-        fit: form.fit,
-        tax_category: form.tax_category,
+        color: form.color || null,
+        fit: form.fit || null,
+        tax_category: form.tax_category || null,
         body_type: form.body_type || null,
         material_type: form.material_type || null,
-      }).eq('matnr', item.matnr)
-      if (error) { showToast(`❌ ${error.message}`, 'error'); return }
-      showToast(`✅ ${item.matnr} updated!`)
+        mrp: parseFloat(form.mrp) || 0,
+        cost_price: parseFloat(form.cost_price) || 0,
+      }).eq('sku_id', product.sku_id)
+      if (error) throw error
+      showToast('✅ Product updated')
       onSaved()
       onClose()
-    } catch (err) {
-      showToast(`❌ ${err.message}`, 'error')
-    }
+    } catch (err) { showToast(`❌ ${err.message}`, 'error') }
   }
 
+  const subcats = form.category ? (categories[form.category] || []) : []
+
   return (
-    <div className="modal-overlay open" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: 640 }}>
-        <div className="modal-title">Edit Inventory Item</div>
-        <div className="modal-sub">MATNR cannot be changed</div>
-        <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div className="id-badge">{item.matnr}</div>
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>Read-only</span>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, padding: 28, width: '100%', maxWidth: 700, maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Edit Product — {product.sku_code}</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
         </div>
-        <div className="modal-grid">
-          <div className="form-group">
-            <label>Brand</label>
+        <div className="form-grid">
+          <div className="form-group"><label>Brand *</label>
             <select value={form.brand} onChange={set('brand')}>
-              <option value="">Select brand…</option>
-              {brands.map(b => <option key={b.name || b} value={b.name || b}>{b.name || b}</option>)}
+              <option value="">Select…</option>
+              {brands.map(b => <option key={b.name}>{b.name}</option>)}
             </select>
           </div>
-          <div className="form-group">
-            <label>Brand Family</label>
-            <input value={form.brandfamily} onChange={set('brandfamily')} placeholder="e.g. RedLoop" />
-          </div>
-          <div className="form-group">
-            <label>Gender</label>
+          <div className="form-group"><label>Brand Family</label><input value={form.brandfamily} onChange={set('brandfamily')} /></div>
+          <div className="form-group"><label>Gender</label>
             <select value={form.gender} onChange={set('gender')}>
               <option value="">Select…</option>
-              {GENDERS.map(g => <option key={g}>{g}</option>)}
+              {['Male','Female','Unisex'].map(g => <option key={g}>{g}</option>)}
             </select>
           </div>
-          <div className="form-group">
-            <label>Category</label>
-            <select value={form.category} onChange={setAndCascade('category')}>
+          <div className="form-group"><label>Category *</label>
+            <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value, subcategory: '', subsubcategory: '' }))}>
               <option value="">Select…</option>
               {Object.keys(categories).map(c => <option key={c}>{c}</option>)}
             </select>
           </div>
-          <div className="form-group">
-            <label>Sub-Category</label>
-            <select value={form.subcategory} onChange={setAndCascade('subcategory')}>
-              <option value="">Select category first…</option>
-              {subcats.map(s => <option key={s.id} value={s.subcategory}>{s.subcategory}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Sub-Sub-Category</label>
-            <select value={form.subsubcategory} onChange={setAndCascade('subsubcategory')}>
-              <option value="">Select sub-category first…</option>
-              {l3options.map(r => <option key={r.subsubcategory}>{r.subsubcategory}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Size</label>
-            <select value={form.size} onChange={set('size')}>
+          <div className="form-group"><label>Sub-Category</label>
+            <select value={form.subcategory} onChange={e => setForm(f => ({ ...f, subcategory: e.target.value, subsubcategory: '' }))} disabled={!form.category}>
               <option value="">Select…</option>
-              {sizes.map(s => <option key={s}>{s}</option>)}
+              {subcats.map(r => <option key={r.subcategory}>{r.subcategory}</option>)}
             </select>
           </div>
-          <div className="form-group">
-            <label>Fit</label>
-            <select value={form.fit} onChange={set('fit')}>
-              <option value="">Select fit…</option>
-              {fits.map(f => <option key={f.name || f} value={f.name || f}>{f.name || f}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Color</label>
+          <div className="form-group"><label>Color</label>
             <select value={form.color} onChange={set('color')}>
-              <option value="">Select color…</option>
-              {colors.map(c => <option key={c.name || c} value={c.name || c}>{c.name || c}</option>)}
+              <option value="">Select…</option>
+              {colors.map(c => <option key={c.name}>{c.name}</option>)}
             </select>
           </div>
-          <div className="form-group">
-            <label>Material Type</label>
-            <select value={form.material_type} onChange={set('material_type')}>
-              <option value="">Select material…</option>
-              {(materialTypes || []).map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+          <div className="form-group"><label>Fit</label>
+            <select value={form.fit} onChange={set('fit')}>
+              <option value="">Select…</option>
+              {fits.map(f => <option key={f.name}>{f.name}</option>)}
             </select>
           </div>
-          <div className="form-group">
-            <label>Tax Category</label>
+          <div className="form-group"><label>GST Category</label>
             <select value={form.tax_category} onChange={set('tax_category')}>
-              <option value="">Select tax category…</option>
-              {gstConfig.map(g => <option key={g.id || g.tax_category} value={g.tax_category}>{g.tax_category} ({g.gst_rate}%)</option>)}
+              <option value="">Select…</option>
+              {gstConfig.map(g => <option key={g.id} value={g.tax_category}>{g.tax_category} ({g.gst_rate}%)</option>)}
             </select>
           </div>
-          <div className="form-group">
-            <label>Body Type</label>
+          <div className="form-group"><label>Body Type</label>
             <select value={form.body_type} onChange={set('body_type')}>
-              <option value="">Select body type…</option>
-              {(bodyTypes || []).map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+              <option value="">Select…</option>
+              {bodyTypes.map(b => <option key={b.name}>{b.name}</option>)}
             </select>
           </div>
-          <div className="form-group">
-            <label>MRP (₹)</label>
-            <input type="number" min="0" step="0.01" value={form.mrp} onChange={set('mrp')} placeholder="e.g. 2999" />
+          <div className="form-group"><label>Material Type</label>
+            <select value={form.material_type} onChange={set('material_type')}>
+              <option value="">Select…</option>
+              {materialTypes.map(m => <option key={m.name}>{m.name}</option>)}
+            </select>
           </div>
-          <div className="form-group">
-            <label>Cost Price (₹)</label>
-            <input type="number" min="0" step="0.01" value={form.cost_price} onChange={set('cost_price')} placeholder="e.g. 1200" />
-          </div>
+          <div className="form-group"><label>MRP (₹)</label><input type="number" value={form.mrp} onChange={set('mrp')} min="0" step="0.01" /></div>
+          <div className="form-group"><label>Cost Price (₹)</label><input type="number" value={form.cost_price} onChange={set('cost_price')} min="0" step="0.01" /></div>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
-          💡 To update the <strong>Sales Price</strong>, go to <strong>Sales → Pricing</strong> tab.
-        </div>
-        <div className="modal-actions">
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
           <button className="btn btn-primary" onClick={save}>Save Changes</button>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+function BrowseTab({ refreshKey }) {
+  const showToast = useToast()
+  const [products, reload, loading] = useProducts()
+  const [search, setSearch] = useState('')
+  const [editingProduct, setEditingProduct] = useState(null)
+
+  // Re-load when parent refreshKey changes (e.g. after AddTab saves)
+  useEffect(() => { reload() }, [refreshKey, reload])
+
+  const filtered = products.filter(p => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    return [p.brand, p.category, p.color, p.fit, p.sku_code, p.subcategory]
+      .some(v => (v || '').toLowerCase().includes(q))
+  })
+
+  async function deleteProduct(sku_id) {
+    if (!window.confirm('Delete this product and all its size variants?')) return
+    try {
+      const { error } = await db.inventory().from('products').delete().eq('sku_id', sku_id)
+      if (error) throw error
+      reload()
+    } catch (err) { showToast(`❌ ${err.message}`, 'error') }
+  }
+
+  return (
+    <div>
+      <h1 className="page-title">Products</h1>
+      <p className="page-sub">All SKUs — click a row to manage size variants.</p>
+
+      <div style={{ display: 'flex', gap: 12, marginBottom: 20, alignItems: 'center' }}>
+        <input
+          value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search brand, category, color…"
+          style={{ flex: 1, padding: '9px 14px', borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13 }}
+        />
+        <button className="btn btn-ghost" onClick={reload}>↺ Refresh</button>
+        <span style={{ fontSize: 13, color: 'var(--muted)' }}>{filtered.length} products</span>
+      </div>
+
+      {/* Column headers */}
+      <div style={{ display: 'grid', gridTemplateColumns: '24px auto 1fr 80px 80px 80px 80px', gap: 8, padding: '6px 16px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '0.06em' }}>
+        <span></span><span>Brand / SKU</span><span>Category</span><span>Color</span><span>Fit</span><span>Stock</span><span>MRP</span>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No products found.</div>
+      ) : filtered.map(p => (
+        <ProductRow
+          key={p.sku_id}
+          product={p}
+          onRefresh={reload}
+          onEdit={() => setEditingProduct(p)}
+          onDelete={() => deleteProduct(p.sku_id)}
+        />
+      ))}
+
+      {editingProduct && (
+        <EditProductModal product={editingProduct} onClose={() => setEditingProduct(null)} onSaved={reload} />
+      )}
     </div>
   )
 }
@@ -1350,8 +1424,6 @@ function UploadTab() {
 
 // ── Root Component ────────────────────────────────────────────────────────────
 export default function Inventory() {
-  const [searchParams] = useSearchParams()
-  const editMatnr = searchParams.get('edit') || null
   const [tab, setTab] = useState('view')
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -1360,7 +1432,7 @@ export default function Inventory() {
       <Sidebar section="Inventory" activeTab={tab} onTabChange={t => { setTab(t); if (t === 'view') setRefreshKey(k => k + 1) }} />
       <div className="main">
         {tab === 'add' && <AddTab onAdded={() => { setRefreshKey(k => k + 1) }} />}
-        {tab === 'view' && <ViewTab key={refreshKey} editMatnr={editMatnr} />}
+        {tab === 'view' && <BrowseTab refreshKey={refreshKey} />}
         {tab === 'cats' && <ConfigTab />}
         {tab === 'upload' && <UploadTab />}
       </div>
