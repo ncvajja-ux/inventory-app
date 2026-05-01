@@ -166,6 +166,21 @@ function AddTab({ onAdded }) {
     fit: '', color: '', material_type: '', tax_category: '', body_type: '',
     mrp: '', cost_price: '', sales_price: '',
   })
+  const [availableSizes, setAvailableSizes] = useState([])
+
+  useEffect(() => {
+    if (!form.category || !form.subcategory || !form.subsubcategory) { setAvailableSizes([]); return }
+    db.inventory().from('category_l3').select('sizes')
+      .eq('category', form.category)
+      .eq('subcategory', form.subcategory)
+      .eq('subsubcategory', form.subsubcategory)
+      .single()
+      .then(({ data }) => {
+        const s = data?.sizes ? data.sizes.split(',').map(x => x.trim()).filter(Boolean) : []
+        setAvailableSizes(s)
+      })
+      .catch(() => setAvailableSizes([]))
+  }, [form.category, form.subcategory, form.subsubcategory])
 
   const loadNextMatnr = useCallback(async () => {
     try {
@@ -313,9 +328,9 @@ function AddTab({ onAdded }) {
           </div>
           <div className="form-group">
             <label>Size</label>
-            <select value={form.size} onChange={set('size')} disabled={!form.subsubcategory}>
-              <option value="">Select sub-sub-category first…</option>
-              {sizes.map(s => <option key={s}>{s}</option>)}
+            <select value={form.size} onChange={set('size')} disabled={!form.subsubcategory || availableSizes.length === 0}>
+              <option value="">{!form.subsubcategory ? 'Select sub-sub-category first…' : availableSizes.length === 0 ? 'No sizes configured' : 'Select size…'}</option>
+              {availableSizes.map(s => <option key={s}>{s}</option>)}
             </select>
           </div>
           <div className="form-group">
