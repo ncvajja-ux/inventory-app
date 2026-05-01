@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
@@ -95,27 +95,38 @@ export default function ItemDetail() {
   const [product, setProduct] = useState(null)
   const [variants, setVariants] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true)
     try {
       const { data, error } = await db.inventory().from('products')
         .select('*, mara(matnr, size, quantity, reserved)')
-        .eq('sku_id', skuId)
+        .eq('sku_id', parseInt(skuId, 10))
         .single()
       if (error) throw error
       setProduct(data)
       setVariants(data.mara || [])
-    } catch (err) { showToast(err.message, 'error') }
+    } catch (err) { setLoadError(err.message); showToast(err.message, 'error') }
     finally { setLoading(false) }
-  }
+  }, [skuId, showToast])
 
-  useEffect(() => { load() }, [skuId])
+  useEffect(() => { load() }, [load])
 
   if (loading) return (
     <div style={{ fontFamily: "'DM Sans', sans-serif", minHeight: '100vh', display: 'flex' }}>
       <Sidebar />
       <div style={{ flex: 1, padding: '32px 40px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}>Loading…</div>
+    </div>
+  )
+
+  if (loadError && !product) return (
+    <div style={{ fontFamily: "'DM Sans', sans-serif", minHeight: '100vh', display: 'flex' }}>
+      <Sidebar />
+      <div style={{ flex: 1, padding: '32px 40px' }}>
+        <Link to="/inventory" style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>← Back to Inventory</Link>
+        <p style={{ marginTop: 20, color: 'var(--muted)' }}>Failed to load product. <button className="btn btn-ghost" style={{ fontSize: 13 }} onClick={load}>Retry</button></p>
+      </div>
     </div>
   )
 
