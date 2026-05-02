@@ -105,21 +105,47 @@ function NewPOTab({ onCreated }) {
   }
 
   async function searchProduct(q) {
-    const { data, error } = await db.inventory().from('mara').select('matnr, brand, size, category').or(`matnr.ilike.%${q}%,brand.ilike.%${q}%,category.ilike.%${q}%`).limit(10)
-    if (error) return []
-    return data || []
+    try {
+      const { data, error } = await db.inventory().from('products')
+        .select('sku_id, sku_code, brand, category, color, fit, mrp, cost_price, mara(matnr, size, quantity)')
+        .or(`brand.ilike.%${q}%,category.ilike.%${q}%,color.ilike.%${q}%,sku_code.ilike.%${q}%`)
+        .limit(10)
+      if (error) return []
+      return data || []
+    } catch { return [] }
   }
+
+  const [pendingProduct, setPendingProduct] = useState(null) // product selected, awaiting size pick
+  const [pendingSize, setPendingSize] = useState('')
 
   function selectBuyer(b) {
     setBuyer(b)
     setStep(2)
   }
 
-  function addProduct(p) {
+  function selectProduct(p) {
+    setPendingProduct(p)
+    setPendingSize('')
+  }
+
+  function confirmAddLine() {
+    if (!pendingProduct || !pendingSize) return showToast('Select a size', 'error')
+    const variant = (pendingProduct.mara || []).find(v => v.size === pendingSize)
+    if (!variant) return
     setLines(prev => {
-      if (prev.find(l => l.matnr === p.matnr)) return prev
-      return [...prev, { ...p, qty: 1, unit_price: parseFloat(p.cost_price || 0) }]
+      if (prev.find(l => l.matnr === variant.matnr)) return prev
+      return [...prev, {
+        matnr: variant.matnr,
+        brand: pendingProduct.brand,
+        category: pendingProduct.category,
+        color: pendingProduct.color,
+        size: pendingSize,
+        qty: 1,
+        unit_price: parseFloat(pendingProduct.cost_price || 0),
+      }]
     })
+    setPendingProduct(null)
+    setPendingSize('')
   }
 
   function updateLine(matnr, field, value) {
@@ -208,12 +234,35 @@ function NewPOTab({ onCreated }) {
           <div className="form-group" style={{ maxWidth: 400, marginBottom: 20 }}>
             <label>Search Product</label>
             <SearchDropdown
-              placeholder="MATNR, brand, category…"
+              placeholder="Brand, category, color, SKU code…"
               onSearch={searchProduct}
-              onSelect={addProduct}
-              renderItem={p => <div><span className="sri-kunnr">{p.matnr}</span> {p.brand} — {p.category}</div>}
+              onSelect={selectProduct}
+              renderItem={p => <div><strong>{p.brand}</strong> — {[p.category, p.color, p.fit].filter(Boolean).join(' · ')} <span style={{fontFamily:'monospace',fontSize:11,marginLeft:4}}>{p.sku_code}</span></div>}
             />
           </div>
+
+          {pendingProduct && (
+            <div style={{ border: '1px solid var(--accent)', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>{pendingProduct.brand} — {[pendingProduct.category, pendingProduct.color, pendingProduct.fit].filter(Boolean).join(' · ')}</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{ fontSize: 11 }}>Size</label>
+                  <select
+                    value={pendingSize}
+                    onChange={e => setPendingSize(e.target.value)}
+                    style={{ padding: '8px 10px', borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13 }}
+                  >
+                    <option value="">Select size…</option>
+                    {(pendingProduct.mara || []).map(v => (
+                      <option key={v.matnr} value={v.size}>{v.size} ({v.quantity} in stock) — {v.matnr}</option>
+                    ))}
+                  </select>
+                </div>
+                <button className="btn btn-primary" onClick={confirmAddLine}>Add to PO</button>
+                <button className="btn btn-ghost" onClick={() => { setPendingProduct(null); setPendingSize('') }}>Cancel</button>
+              </div>
+            </div>
+          )}
 
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
