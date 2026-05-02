@@ -27,16 +27,19 @@ export default function Invoice() {
       ])
       if (hErr) { showToast('Order not found', 'error'); setError('Order not found'); return }
 
-      // Enrich line items with product details from mara
+      // Enrich line items with product details via mara → products join
       const matnrs = (items || []).map(i => i.matnr).filter(Boolean)
-      let maraMap = {}
+      let productMap = {}
       if (matnrs.length) {
         const { data: maraRows } = await db.inventory().from('mara')
-          .select('matnr, brand, category, subcategory, subsubcategory, size, color, fit, body_type')
+          .select('matnr, size, sku_id, products(brand, category, subcategory, subsubcategory, color, fit, body_type)')
           .in('matnr', matnrs)
-        maraMap = Object.fromEntries((maraRows || []).map(m => [m.matnr, m]))
+        productMap = Object.fromEntries((maraRows || []).map(m => [m.matnr, {
+          size: m.size,
+          ...(m.products || {}),
+        }]))
       }
-      const enrichedItems = (items || []).map(i => ({ ...i, ...maraMap[i.matnr] }))
+      const enrichedItems = (items || []).map(i => ({ ...i, ...productMap[i.matnr] }))
 
       const { data: cust } = await db.customers().from('kna1').select('*').eq('kunnr', header.kunnr).single()
       const orderData = { ...header, ...cust, items: enrichedItems, gst_config: gstCfg || [] }
