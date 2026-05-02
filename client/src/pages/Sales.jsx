@@ -88,6 +88,85 @@ function SearchDropdown({ placeholder, onSearch, onSelect, renderItem, getLabelT
   )
 }
 
+// ── Product Sales Card ────────────────────────────────────────────────────────
+function ProductSalesCard({ product, custDiscountPct, onAddToCart }) {
+  const [selectedSize, setSelectedSize] = useState('')
+  const [qty, setQty] = useState(1)
+
+  const availableVariants = (product.variants || []).filter(v => v.quantity > 0)
+  const selectedVariant = availableVariants.find(v => v.size === selectedSize)
+
+  const mrp = product.mrp || 0
+  const discPct = selectedVariant?.prod_discount_pct || 0
+  const netPrice = selectedVariant?.sales_price != null ? selectedVariant.sales_price : (mrp * (1 - discPct / 100))
+  const gstRate = product.gst_rate || 0
+
+  function handleAdd() {
+    if (!selectedVariant) return
+    onAddToCart({
+      matnr: selectedVariant.matnr,
+      sku_id: product.sku_id,
+      brand: product.brand,
+      category: product.category,
+      subcategory: product.subcategory,
+      color: product.color,
+      fit: product.fit,
+      size: selectedVariant.size,
+      mrp,
+      price: netPrice,
+      sales_price: selectedVariant.sales_price,
+      prod_discount_pct: discPct,
+      discount_pct: discPct,
+      gst_rate: gstRate,
+      tax_category: product.tax_category,
+      quantity: selectedVariant.quantity,
+    })
+    setSelectedSize('')
+    setQty(1)
+  }
+
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 16, background: 'var(--card)' }}>
+      {product.image_data && (
+        <img src={product.image_data} alt="" style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 8, marginBottom: 10 }} />
+      )}
+      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>{product.brand}</div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+        {[product.category, product.color, product.fit].filter(Boolean).join(' · ')}
+      </div>
+      <div style={{ fontSize: 13, marginBottom: 10 }}>
+        MRP: <strong>₹{mrp}</strong>
+        {discPct > 0 && <span style={{ color: 'var(--danger)', marginLeft: 6 }}>−{discPct}%</span>}
+      </div>
+
+      {/* Size picker */}
+      <select
+        value={selectedSize}
+        onChange={e => setSelectedSize(e.target.value)}
+        style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, marginBottom: 8 }}
+      >
+        <option value="">{availableVariants.length === 0 ? 'Out of stock' : 'Select size…'}</option>
+        {availableVariants.map(v => (
+          <option key={v.matnr} value={v.size}>{v.size} ({v.quantity} in stock)</option>
+        ))}
+      </select>
+
+      {selectedVariant && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            type="number" min="1" max={selectedVariant.quantity} value={qty}
+            onChange={e => setQty(Math.max(1, parseInt(e.target.value) || 1))}
+            style={{ width: 60, padding: '6px 8px', borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13 }}
+          />
+          <button className="btn btn-primary" style={{ flex: 1, fontSize: 12 }} onClick={handleAdd}>
+            Add to Cart
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── New Order ─────────────────────────────────────────────────────────────────
 function NewOrderTab() {
   const showToast = useToast()
@@ -102,14 +181,11 @@ function NewOrderTab() {
   const [cart, setCart] = useState([])                // local cart state
   const [allInventory, setAllInventory] = useState([])
   const [products, setProducts] = useState([])
-  // Multi-select: { matnr: qty }
-  const [selectedItems, setSelectedItems] = useState({})
   const [filterCat, setFilterCat] = useState('')
   const [filterBrand, setFilterBrand] = useState('')
   const [productSearch, setProductSearch] = useState('')
   const [categories, setCategories] = useState({})
   const [custDiscountPct, setCustDiscountPct] = useState(0)   // % from customer_discount table
-  const [prodDiscounts, setProdDiscounts] = useState({})      // matnr -> discount_pct
   const [brands, setBrands] = useState([])
   const [orderForm, setOrderForm] = useState({ payment_method: '', discount: '', salesperson: '', notes: '' })
   const [placing, setPlacing] = useState(false)
@@ -147,67 +223,31 @@ function NewOrderTab() {
 
   async function loadProducts() {
     try {
-      const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-      const [
-        { data: invData },
-        { data: spData },
-        { data: pdData },
-        { data: gstData },
-      ] = await Promise.all([
-        db.inventory().from('mara').select('*').gt('quantity', 0).order('brand'),
-        db.pricing().from('sales_price').select('*'),
-        db.pricing().from('product_discount').select('*'),
-        db.pricing().from('gst_config').select('*'),
+      const today = new Date().toISOString().split('T')[0]
+      const { data: prods, error } = await db.inventory()
+        .from('products')
+        .select('*, mara(matnr, size, quantity, reserved)')
+        .order('sku_id', { ascending: false })
+      if (error) throw new Error(error.message)
+
+      const [{ data: spData }, { data: pdData }, { data: gstData }] = await Promise.all([
+        db.pricing().from('sales_price').select('matnr, unit_price').lte('valid_from', today).or(`valid_to.is.null,valid_to.gte.${today}`),
+        db.pricing().from('product_discount').select('matnr, discount_pct').lte('valid_from', today).or(`valid_to.is.null,valid_to.gte.${today}`),
+        db.pricing().from('gst_config').select('tax_category, gst_rate'),
       ])
 
-      // Build map: tax_category -> gst_rate (take the active/latest valid entry)
-      const gstMap = {}
-      ;(gstData || []).forEach(g => { gstMap[g.tax_category] = parseFloat(g.gst_rate) || 0 })
+      const spMap  = Object.fromEntries((spData || []).map(r => [r.matnr, r.unit_price]))
+      const pdMap  = Object.fromEntries((pdData || []).map(r => [r.matnr, parseFloat(r.discount_pct) || 0]))
+      const gstMap = Object.fromEntries((gstData || []).map(r => [r.tax_category, parseFloat(r.gst_rate) || 0]))
 
-      // Build map: matnr -> active sales price (falls back to nearest upcoming if none active today)
-      const spMap = {}
-      const spFutureMap = {}  // fallback: earliest future price per matnr
-      ;(spData || []).forEach(sp => {
-        const from = (sp.valid_from || '').replace(/-/g, '')
-        const to   = (sp.valid_to  || '12319999').replace(/-/g, '')
-        if (today >= from && today <= to) {
-          // Active today — prefer the one with the latest valid_from
-          if (!spMap[sp.matnr] || from > (spMap[sp.matnr].valid_from || '').replace(/-/g, '')) {
-            spMap[sp.matnr] = sp
-          }
-        } else if (from > today) {
-          // Future price — keep the one with the earliest valid_from as fallback
-          if (!spFutureMap[sp.matnr] || from < (spFutureMap[sp.matnr].valid_from || '').replace(/-/g, '')) {
-            spFutureMap[sp.matnr] = sp
-          }
-        }
-      })
-
-      // Build map: matnr -> latest active product discount %
-      const pdMap = {}
-      ;(pdData || []).forEach(pd => {
-        const from = (pd.valid_from || '').replace(/-/g, '')
-        const to   = (pd.valid_to  || '12319999').replace(/-/g, '')
-        if (today >= from && today <= to) {
-          if (!pdMap[pd.matnr] || from > (pdMap[pd.matnr].valid_from || '').replace(/-/g, '')) {
-            pdMap[pd.matnr] = pd
-          }
-        }
-      })
-      setProdDiscounts(Object.fromEntries(Object.entries(pdMap).map(([k, v]) => [k, parseFloat(v.discount_pct) || 0])))
-
-      const enriched = invData.map(p => ({
+      const enriched = (prods || []).map(p => ({
         ...p,
-        // Use active price; fall back to nearest upcoming price if none active today
-        sales_price: spMap[p.matnr]
-          ? spMap[p.matnr].unit_price
-          : spFutureMap[p.matnr]
-            ? spFutureMap[p.matnr].unit_price
-            : null,
-        _price_is_future: !spMap[p.matnr] && !!spFutureMap[p.matnr],
-        _price_valid_from: spFutureMap[p.matnr] ? spFutureMap[p.matnr].valid_from : null,
-        prod_discount_pct: pdMap[p.matnr] ? parseFloat(pdMap[p.matnr].discount_pct) : 0,
         gst_rate: gstMap[p.tax_category] ?? 0,
+        variants: (p.mara || []).map(v => ({
+          ...v,
+          sales_price: spMap[v.matnr] ?? null,
+          prod_discount_pct: pdMap[v.matnr] ?? 0,
+        })),
       }))
       setAllInventory(enriched)
       setProducts(enriched)
@@ -254,76 +294,18 @@ function NewOrderTab() {
       setCustDiscountPct(cdRows?.[0]?.discount_pct || 0)
     } catch { setCustDiscountPct(0) }
     goStep(2, c.kunnr)
-    loadProducts()
+    // loadProducts is triggered by the useEffect watching step — no need to call it here
   }
 
-  // Toggle a product in/out of the multi-selection
-  function toggleSelect(p) {
-    setSelectedItems(prev => {
-      if (prev[p.matnr]) {
-        const next = { ...prev }; delete next[p.matnr]; return next
+  function handleAddToCart(item) {
+    setCart(prev => {
+      const existing = prev.find(c => c.matnr === item.matnr)
+      if (existing) {
+        return prev.map(c => c.matnr === item.matnr ? { ...c, quantity: c.quantity + 1 } : c)
       }
-      return { ...prev, [p.matnr]: 1 }
+      return [...prev, { ...item, quantity: 1 }]
     })
-  }
-
-  // Update qty for a selected product
-  function setSelectedQty(matnr, qty) {
-    const q = Math.max(1, parseInt(qty) || 1)
-    setSelectedItems(prev => ({ ...prev, [matnr]: q }))
-  }
-
-  async function addToCart() {
-    const entries = Object.entries(selectedItems) // [[matnr, qty], ...]
-    if (!entries.length) return showToast('Select at least one product', 'error')
-    const kunnr = customer?.kunnr || urlKunnr
-
-    // Validate pricing for all selected items first
-    const productMap = Object.fromEntries(allInventory.map(p => [p.matnr, p]))
-    const noPriceItems = entries.filter(([matnr]) => {
-      const p = productMap[matnr]
-      const sp = p?.sales_price ?? p?.mrp ?? 0
-      return !sp || parseFloat(sp) <= 0
-    })
-    if (noPriceItems.length) {
-      const names = noPriceItems.map(([matnr]) => `${productMap[matnr]?.brand} (${matnr})`).join(', ')
-      return showToast(`❌ No pricing set for: ${names}. Go to Sales → Pricing tab first.`, 'error')
-    }
-
-    // ── Group conflict check (non-blocking, one call per product) ─────────────
-    if (kunnr) {
-      const conflictMsgs = []
-      await Promise.all(entries.map(async ([matnr]) => {
-        try {
-          const { data: ccData } = await supabase.rpc('conflict_check', { p_kunnr: kunnr, p_matnr: matnr })
-          if (ccData?.[0]?.has_conflict) {
-            conflictMsgs.push(`⚠️ ${ccData[0].buyer_name} (${ccData[0].group_name}) already bought ${productMap[matnr]?.brand} ${matnr}`)
-          }
-        } catch { /* non-blocking */ }
-      }))
-      if (conflictMsgs.length) showToast([...new Set(conflictMsgs)].join('\n'), 'warning')
-    }
-
-    // Add every selected item to local cart state only (no server temp cart)
-    let added = 0
-    entries.forEach(([matnr, qty]) => {
-      const p = productMap[matnr]
-      const sp = p.sales_price ?? p.mrp ?? 0
-      const pdPct = p.prod_discount_pct || prodDiscounts[matnr] || 0
-      setCart(prev => {
-        const idx = prev.findIndex(i => i.matnr === matnr)
-        if (idx >= 0) {
-          const updated = [...prev]
-          updated[idx] = { ...updated[idx], quantity: updated[idx].quantity + qty }
-          return updated
-        }
-        return [...prev, { ...p, sales_price: sp, prod_discount_pct: pdPct, quantity: qty }]
-      })
-      added++
-    })
-
-    showToast(`✅ ${added} item${added > 1 ? 's' : ''} added to cart`)
-    setSelectedItems({})
+    showToast(`✅ ${item.brand} ${item.size} added to cart`)
   }
 
   function updateCartQty(matnr, delta) {
@@ -338,14 +320,14 @@ function NewOrderTab() {
   }
 
   function startNewOrder() {
-    setCart([]); setCustomer(null); setSelectedItems({})
+    setCart([]); setCustomer(null)
     setOrderForm({ payment_method: '', discount: '', salesperson: '', notes: '' })
     goStep(1)
   }
 
   const cartTotals = cart.reduce((acc, item) => {
     const basePrice = parseFloat(item.sales_price ?? item.mrp ?? item.price ?? 0)
-    const pdPct = parseFloat(item.prod_discount_pct || prodDiscounts[item.matnr] || 0)
+    const pdPct = parseFloat(item.prod_discount_pct || 0)
     const priceAfterProdDisc = basePrice * (1 - pdPct / 100)
     const gst = parseFloat(item.gst_rate || 0) / 100
     const taxableBase = priceAfterProdDisc / (1 + gst)
@@ -369,7 +351,7 @@ function NewOrderTab() {
       // Compute gross before header discounts so we can distribute them proportionally
       const orderLines = cart.map(item => {
         const sp = parseFloat(item.sales_price ?? item.mrp ?? 0)
-        const pdPct = parseFloat(item.prod_discount_pct || prodDiscounts[item.matnr] || 0)
+        const pdPct = parseFloat(item.prod_discount_pct || 0)
         const effPrice = sp * (1 - pdPct / 100)
         const gst = parseFloat(item.gst_rate || 0)
         return { item, effPrice, pdPct, gst, lineGross: effPrice * item.quantity }
@@ -471,7 +453,7 @@ function NewOrderTab() {
               <label>Search</label>
               <div className="search-wrap">
                 <span className="search-icon">🔍</span>
-                <input placeholder="MATNR, brand, size…" value={productSearch} onChange={e => setProductSearch(e.target.value)} />
+                <input placeholder="Brand, category, color…" value={productSearch} onChange={e => setProductSearch(e.target.value)} />
               </div>
             </div>
             <button className="btn btn-ghost" style={{ alignSelf: 'flex-end' }} onClick={loadProducts}>↺</button>
@@ -481,75 +463,35 @@ function NewOrderTab() {
         {allInventory.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">📦</div>
-            <p style={{ fontWeight: 600 }}>No inventory items yet.</p>
-            <p style={{ fontSize: 13, color: 'var(--muted)' }}>Add products via Inventory → New Product before creating an order.</p>
+            <p style={{ fontWeight: 600 }}>No products in inventory.</p>
+            <p style={{ fontSize: 13, color: 'var(--muted)' }}>Add products via Inventory → Add Product first.</p>
+          </div>
+        ) : products.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-icon">🔍</div>
+            <p>No products match your filters.</p>
           </div>
         ) : (
-          <div className="product-grid" style={{ marginBottom: 90 }}>
-            {products.length === 0 ? (
-              <div className="empty-state" style={{ gridColumn: '1/-1' }}>
-                <div className="empty-icon">🔍</div>
-                <p>No products match your filters.</p>
-              </div>
-            ) : products.map(p => {
-              const isSel = !!selectedItems[p.matnr]
-              const selQty = selectedItems[p.matnr] || 1
-              return (
-                <div
-                  key={p.matnr}
-                  className={`product-card${isSel ? ' selected' : ''}`}
-                  onClick={() => toggleSelect(p)}
-                >
-                  <div className="selected-tick">✓</div>
-                  <div className="p-matnr">{p.matnr}</div>
-                  <div className="p-brand">{p.brand}</div>
-                  <div className="p-meta">{[p.category, p.size, p.color].filter(Boolean).join(' · ')}</div>
-                  <div className="p-price">
-                    {fmt(p.sales_price ?? p.mrp ?? 0)}
-                    {p._price_is_future && (
-                      <span title={`Price active from ${p._price_valid_from}`} style={{ marginLeft: 4, fontSize: 10, color: '#b45309', background: '#fef3c7', border: '1px solid #f0c060', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>
-                        from {p._price_valid_from}
-                      </span>
-                    )}
-                    {!p.sales_price && !p._price_is_future && (p.mrp > 0) && (
-                      <span title="No sales price set — using MRP as fallback" style={{ marginLeft: 4, fontSize: 10, color: '#7c3aed', background: '#ede9fe', border: '1px solid #c4b5fd', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>
-                        MRP
-                      </span>
-                    )}
-                  </div>
-                  <div className="p-stock">{p.available ?? p.quantity ?? 0} in stock</div>
-                  {isSel && (
-                    <div className="card-qty-row" onClick={e => e.stopPropagation()}>
-                      <button className="qty-stepper" onClick={() => setSelectedQty(p.matnr, selQty - 1)}>−</button>
-                      <input
-                        className="qty-input-card"
-                        type="number" min="1"
-                        value={selQty}
-                        onChange={e => setSelectedQty(p.matnr, e.target.value)}
-                      />
-                      <button className="qty-stepper" onClick={() => setSelectedQty(p.matnr, selQty + 1)}>+</button>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+          <div className="product-grid">
+            {products.map(p => (
+              <ProductSalesCard
+                key={p.sku_id}
+                product={p}
+                custDiscountPct={custDiscountPct}
+                onAddToCart={handleAddToCart}
+              />
+            ))}
           </div>
         )}
 
-        <div className="add-bar">
-          <div className="selected-info">
-            {Object.keys(selectedItems).length === 0
-              ? 'No products selected — click cards to select'
-              : `${Object.keys(selectedItems).length} product${Object.keys(selectedItems).length > 1 ? 's' : ''} selected · ${Object.values(selectedItems).reduce((s, q) => s + q, 0)} units`
-            }
+        {cart.length > 0 && (
+          <div className="add-bar">
+            <div className="selected-info">{cart.reduce((s, i) => s + i.quantity, 0)} units in cart</div>
+            <button className="btn btn-primary" onClick={() => goStep(3, customer?.kunnr || urlKunnr)}>
+              View Cart 🛒 ({cart.length})
+            </button>
           </div>
-          {Object.keys(selectedItems).length > 0 && (
-            <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => setSelectedItems({})}>Clear selection</button>
-          )}
-          <button className="btn btn-primary" onClick={addToCart} disabled={!Object.keys(selectedItems).length}>
-            Add to Cart 🛒{Object.keys(selectedItems).length > 1 ? ` (${Object.keys(selectedItems).length})` : ''}
-          </button>
-        </div>
+        )}
       </>
     )
   }
@@ -579,7 +521,7 @@ function NewOrderTab() {
               <tr className="state-row"><td colSpan={8}>Your cart is empty. <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => goStep(2, customer?.kunnr || urlKunnr)}>Add products</button></td></tr>
             ) : cart.map(item => {
               const sp  = parseFloat(item.sales_price ?? item.mrp ?? item.price ?? 0)
-              const pdPct = parseFloat(item.prod_discount_pct || prodDiscounts[item.matnr] || 0)
+              const pdPct = parseFloat(item.prod_discount_pct || 0)
               const effPrice = sp * (1 - pdPct / 100)
               const gst = parseFloat(item.gst_rate || 0)
               return (

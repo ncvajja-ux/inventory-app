@@ -131,7 +131,7 @@ function NewPOTab({ onCreated }) {
   function confirmAddLine() {
     if (!pendingProduct || !pendingSize) return showToast('Select a size', 'error')
     const variant = (pendingProduct.mara || []).find(v => v.size === pendingSize)
-    if (!variant) return
+    if (!variant || !variant.matnr) return showToast('Selected size has no MATNR', 'error')
     setLines(prev => {
       if (prev.find(l => l.matnr === variant.matnr)) return prev
       return [...prev, {
