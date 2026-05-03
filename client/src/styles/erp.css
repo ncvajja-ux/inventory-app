@@ -1,0 +1,295 @@
+/* ─── ERP Shell ──────────────────────────────────────────────────────────── */
+.erp-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.erp-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ─── Module Header ──────────────────────────────────────────────────────── */
+.erp-module-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  height: 45px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.erp-module-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.erp-module-chevron { color: var(--muted); font-size: 11px; }
+.erp-module-breadcrumb { font-size: 12px; color: var(--muted); }
+.erp-module-action { margin-left: auto; }
+
+/* Mobile top bar (replaces module header on small screens) */
+.erp-mobile-topbar {
+  display: none;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+  height: 48px;
+  align-items: center;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex-shrink: 0;
+}
+.erp-mobile-module {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.erp-mobile-breadcrumb {
+  font-size: 12px;
+  color: var(--muted);
+  flex: 1;
+}
+.erp-mobile-action { margin-left: auto; }
+
+/* ─── Tabs ───────────────────────────────────────────────────────────────── */
+.erp-tabs {
+  position: sticky;
+  top: 45px;
+  z-index: 9;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  padding: 0 24px;
+  flex-shrink: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.erp-tabs::-webkit-scrollbar { display: none; }
+.erp-tab {
+  padding: 10px 16px;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+  outline: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.erp-tab:hover { color: var(--ink); }
+.erp-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ─── Stats Strip ────────────────────────────────────────────────────────── */
+.erp-stats-strip {
+  position: sticky;
+  top: 87px; /* 45px header + 42px tabs */
+  z-index: 8;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 24px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  gap: 0;
+}
+.erp-stats-strip::-webkit-scrollbar { display: none; }
+.erp-stats-kpis {
+  display: flex;
+  gap: 28px;
+  flex: 1;
+}
+.erp-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.erp-kpi-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+}
+.erp-kpi-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.erp-stats-right {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding-left: 16px;
+}
+
+/* ─── Content area ───────────────────────────────────────────────────────── */
+.erp-content {
+  flex: 1;
+  padding: 24px;
+  min-width: 0;
+}
+
+/* ─── DataTable ──────────────────────────────────────────────────────────── */
+.erp-table-wrap { font-size: 13px; }
+.erp-table-header {
+  display: grid;
+  padding: 6px 16px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+.erp-th {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-right: 8px;
+}
+.erp-table-row {
+  display: grid;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+  transition: background 0.1s;
+}
+.erp-table-row.alt { background: var(--bg); }
+.erp-table-row.clickable:hover { background: var(--accent2); cursor: pointer; }
+.erp-td { color: var(--ink); padding-right: 8px; }
+.erp-table-empty {
+  padding: 40px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ─── CardList (mobile) ──────────────────────────────────────────────────── */
+.erp-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+.erp-card-item {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+.erp-card-list-empty {
+  padding: 40px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ─── Bottom Nav ─────────────────────────────────────────────────────────── */
+.erp-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  display: none;
+  justify-content: space-around;
+  padding: 4px 0;
+  padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
+}
+.erp-bottom-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  color: var(--muted);
+  font-family: inherit;
+  min-width: 52px;
+  transition: color 0.15s;
+}
+.erp-bottom-item.active { color: var(--accent); }
+.erp-bottom-icon { font-size: 20px; line-height: 1; }
+.erp-bottom-label { font-size: 9px; font-weight: 600; letter-spacing: 0.04em; color: inherit; }
+
+.erp-more-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.4);
+}
+.erp-more-sheet {
+  position: absolute;
+  bottom: 56px;
+  left: 0;
+  right: 0;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  border-radius: 12px 12px 0 0;
+  padding: 8px 0 16px;
+}
+.erp-more-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 24px;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 500;
+}
+.erp-more-item:hover { background: var(--bg); }
+
+/* ─── Mobile overrides ───────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  .erp-bottom-nav    { display: flex; }
+  .erp-main          { padding-bottom: 60px; }
+  .erp-content       { padding: 0; }
+  .erp-tabs          { padding: 0 12px; }
+  .erp-module-header { display: none; }
+  .erp-mobile-topbar { display: flex; }
+  .erp-stats-strip   { top: 48px; padding: 6px 12px; }
+  .erp-tabs          { top: calc(48px + 42px); }
+}
+
+/* Dark theme adjustments for ERP components */
+[data-theme="dark"] .erp-module-header,
+[data-theme="dark"] .erp-mobile-topbar,
+[data-theme="dark"] .erp-tabs,
+[data-theme="dark"] .erp-stats-strip,
+[data-theme="dark"] .erp-table-header,
+[data-theme="dark"] .erp-card-item,
+[data-theme="dark"] .erp-bottom-nav,
+[data-theme="dark"] .erp-more-sheet {
+  background: var(--card);
+  border-color: var(--border);
+}
