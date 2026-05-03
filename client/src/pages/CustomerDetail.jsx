@@ -165,8 +165,11 @@ function MeasurementsCard({ kunnr, initialData }) {
   const showToast = useToast()
   const [form, setForm] = useState({
     shoulders: '', top_inseam: '', tummy: '', waist: '', thighs: '', bottom_inseam: '',
+    shoe_size: '', shoe_size_system: '',
     ...Object.fromEntries(
-      Object.entries(initialData || {}).filter(([k]) => MEASURE_FIELDS.some(f => f.key === k)).map(([k, v]) => [k, v ?? ''])
+      Object.entries(initialData || {})
+        .filter(([k]) => [...MEASURE_FIELDS.map(f => f.key), 'shoe_size', 'shoe_size_system'].includes(k))
+        .map(([k, v]) => [k, v ?? ''])
     )
   })
   const [saving, setSaving] = useState(false)
@@ -190,10 +193,10 @@ function MeasurementsCard({ kunnr, initialData }) {
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         {MEASURE_FIELDS.map(({ key, label, icon }) => (
           <div key={key} className="form-group" style={{ margin: 0 }}>
-            <label style={{ fontSize: 11 }}>{icon} {label} <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(cm)</span></label>
+            <label style={{ fontSize: 11 }}>{icon} {label} <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(in)</span></label>
             <input
               type="number" min="0" step="0.5"
               value={form[key]}
@@ -204,6 +207,29 @@ function MeasurementsCard({ kunnr, initialData }) {
           </div>
         ))}
       </div>
+
+      {/* Shoe size row */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+        <div className="form-group" style={{ margin: 0 }}>
+          <label style={{ fontSize: 11 }}>👟 Shoe Size</label>
+          <input
+            type="number" min="0" step="0.5"
+            value={form.shoe_size}
+            onChange={set('shoe_size')}
+            placeholder="—"
+            style={{ fontSize: 14 }}
+          />
+        </div>
+        <div className="form-group" style={{ margin: 0 }}>
+          <label style={{ fontSize: 11 }}>👟 Shoe Size System</label>
+          <select value={form.shoe_size_system} onChange={set('shoe_size_system')} style={{ fontSize: 14 }}>
+            <option value="">Select system…</option>
+            <option value="Euro">Euro</option>
+            <option value="US">US</option>
+          </select>
+        </div>
+      </div>
+
       {dirty && (
         <button className="btn btn-primary" style={{ fontSize: 12, padding: '7px 16px' }} onClick={save} disabled={saving}>
           {saving ? 'Saving…' : '💾 Save Measurements'}
@@ -584,7 +610,7 @@ export default function CustomerDetail() {
   const activeDisc = discounts.find(d =>
     d.valid_from <= today && (!d.valid_to || d.valid_to >= today || d.valid_to === '12319999')
   )
-  const hasMeasurements = MEASURE_FIELDS.some(f => measurements[f.key])
+  const hasMeasurements = MEASURE_FIELDS.some(f => measurements[f.key]) || measurements.shoe_size
 
   return (
     <div style={{ fontFamily: "'DM Sans', sans-serif", background: 'var(--bg)', minHeight: '100vh' }}>
@@ -678,6 +704,12 @@ export default function CustomerDetail() {
                 <label style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)' }}>Address</label>
                 <span style={{ fontSize: 14 }}>{dash(cust?.address)}</span>
               </div>
+              {cust?.notes && (
+                <div style={{ gridColumn: '1/-1', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)' }}>Notes / Tags</label>
+                  <span style={{ fontSize: 14 }}>{cust.notes}</span>
+                </div>
+              )}
             </div>
           </div>
 
