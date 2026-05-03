@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
-import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
+import ERPLayout from '../components/ERPLayout'
+import ModuleHeader from '../components/ModuleHeader'
+import ModuleTabs from '../components/ModuleTabs'
+import StatsStrip from '../components/StatsStrip'
 import { INDIAN_STATES, INDIAN_CITIES, COUNTRIES, PAYMENT_TERMS } from '../data/referenceData'
 import { db } from '../lib/supabase'
 
@@ -394,17 +397,48 @@ function ViewTab() {
   )
 }
 
+const BUYER_TABS = [
+  { id: 'view', label: 'Buyers' },
+  { id: 'add',  label: 'Add Buyer' },
+]
+
 export default function Buyers() {
   const [tab, setTab] = useState('view')
   const [refreshKey, setRefreshKey] = useState(0)
+  const [stats, setStats] = useState({ total: '—' })
+
+  useEffect(() => {
+    async function loadStats() {
+      try {
+        const { count } = await db.buyers().from('buyers').select('*', { count: 'exact', head: true })
+        setStats({ total: count ?? 0 })
+      } catch { /* non-fatal */ }
+    }
+    loadStats()
+  }, [refreshKey])
 
   return (
-    <div className="page-layout">
-      <Sidebar section="Buyers" activeTab={tab} onTabChange={t => { setTab(t); if (t === 'view') setRefreshKey(k => k + 1) }} />
-      <div className="main">
-        {tab === 'add' && <AddTab onAdded={() => { setTab('view'); setRefreshKey(k => k + 1) }} />}
+    <ERPLayout>
+      <ModuleHeader
+        moduleLabel="BUYERS"
+        breadcrumb={tab === 'view' ? 'All Buyers' : 'Add Buyer'}
+        action={
+          tab !== 'add' && (
+            <button className="btn btn-primary" style={{ fontSize: 12, padding: '6px 14px' }}
+              onClick={() => setTab('add')}>
+              + Add Buyer
+            </button>
+          )
+        }
+      />
+      <ModuleTabs tabs={BUYER_TABS} activeTab={tab} onChange={t => { setTab(t); if (t === 'view') setRefreshKey(k => k + 1) }} />
+      <StatsStrip stats={[
+        { value: stats.total, label: 'Buyers' },
+      ]} />
+      <div className="erp-content">
+        {tab === 'add'  && <AddTab onAdded={() => { setTab('view'); setRefreshKey(k => k + 1) }} />}
         {tab === 'view' && <ViewTab key={refreshKey} />}
       </div>
-    </div>
+    </ERPLayout>
   )
 }
