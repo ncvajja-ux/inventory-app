@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
 import { INDIAN_STATES, INDIAN_CITIES, COUNTRIES } from '../data/referenceData'
 import { db } from '../lib/supabase'
+import ERPLayout from '../components/ERPLayout'
+import ModuleHeader from '../components/ModuleHeader'
+import ModuleTabs from '../components/ModuleTabs'
+import StatsStrip from '../components/StatsStrip'
 
 const fmt  = n  => '₹' + parseFloat(n || 0).toFixed(2)
 const fmtD = s  => s ? new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
@@ -647,17 +650,61 @@ function AllPOsTab() {
   )
 }
 
+const PO_TABS = [
+  { id: 'all', label: 'All POs' },
+  { id: 'new', label: 'New PO' },
+]
+
 export default function PurchaseOrders() {
   const [tab, setTab] = useState('all')
   const [refreshKey, setRefreshKey] = useState(0)
+  const [stats, setStats] = useState({ total: '—', value: '—', pending: '—' })
+
+  useEffect(() => {
+    async function loadStats() {
+      try {
+        const [{ count: total }, { data: amounts }, { count: pending }] = await Promise.all([
+          db.transactions().from('po_header').select('*', { count: 'exact', head: true }),
+          db.transactions().from('po_header').select('total_amount'),
+          db.transactions().from('po_header').select('*', { count: 'exact', head: true })
+            .in('status', ['Pending', 'pending', 'PENDING', 'Open', 'open']),
+        ])
+        const totalVal = (amounts || []).reduce((s, r) => s + (r.total_amount || 0), 0)
+        const fmt = n => n >= 100000
+          ? `₹${(n / 100000).toFixed(1)}L`
+          : n >= 1000
+          ? `₹${(n / 1000).toFixed(1)}K`
+          : `₹${n}`
+        setStats({ total: total ?? 0, value: fmt(totalVal), pending: pending ?? 0 })
+      } catch { /* non-fatal */ }
+    }
+    loadStats()
+  }, [refreshKey])
 
   return (
-    <div className="page-layout">
-      <Sidebar section="PurchaseOrders" activeTab={tab} onTabChange={t => { setTab(t); if (t === 'all') setRefreshKey(k => k + 1) }} />
-      <div className="main">
-        {tab === 'new' && <NewPOTab onCreated={() => { setTab('all'); setRefreshKey(k => k + 1) }} />}
+    <ERPLayout>
+      <ModuleHeader
+        moduleLabel="PURCHASE ORDERS"
+        breadcrumb={tab === 'all' ? 'All POs' : 'New PO'}
+        action={
+          tab !== 'new' && (
+            <button className="btn btn-primary" style={{ fontSize: 12, padding: '6px 14px' }}
+              onClick={() => setTab('new')}>
+              + New PO
+            </button>
+          )
+        }
+      />
+      <ModuleTabs tabs={PO_TABS} activeTab={tab} onChange={t => { setTab(t); if (t === 'all') setRefreshKey(k => k + 1) }} />
+      <StatsStrip stats={[
+        { value: stats.total,   label: 'POs' },
+        { value: stats.value,   label: 'Total Value', color: 'var(--success)' },
+        { value: stats.pending, label: 'Pending', color: stats.pending > 0 ? 'var(--accent)' : undefined },
+      ]} />
+      <div className="erp-content">
         {tab === 'all' && <AllPOsTab key={refreshKey} />}
+        {tab === 'new' && <NewPOTab onCreated={() => { setTab('all'); setRefreshKey(k => k + 1) }} />}
       </div>
-    </div>
+    </ERPLayout>
   )
 }
