@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
 import { db } from '../lib/supabase'
+import ERPLayout from '../components/ERPLayout'
+import ModuleHeader from '../components/ModuleHeader'
+import ModuleTabs from '../components/ModuleTabs'
+import StatsStrip from '../components/StatsStrip'
 
 function useBodyTypes() {
   const [bodyTypes, setBodyTypes] = useState([])
@@ -524,9 +527,29 @@ function UploadTab() {
   )
 }
 
+const CUST_TABS = [
+  { id: 'view',   label: 'Customers' },
+  { id: 'add',    label: 'Add Customer' },
+  { id: 'upload', label: 'Mass Upload' },
+]
+
 export default function Customers() {
   const [tab, setTab] = useState('view')
   const [refreshKey, setRefreshKey] = useState(0)
+  const [stats, setStats] = useState({ total: '—', withMeasurements: '—' })
+
+  useEffect(() => {
+    async function loadStats() {
+      try {
+        const [{ count: total }, { count: withM }] = await Promise.all([
+          db.customers().from('kna1').select('*', { count: 'exact', head: true }),
+          db.customers().from('customer_measurements').select('kunnr', { count: 'exact', head: true }),
+        ])
+        setStats({ total: total ?? 0, withMeasurements: withM ?? 0 })
+      } catch { /* non-fatal */ }
+    }
+    loadStats()
+  }, [refreshKey])
 
   function goToView() {
     setTab('view')
@@ -534,13 +557,29 @@ export default function Customers() {
   }
 
   return (
-    <div className="page-layout">
-      <Sidebar section="Customers" activeTab={tab} onTabChange={t => { setTab(t); if (t === 'view') setRefreshKey(k => k + 1) }} />
-      <div className="main">
-        {tab === 'add' && <AddTab onAdded={goToView} />}
-        {tab === 'view' && <ViewTab key={refreshKey} />}
+    <ERPLayout>
+      <ModuleHeader
+        moduleLabel="CUSTOMERS"
+        breadcrumb={tab === 'view' ? 'All Customers' : tab === 'add' ? 'Add Customer' : 'Mass Upload'}
+        action={
+          tab !== 'add' && (
+            <button className="btn btn-primary" style={{ fontSize: 12, padding: '6px 14px' }}
+              onClick={() => setTab('add')}>
+              + Add Customer
+            </button>
+          )
+        }
+      />
+      <ModuleTabs tabs={CUST_TABS} activeTab={tab} onChange={t => { setTab(t); if (t === 'view') setRefreshKey(k => k + 1) }} />
+      <StatsStrip stats={[
+        { value: stats.total,            label: 'Customers' },
+        { value: stats.withMeasurements, label: 'With Measurements' },
+      ]} />
+      <div className="erp-content">
+        {tab === 'add'    && <AddTab onAdded={goToView} />}
+        {tab === 'view'   && <ViewTab key={refreshKey} />}
         {tab === 'upload' && <UploadTab />}
       </div>
-    </div>
+    </ERPLayout>
   )
 }
