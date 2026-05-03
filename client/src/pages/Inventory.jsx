@@ -1,7 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
-import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
 import { db } from '../lib/supabase'
+import ERPLayout from '../components/ERPLayout'
+import ModuleHeader from '../components/ModuleHeader'
+import ModuleTabs from '../components/ModuleTabs'
+import StatsStrip from '../components/StatsStrip'
+import DataTable from '../components/DataTable'
+import CardList from '../components/CardList'
+import StatusBadge from '../components/StatusBadge'
+import { useBreakpoint } from '../hooks/useBreakpoint'
 
 
 // ── Category cascade hook ───────────────────────────────────────────────────
@@ -693,16 +700,19 @@ function BrowseTab({ refreshKey }) {
   const [products, reload, loading] = useProducts()
   const [search, setSearch] = useState('')
   const [editingProduct, setEditingProduct] = useState(null)
+  const bp = useBreakpoint()
 
   // Re-load when parent refreshKey changes (e.g. after AddTab saves)
   useEffect(() => { reload() }, [refreshKey, reload])
 
-  const filtered = products.filter(p => {
-    if (!search) return true
-    const q = search.toLowerCase()
-    return [p.brand, p.category, p.color, p.fit, p.sku_code, p.subcategory]
-      .some(v => (v || '').toLowerCase().includes(q))
-  })
+  const filtered = products
+    .map(p => ({ ...p, total_stock: (p.mara || []).reduce((s, v) => s + (v.quantity || 0), 0) }))
+    .filter(p => {
+      if (!search) return true
+      const q = search.toLowerCase()
+      return [p.brand, p.category, p.color, p.fit, p.sku_code, p.subcategory]
+        .some(v => (v || '').toLowerCase().includes(q))
+    })
 
   async function deleteProduct(sku_id) {
     if (!window.confirm('Delete this product and all its size variants?')) return
@@ -713,39 +723,89 @@ function BrowseTab({ refreshKey }) {
     } catch (err) { showToast(`❌ ${err.message}`, 'error') }
   }
 
+  const INV_COLUMNS = [
+    { key: 'brand', label: 'Brand / SKU', render: r => (
+      <div>
+        <div style={{ fontWeight: 600, fontSize: 13 }}>{r.brand}</div>
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{r.sku_code}</div>
+      </div>
+    )},
+    { key: 'category',    label: 'Category' },
+    { key: 'color',       label: 'Color' },
+    { key: 'fit',         label: 'Fit' },
+    { key: 'total_stock', label: 'Stock', align: 'right', render: r => (
+      <span style={{ color: (r.total_stock || 0) === 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>
+        {r.total_stock ?? 0}
+      </span>
+    )},
+    { key: 'mrp', label: 'MRP', align: 'right', render: r =>
+      r.mrp ? `₹${Number(r.mrp).toLocaleString('en-IN')}` : '—'
+    },
+  ]
+
   return (
     <div>
-      <h1 className="page-title">Products</h1>
-      <p className="page-sub">All SKUs — click a row to manage size variants.</p>
-
-      <div style={{ display: 'flex', gap: 12, marginBottom: 20, alignItems: 'center' }}>
+      {/* Search / refresh bar */}
+      <div style={{ display: 'flex', gap: 12, padding: '16px 24px 0', alignItems: 'center' }}>
         <input
           value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Search brand, category, color…"
           style={{ flex: 1, padding: '9px 14px', borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13 }}
         />
-        <button className="btn btn-ghost" onClick={reload}>↺ Refresh</button>
-        <span style={{ fontSize: 13, color: 'var(--muted)' }}>{filtered.length} products</span>
+        <button className="btn btn-ghost" onClick={reload}>↺</button>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>{filtered.length} products</span>
       </div>
 
-      {/* Column headers */}
-      <div style={{ display: 'grid', gridTemplateColumns: '24px auto 1fr 80px 80px 80px 80px', gap: 8, padding: '6px 16px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '0.06em' }}>
-        <span></span><span>Brand / SKU</span><span>Category</span><span>Color</span><span>Fit</span><span>Stock</span><span>MRP</span>
-      </div>
-
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
-      ) : filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No products found.</div>
-      ) : filtered.map(p => (
-        <ProductRow
-          key={p.sku_id}
-          product={p}
-          onRefresh={reload}
-          onEdit={() => setEditingProduct(p)}
-          onDelete={() => deleteProduct(p.sku_id)}
+      {bp === 'mobile' ? (
+        <CardList
+          items={filtered}
+          loading={loading}
+          emptyText="No products found."
+          renderCard={item => (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{item.brand}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                  {[item.category, item.color, item.fit].filter(Boolean).join(' · ')}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{item.sku_code}</div>
+                {item.mrp && (
+                  <div style={{ fontWeight: 600, marginTop: 4, fontSize: 13 }}>
+                    ₹{Number(item.mrp).toLocaleString('en-IN')}
+                  </div>
+                )}
+              </div>
+              <StatusBadge
+                status={(item.total_stock || 0) === 0 ? 'out_of_stock' : 'active'}
+                label={(item.total_stock || 0) === 0 ? 'Out of Stock' : `${item.total_stock} pcs`}
+              />
+            </div>
+          )}
         />
-      ))}
+      ) : (
+        <div style={{ marginTop: 16 }}>
+          <DataTable
+            columns={INV_COLUMNS}
+            rows={filtered}
+            gridCols="2fr 1fr 1fr 1fr 80px 90px"
+            loading={loading}
+            emptyText="No products found."
+            renderRow={(p, i) => (
+              <div
+                key={p.sku_id}
+                className={`erp-table-row${i % 2 === 1 ? ' alt' : ''}`}
+                style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 80px 90px' }}
+              >
+                {INV_COLUMNS.map(c => (
+                  <div key={c.key} className="erp-td" style={{ textAlign: c.align || 'left' }}>
+                    {c.render ? c.render(p) : (p[c.key] ?? '—')}
+                  </div>
+                ))}
+              </div>
+            )}
+          />
+        </div>
+      )}
 
       {editingProduct && (
         <EditProductModal product={editingProduct} onClose={() => setEditingProduct(null)} onSaved={reload} />
@@ -1298,20 +1358,60 @@ function UploadTab() {
   )
 }
 
-// ── Root Component ────────────────────────────────────────────────────────────
+const INV_TABS = [
+  { id: 'view',   label: 'Products' },
+  { id: 'cats',   label: 'Config' },
+  { id: 'add',    label: 'Add Product' },
+  { id: 'upload', label: 'Mass Upload' },
+]
+const INV_TAB_LABELS = { view: 'Products', cats: 'Config', add: 'Add Product', upload: 'Mass Upload' }
+
 export default function Inventory() {
   const [tab, setTab] = useState('view')
   const [refreshKey, setRefreshKey] = useState(0)
+  const [stats, setStats] = useState({ skus: '—', variants: '—', outOfStock: '—' })
+
+  useEffect(() => {
+    async function loadStats() {
+      try {
+        const [{ count: skuCount }, { data: stockRows }] = await Promise.all([
+          db.inventory().from('products').select('*', { count: 'exact', head: true }),
+          db.inventory().from('mara').select('quantity'),
+        ])
+        const total = (stockRows || []).reduce((s, r) => s + (r.quantity || 0), 0)
+        const oos   = (stockRows || []).filter(r => (r.quantity || 0) === 0).length
+        setStats({ skus: skuCount ?? '—', variants: total, outOfStock: oos })
+      } catch { /* non-fatal */ }
+    }
+    loadStats()
+  }, [refreshKey])
 
   return (
-    <div className="page-layout">
-      <Sidebar section="Inventory" activeTab={tab} onTabChange={t => { setTab(t) }} />
-      <div className="main">
-        {tab === 'add' && <AddTab onAdded={() => { setRefreshKey(k => k + 1) }} />}
-        {tab === 'view' && <BrowseTab refreshKey={refreshKey} />}
-        {tab === 'cats' && <ConfigTab />}
+    <ERPLayout>
+      <ModuleHeader
+        moduleLabel="INVENTORY"
+        breadcrumb={INV_TAB_LABELS[tab]}
+        action={
+          tab === 'view' && (
+            <button className="btn btn-primary" style={{ fontSize: 12, padding: '6px 14px' }}
+              onClick={() => setTab('add')}>
+              + New Product
+            </button>
+          )
+        }
+      />
+      <ModuleTabs tabs={INV_TABS} activeTab={tab} onChange={t => { setTab(t); if (t === 'view') setRefreshKey(k => k + 1) }} />
+      <StatsStrip stats={[
+        { value: stats.skus,       label: 'SKUs' },
+        { value: stats.variants,   label: 'Variants' },
+        { value: stats.outOfStock, label: 'Out of Stock', color: stats.outOfStock > 0 ? 'var(--danger)' : undefined },
+      ]} />
+      <div className="erp-content">
+        {tab === 'add'    && <AddTab onAdded={() => { setRefreshKey(k => k + 1); setTab('view') }} />}
+        {tab === 'view'   && <BrowseTab refreshKey={refreshKey} />}
+        {tab === 'cats'   && <ConfigTab />}
         {tab === 'upload' && <UploadTab />}
       </div>
-    </div>
+    </ERPLayout>
   )
 }
