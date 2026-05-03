@@ -1,3 +1,4 @@
+// client/src/components/Sidebar.jsx
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useTheme } from './ThemeContext'
@@ -15,60 +16,16 @@ const ALL_NAV = [
   { href: '/hr',              icon: '👷', label: 'HR' },
 ]
 
-const SECTION_TABS = {
-  Customers: [
-    { id: 'view',   icon: '👥', label: 'View Customers' },
-    { id: 'add',    icon: '➕', label: 'Add Customer' },
-    { id: 'upload', icon: '📥', label: 'Mass Upload' },
-  ],
-  Inventory: [
-    { id: 'view',   icon: '📦', label: 'View Stock' },
-    { id: 'cats',   icon: '🗂️', label: 'Config' },
-    { id: 'add',    icon: '🆕', label: 'New Product' },
-    { id: 'upload', icon: '📥', label: 'Mass Upload' },
-  ],
-  Sales: [
-    { id: 'orders',  icon: '📋', label: 'All Orders' },
-    { id: 'returns', icon: '↩️', label: 'Returns' },
-    { id: 'pricing', icon: '💰', label: 'Sales Pricing' },
-    { id: 'new',     icon: '🧾', label: 'New Order' },
-  ],
-  Buyers: [
-    { id: 'view', icon: '🏢', label: 'View Buyers' },
-    { id: 'add',  icon: '➕', label: 'Add Buyer' },
-  ],
-  PurchaseOrders: [
-    { id: 'all', icon: '📋', label: 'All POs' },
-    { id: 'new', icon: '➕', label: 'New PO' },
-  ],
-  Groups: [
-    { id: 'view', icon: '👥', label: 'View Groups' },
-    { id: 'new',  icon: '➕', label: 'New Group' },
-  ],
-  Analytics: [],
-  HR: [
-    { id: 'view',       icon: '👥', label: 'Employees' },
-    { id: 'payroll',    icon: '💸', label: 'Payroll' },
-    { id: 'attendance', icon: '🗓️', label: 'Attendance' },
-    { id: 'config',     icon: '⚙️', label: 'Config' },
-    { id: 'add',        icon: '➕', label: 'Add Employee' },
-  ],
-}
-
 const ALLOWED = {
-  admin: null, // null = all pages allowed
+  admin: null,
   sales: new Set(['/', '/customers', '/sales', '/invoice', '/inventory', '/analytics', '/groups']),
 }
 
-export default function Sidebar({ section, activeTab, onTabChange }) {
+export default function Sidebar() {
   const location = useLocation()
   const { theme, toggleTheme } = useTheme()
   const role = useRole()
 
-  function canSee(path) {
-    if (role === 'admin' || !ALLOWED[role]) return true
-    return ALLOWED[role].has(path)
-  }
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem('sidebarCollapsed') === 'true' } catch { return false }
   })
@@ -79,7 +36,10 @@ export default function Sidebar({ section, activeTab, onTabChange }) {
     try { localStorage.setItem('sidebarCollapsed', String(next)) } catch {}
   }
 
-  const tabs = SECTION_TABS[section] || []
+  function canSee(path) {
+    if (role === 'admin' || !ALLOWED[role]) return true
+    return ALLOWED[role].has(path)
+  }
 
   return (
     <div className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`}>
@@ -88,33 +48,16 @@ export default function Sidebar({ section, activeTab, onTabChange }) {
         <Link className="sidebar-brand" to="/" style={{ textDecoration: 'none' }}>
           {collapsed ? 'FC' : 'Fat Closet'}
         </Link>
-        <button className="sidebar-toggle" onClick={toggle} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+        <button
+          className="sidebar-toggle"
+          onClick={toggle}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
           {collapsed ? '▶' : '◀'}
         </button>
       </div>
 
-      {!collapsed && <div className="sidebar-sub">{section}</div>}
-
-      {/* Section tabs */}
-      {tabs.length > 0 && (
-        <>
-          {!collapsed && <span className="nav-section">{section}</span>}
-          {collapsed && <div className="nav-divider" />}
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              className={`nav-item${activeTab === tab.id ? ' active' : ''}`}
-              onClick={() => onTabChange && onTabChange(tab.id)}
-              title={collapsed ? tab.label : undefined}
-            >
-              <span className="nav-icon">{tab.icon}</span>
-              {!collapsed && <span className="nav-label">{tab.label}</span>}
-            </button>
-          ))}
-        </>
-      )}
-
-      {/* All navigation */}
+      {/* Navigation */}
       <>
         {!collapsed && <span className="nav-section">Navigate</span>}
         {collapsed && <div className="nav-divider" />}
