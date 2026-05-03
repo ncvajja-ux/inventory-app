@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
 import { db, supabase } from '../lib/supabase'
+import ERPLayout from '../components/ERPLayout'
+import ModuleHeader from '../components/ModuleHeader'
+import ModuleTabs from '../components/ModuleTabs'
+import StatsStrip from '../components/StatsStrip'
 
 const fmt = n => '₹' + parseFloat(n || 0).toFixed(2)
 const fmtD = s => s ? new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
@@ -1599,34 +1602,73 @@ export default function Sales() {
     })
   }
 
+  const [stats, setStats] = useState({ orders: '—', revenue: '—', pending: '—', thisMonth: '—' })
+
+  useEffect(() => {
+    async function loadStats() {
+      try {
+        const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+          .toISOString().split('T')[0]
+        const [
+          { count: total },
+          { data: amounts },
+          { count: pending },
+          { count: month },
+        ] = await Promise.all([
+          db.transactions().from('vbak').select('*', { count: 'exact', head: true }),
+          db.transactions().from('vbak').select('netwr'),
+          db.transactions().from('vbak').select('*', { count: 'exact', head: true })
+            .in('status', ['Pending', 'pending', 'PENDING']),
+          db.transactions().from('vbak').select('*', { count: 'exact', head: true })
+            .gte('erdat', monthStart),
+        ])
+        const revenue = (amounts || []).reduce((s, r) => s + (r.netwr || 0), 0)
+        const fmt = n => n >= 100000
+          ? `₹${(n / 100000).toFixed(1)}L`
+          : n >= 1000
+          ? `₹${(n / 1000).toFixed(1)}K`
+          : `₹${n}`
+        setStats({ orders: total ?? 0, revenue: fmt(revenue), pending: pending ?? 0, thisMonth: month ?? 0 })
+      } catch { /* non-fatal */ }
+    }
+    loadStats()
+  }, [])
+
+  const SALES_TABS = [
+    { id: 'orders',  label: 'All Orders' },
+    { id: 'returns', label: 'Returns' },
+    { id: 'pricing', label: 'Sales Pricing' },
+    { id: 'new',     label: 'New Order' },
+  ]
+  const TAB_LABELS = { orders: 'All Orders', returns: 'Returns', pricing: 'Sales Pricing', new: 'New Order' }
+
   return (
-    <div className="page-layout">
-      <Sidebar section="Sales" activeTab={tab} onTabChange={setTab} />
-      <div className="main" style={{ display: 'flex', flexDirection: 'column', padding: 0 }}>
-        <div className="topbar">
-          <div className="topbar-left">
-            <span className="page-title">Sales Order</span>
-          </div>
-        </div>
-        <div className="sales-tabbar">
-          {[
-            { id: 'new',     label: '🧾 New Order' },
-            { id: 'orders',  label: '📋 All Orders' },
-            { id: 'returns', label: '↩️ Returns' },
-            { id: 'pricing', label: '💰 Sales Pricing' },
-          ].map(t => (
-            <button key={t.id} className={`tab-btn${tab === t.id ? ' active' : ''}`} onClick={() => setTab(t.id)}>
-              {t.label}
+    <ERPLayout>
+      <ModuleHeader
+        moduleLabel="SALES"
+        breadcrumb={TAB_LABELS[tab]}
+        action={
+          tab !== 'new' && (
+            <button className="btn btn-primary" style={{ fontSize: 12, padding: '6px 14px' }}
+              onClick={() => setTab('new')}>
+              + New Order
             </button>
-          ))}
-        </div>
-        <div style={{ flex: 1, padding: '32px 40px', overflowX: 'hidden' }}>
-          {tab === 'new' && <NewOrderTab />}
-          {tab === 'orders' && <AllOrdersTab />}
-          {tab === 'returns' && <ReturnsTab />}
-          {tab === 'pricing' && <PricingTab />}
-        </div>
+          )
+        }
+      />
+      <ModuleTabs tabs={SALES_TABS} activeTab={tab} onChange={setTab} />
+      <StatsStrip stats={[
+        { value: stats.orders,    label: 'Orders' },
+        { value: stats.revenue,   label: 'Revenue', color: 'var(--success)' },
+        { value: stats.pending,   label: 'Pending', color: stats.pending > 0 ? 'var(--accent)' : undefined },
+        { value: stats.thisMonth, label: 'This Month' },
+      ]} />
+      <div className="erp-content">
+        {tab === 'new'     && <NewOrderTab />}
+        {tab === 'orders'  && <AllOrdersTab />}
+        {tab === 'returns' && <ReturnsTab />}
+        {tab === 'pricing' && <PricingTab />}
       </div>
-    </div>
+    </ERPLayout>
   )
 }
