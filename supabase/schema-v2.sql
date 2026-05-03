@@ -264,3 +264,27 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA groups TO authenticated, anon;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA buyers TO authenticated, anon;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA hr TO authenticated, anon;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO authenticated, anon;
+
+-- ── RLS + permissive policies for all tables ─────────────────
+-- Enable RLS
+DO $$ DECLARE r RECORD; BEGIN
+  FOR r IN SELECT schemaname, tablename FROM pg_tables
+    WHERE schemaname IN ('customers','inventory','transactions','pricing','groups','buyers','hr')
+  LOOP
+    EXECUTE format('ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY', r.schemaname, r.tablename);
+  END LOOP;
+END $$;
+
+-- Create permissive policy for authenticated users on every table
+DO $$ DECLARE r RECORD; BEGIN
+  FOR r IN SELECT schemaname, tablename FROM pg_tables
+    WHERE schemaname IN ('customers','inventory','transactions','pricing','groups','buyers','hr')
+  LOOP
+    -- Drop existing policy if present to avoid duplicates
+    EXECUTE format('DROP POLICY IF EXISTS "allow_authenticated" ON %I.%I', r.schemaname, r.tablename);
+    EXECUTE format(
+      'CREATE POLICY "allow_authenticated" ON %I.%I FOR ALL TO authenticated USING (true) WITH CHECK (true)',
+      r.schemaname, r.tablename
+    );
+  END LOOP;
+END $$;

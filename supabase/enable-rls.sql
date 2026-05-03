@@ -10,6 +10,7 @@ ALTER TABLE customers.kna1                  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers.customer_measurements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers.customer_preferences  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE buyers.buyers                   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE inventory.products              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE inventory.mara                  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE inventory.brands                ENABLE ROW LEVEL SECURITY;
 ALTER TABLE inventory.colors                ENABLE ROW LEVEL SECURITY;
