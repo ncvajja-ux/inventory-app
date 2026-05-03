@@ -60,6 +60,16 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
+## 5. UI/US Uniformity
+
+**Design should be neat and presentable**
+
+UI chousld be clean, modern and structured
+- Table headers and rows MUST use identical column definitions.
+- Table headers text must be center-aligned and Bolder
+- Column count must always match between header and row.
+- Adding new UI elements (e.g., actions like Edit/Delete) requires updating grid structure explicitly.
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
