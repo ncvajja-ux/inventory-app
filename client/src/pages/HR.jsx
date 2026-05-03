@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
 import { db } from '../lib/supabase'
+import ERPLayout from '../components/ERPLayout'
+import ModuleHeader from '../components/ModuleHeader'
+import ModuleTabs from '../components/ModuleTabs'
+import StatsStrip from '../components/StatsStrip'
 
 const SALARY_DAYS = Array.from({length: 28}, (_, i) => i + 1)
 const PAY_MODES = ['cash', 'bank']
@@ -986,21 +989,64 @@ function ConfigTab() {
 }
 
 // ─── Main HR page ─────────────────────────────────────────────────────────────
+const HR_TABS = [
+  { id: 'view',       label: 'Employees' },
+  { id: 'payroll',    label: 'Payroll' },
+  { id: 'attendance', label: 'Attendance' },
+  { id: 'config',     label: 'Config' },
+  { id: 'add',        label: 'Add Employee' },
+]
+const HR_TAB_LABELS = {
+  view: 'Employees', payroll: 'Payroll', attendance: 'Attendance',
+  config: 'Config', add: 'Add Employee',
+}
+
 export default function HR() {
   const [tab, setTab] = useState('view')
   const [refreshKey, setRefreshKey] = useState(0)
+  const [stats, setStats] = useState({ employees: '—', present: '—' })
+
+  useEffect(() => {
+    async function loadStats() {
+      try {
+        const today = new Date().toISOString().split('T')[0]
+        const [{ count: empCount }, { count: presentCount }] = await Promise.all([
+          db.hr().from('employees').select('*', { count: 'exact', head: true }),
+          db.hr().from('attendance').select('*', { count: 'exact', head: true })
+            .eq('date', today).eq('status', 'present'),
+        ])
+        setStats({ employees: empCount ?? 0, present: presentCount ?? 0 })
+      } catch { /* non-fatal */ }
+    }
+    loadStats()
+  }, [refreshKey])
 
   return (
-    <div className="page-layout">
-      <Sidebar section="HR" activeTab={tab}
-        onTabChange={t => { setTab(t); if (t === 'view') setRefreshKey(k => k + 1) }} />
-      <div className="main">
+    <ERPLayout>
+      <ModuleHeader
+        moduleLabel="HR"
+        breadcrumb={HR_TAB_LABELS[tab]}
+        action={
+          tab !== 'add' && (
+            <button className="btn btn-primary" style={{ fontSize: 12, padding: '6px 14px' }}
+              onClick={() => setTab('add')}>
+              + Add Employee
+            </button>
+          )
+        }
+      />
+      <ModuleTabs tabs={HR_TABS} activeTab={tab} onChange={t => { setTab(t); if (t === 'view') setRefreshKey(k => k + 1) }} />
+      <StatsStrip stats={[
+        { value: stats.employees, label: 'Employees' },
+        { value: stats.present,   label: 'Present Today', color: 'var(--success)' },
+      ]} />
+      <div className="erp-content">
         {tab === 'add'        && <AddTab onAdded={() => { setTab('view'); setRefreshKey(k => k + 1) }} />}
         {tab === 'view'       && <ViewTab key={refreshKey} />}
         {tab === 'payroll'    && <PayrollTab />}
         {tab === 'attendance' && <AttendanceTab />}
         {tab === 'config'     && <ConfigTab />}
       </div>
-    </div>
+    </ERPLayout>
   )
 }
