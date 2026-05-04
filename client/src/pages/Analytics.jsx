@@ -303,17 +303,23 @@ function ProductMatchTab() {
     if (!q.trim() && !btFilter) { setProducts([]); return }
     setSearching(true)
     try {
-      let qb = db.inventory().from('mara').select('matnr, brand, category, body_type, size')
+      const base = db.inventory().from('mara').select('matnr, brand, category, body_type, size')
       if (q.trim() && btFilter) {
-        // body_type already fixed by the chip filter — search only matnr + brand
-        qb = qb.eq('body_type', btFilter).or(`matnr.ilike.%${q}%,brand.ilike.%${q}%`)
+        // PostgREST 400s when combining or() + eq() — fetch by body_type then filter client-side
+        const { data } = await base.eq('body_type', btFilter).limit(500)
+        const lq = q.trim().toLowerCase()
+        setProducts((data || [])
+          .filter(p => p.matnr?.toLowerCase().includes(lq) || p.brand?.toLowerCase().includes(lq))
+          .slice(0, 20))
       } else if (q.trim()) {
-        qb = qb.or(`matnr.ilike.%${q}%,brand.ilike.%${q}%,body_type.ilike.%${q}%`)
-      } else if (btFilter) {
-        qb = qb.eq('body_type', btFilter)
+        const { data } = await base
+          .or(`matnr.ilike.%${q}%,brand.ilike.%${q}%,body_type.ilike.%${q}%`)
+          .limit(20)
+        setProducts(data || [])
+      } else {
+        const { data } = await base.eq('body_type', btFilter).limit(20)
+        setProducts(data || [])
       }
-      const { data: prods } = await qb.limit(20)
-      setProducts(prods || [])
     } catch { /* ignore */ } finally { setSearching(false) }
   }
 
