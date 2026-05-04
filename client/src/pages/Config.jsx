@@ -352,6 +352,21 @@ function ProductsConfigTab() {
       setNewSubCat(''); reloadCats()
     } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
+  async function deleteSubCategory(parentCat, subCatName) {
+    if (!window.confirm(`Delete sub-category "${subCatName}" from "${parentCat}"?\n\nThis will:\n• Remove all L3 entries for this sub-category\n• Set subcategory to "Generic" on any products using it`)) return
+    try {
+      const [{ error: e1 }, { error: e2 }, { error: e3 }] = await Promise.all([
+        db.inventory().from('categories').delete().eq('category', parentCat).eq('subcategory', subCatName),
+        db.inventory().from('category_l3').delete().eq('category', parentCat).eq('subcategory', subCatName),
+        db.inventory().from('mara').update({ subcategory: 'Generic' }).eq('category', parentCat).eq('subcategory', subCatName),
+      ])
+      if (e1) throw e1
+      if (e2) throw e2
+      if (e3) throw e3
+      reloadCats(); loadL3()
+      showToast('✅ Sub-category deleted, products updated to "Generic"')
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
   async function addL3() {
     if (!newL3.category || !newL3.subcategory || !newL3.name) return showToast('Category, Sub-Category and name required', 'error')
     try {
@@ -497,12 +512,27 @@ function ProductsConfigTab() {
         <div className="config-card">
           <div className="config-title">📁 Category Tree</div>
           <div className="config-sub">Top-level categories and sub-categories.</div>
-          <div style={{ maxHeight: 200, overflowY: 'auto', marginBottom: 16 }}>
+          <div style={{ maxHeight: 260, overflowY: 'auto', marginBottom: 16 }}>
             {Object.entries(categories).map(([cat, subs]) => (
-              <div key={cat} style={{ marginBottom: 8 }}>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{cat}</div>
-                <div style={{ paddingLeft: 16, fontSize: 12, color: 'var(--muted)' }}>
-                  {(subs || []).map(s => s.subcategory || s).join(', ') || '(no sub-categories)'}
+              <div key={cat} style={{ marginBottom: 12 }}>
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{cat}</div>
+                <div style={{ paddingLeft: 12, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {(subs || []).length === 0 ? (
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>(no sub-categories)</span>
+                  ) : (subs || []).map(s => (
+                    <span key={s.id} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      background: 'var(--bg)', border: '1px solid var(--border)',
+                      borderRadius: 20, padding: '2px 8px 2px 10px', fontSize: 12,
+                    }}>
+                      {s.subcategory}
+                      <button
+                        onClick={() => deleteSubCategory(cat, s.subcategory)}
+                        title={`Delete "${s.subcategory}"`}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 14, lineHeight: 1, padding: '0 0 0 2px' }}
+                      >×</button>
+                    </span>
+                  ))}
                 </div>
               </div>
             ))}
