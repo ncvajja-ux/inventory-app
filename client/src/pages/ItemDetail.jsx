@@ -97,7 +97,78 @@ function ImageCard({ skuId, initialImage }) {
 }
 
 // ─── Overview tab ─────────────────────────────────────────────────────────────
-function OverviewTab({ product, variants, skuId }) {
+function OverviewTab({ product, variants, skuId, onReload }) {
+  const showToast = useToast()
+  const [validSizes,   setValidSizes]   = useState([])
+  const [addForm,      setAddForm]      = useState(null)   // { size, qty } | null
+  const [editingMatnr, setEditingMatnr] = useState(null)  // matnr being edited
+  const [editQty,      setEditQty]      = useState('')
+
+  // Load valid sizes from category_l3 for this product's category path
+  useEffect(() => {
+    if (!product.category || !product.subcategory || !product.subsubcategory) {
+      setValidSizes([])
+      return
+    }
+    db.inventory().from('category_l3')
+      .select('sizes')
+      .eq('category',       product.category)
+      .eq('subcategory',    product.subcategory)
+      .eq('subsubcategory', product.subsubcategory)
+      .single()
+      .then(({ data }) => {
+        if (data?.sizes) {
+          setValidSizes(data.sizes.split(',').map(s => s.trim()).filter(Boolean))
+        } else {
+          setValidSizes([])
+        }
+      })
+      .catch(() => setValidSizes([]))
+  }, [product.category, product.subcategory, product.subsubcategory])
+
+  async function addVariant() {
+    if (!addForm?.size?.trim()) return showToast('Size is required', 'error')
+    if (variants.find(v => v.size === addForm.size.trim())) return showToast('Size already exists', 'error')
+    try {
+      const { data: latest } = await db.inventory().from('mara')
+        .select('matnr').order('matnr', { ascending: false }).limit(1)
+      const maxNum = latest?.[0]?.matnr ? parseInt(latest[0].matnr, 10) : 99999
+      const matnr = String(maxNum + 1).padStart(6, '0')
+      const { error } = await db.inventory().from('mara').insert({
+        matnr,
+        sku_id: parseInt(skuId, 10),
+        size: addForm.size.trim(),
+        quantity: parseInt(addForm.qty) || 0,
+      })
+      if (error) throw error
+      showToast(`✅ Size ${addForm.size} added`)
+      setAddForm(null)
+      onReload()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
+
+  async function saveEditQty(matnr) {
+    try {
+      const { error } = await db.inventory().from('mara')
+        .update({ quantity: parseInt(editQty) || 0 })
+        .eq('matnr', matnr)
+      if (error) throw error
+      showToast('✅ Quantity updated')
+      setEditingMatnr(null)
+      onReload()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
+
+  async function deleteVariant(matnr, size) {
+    if (!window.confirm(`Delete size "${size || matnr}"?`)) return
+    try {
+      const { error } = await db.inventory().from('mara').delete().eq('matnr', matnr)
+      if (error) throw error
+      showToast(`✅ Size ${size} deleted`)
+      onReload()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
+
   const fields = [
     ['SKU Code',        product.sku_code],
     ['Brand',           product.brand],
@@ -114,6 +185,8 @@ function OverviewTab({ product, variants, skuId }) {
     ['MRP',             product.mrp       ? fmt(product.mrp)        : null],
     ['Cost Price',      product.cost_price ? fmt(product.cost_price) : null],
   ].filter(([, v]) => v)
+
+  const availableSizesToAdd = validSizes.filter(s => !variants.find(v => v.size === s))
 
   return (
     <>
@@ -132,11 +205,50 @@ function OverviewTab({ product, variants, skuId }) {
         </div>
       </div>
 
-      {/* Size variants */}
+      {/* Size variants — full CRUD */}
       <div className="card" style={{ marginTop: 20 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 16 }}>Size Variants</div>
-        {variants.length === 0 ? (
-          <p style={{ color: 'var(--muted)', fontSize: 14 }}>No size variants. Add sizes from the Inventory page.</p>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--muted)' }}>Size Variants</div>
+          {!addForm && (
+            <button className="btn btn-primary" style={{ fontSize: 12, padding: '5px 14px' }}
+              onClick={() => setAddForm({ size: '', qty: '0' })}>+ Add Size</button>
+          )}
+        </div>
+
+        {/* Add size form */}
+        {addForm && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', padding: '12px 14px', background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--border)' }}>
+            {validSizes.length > 0 ? (
+              <select
+                value={addForm.size}
+                onChange={e => setAddForm(f => ({ ...f, size: e.target.value }))}
+                style={{ padding: '7px 10px', borderRadius: 6, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, minWidth: 100 }}
+              >
+                <option value="">Select size…</option>
+                {availableSizesToAdd.map(s => <option key={s}>{s}</option>)}
+              </select>
+            ) : (
+              <input
+                value={addForm.size}
+                onChange={e => setAddForm(f => ({ ...f, size: e.target.value }))}
+                placeholder="Size (e.g. M, 32)"
+                style={{ padding: '7px 10px', borderRadius: 6, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, width: 120 }}
+              />
+            )}
+            <input
+              type="number" min="0"
+              value={addForm.qty}
+              onChange={e => setAddForm(f => ({ ...f, qty: e.target.value }))}
+              placeholder="Qty"
+              style={{ padding: '7px 10px', borderRadius: 6, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, width: 80 }}
+            />
+            <button className="btn btn-primary" style={{ fontSize: 12, padding: '7px 14px' }} onClick={addVariant}>Save</button>
+            <button className="btn btn-ghost"   style={{ fontSize: 12, padding: '7px 10px' }} onClick={() => setAddForm(null)}>Cancel</button>
+          </div>
+        )}
+
+        {variants.length === 0 && !addForm ? (
+          <p style={{ color: 'var(--muted)', fontSize: 14 }}>No size variants yet. Click "+ Add Size" to add one.</p>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
@@ -146,16 +258,41 @@ function OverviewTab({ product, variants, skuId }) {
                 <th style={{ padding: '6px 8px', textAlign: 'right' }}>Stock</th>
                 <th style={{ padding: '6px 8px', textAlign: 'right' }}>Reserved</th>
                 <th style={{ padding: '6px 8px', textAlign: 'right' }}>Available</th>
+                <th style={{ padding: '6px 8px' }}></th>
               </tr>
             </thead>
             <tbody>
               {variants.map(v => (
                 <tr key={v.matnr} style={{ borderTop: '1px solid var(--border)' }}>
                   <td style={{ padding: '10px 8px', fontFamily: 'monospace', fontSize: 12 }}>{v.matnr}</td>
-                  <td style={{ padding: '10px 8px' }}>{v.size || '—'}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'right' }}>{v.quantity  || 0}</td>
+                  <td style={{ padding: '10px 8px', fontWeight: 600 }}>{v.size || '—'}</td>
+                  <td style={{ padding: '10px 8px', textAlign: 'right' }}>
+                    {editingMatnr === v.matnr ? (
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+                        <input type="number" min="0" value={editQty}
+                          onChange={e => setEditQty(e.target.value)}
+                          style={{ width: 70, padding: '3px 6px', borderRadius: 5, border: '1.5px solid var(--accent)', textAlign: 'right', fontSize: 13, background: 'var(--card)', color: 'var(--ink)' }}
+                          autoFocus onKeyDown={e => { if (e.key === 'Enter') saveEditQty(v.matnr); if (e.key === 'Escape') setEditingMatnr(null) }}
+                        />
+                        <button className="btn btn-primary" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => saveEditQty(v.matnr)}>✓</button>
+                        <button className="btn btn-ghost"   style={{ fontSize: 11, padding: '3px 8px'  }} onClick={() => setEditingMatnr(null)}>✕</button>
+                      </div>
+                    ) : (
+                      <span
+                        style={{ cursor: 'pointer', color: (v.quantity || 0) === 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}
+                        title="Click to edit quantity"
+                        onClick={() => { setEditingMatnr(v.matnr); setEditQty(String(v.quantity || 0)) }}
+                      >
+                        {v.quantity || 0}
+                      </span>
+                    )}
+                  </td>
                   <td style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--muted)' }}>{v.reserved || 0}</td>
                   <td style={{ padding: '10px 8px', textAlign: 'right' }}>{(v.quantity || 0) - (v.reserved || 0)}</td>
+                  <td style={{ padding: '10px 8px', textAlign: 'right' }}>
+                    <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px', color: 'var(--danger)' }}
+                      onClick={() => deleteVariant(v.matnr, v.size)}>Delete</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -451,7 +588,7 @@ export default function ItemDetail() {
         { value: stats.discount, label: 'Active Discount', color: stats.discount !== '—' ? 'var(--accent2, #b45309)' : undefined },
       ]} />
       <div className="erp-content">
-        {tab === 'overview' && <OverviewTab product={product} variants={variants} skuId={skuId} />}
+        {tab === 'overview' && <OverviewTab product={product} variants={variants} skuId={skuId} onReload={load} />}
         {tab === 'orders'   && <OrderHistoryTab variants={variants} />}
       </div>
     </ERPLayout>
