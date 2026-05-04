@@ -46,7 +46,7 @@ function useBrands() {
   const [brands, setBrands] = useState([])
   const load = useCallback(async () => {
     try {
-      const { data, error } = await db.inventory().from('brands').select('name').order('name')
+      const { data, error } = await db.inventory().from('brands').select('id, name').order('name')
       if (error) { console.error('Failed to load brands:', error.message); return }
       setBrands(data || [])
     } catch (err) {
@@ -61,7 +61,7 @@ function useColors() {
   const [colors, setColors] = useState([])
   const load = useCallback(async () => {
     try {
-      const { data, error } = await db.inventory().from('colors').select('name,hex').order('name')
+      const { data, error } = await db.inventory().from('colors').select('id, name, hex').order('name')
       if (error) { console.error('Failed to load colors:', error.message); return }
       setColors(data || [])
     } catch (err) {
@@ -76,7 +76,7 @@ function useFits() {
   const [fits, setFits] = useState([])
   const load = useCallback(async () => {
     try {
-      const { data, error } = await db.inventory().from('fits').select('name').order('name')
+      const { data, error } = await db.inventory().from('fits').select('id, name').order('name')
       if (error) { console.error('Failed to load fits:', error.message); return }
       setFits(data || [])
     } catch (err) {
