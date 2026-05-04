@@ -2,6 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/Toast'
 import { supabase, db } from '../lib/supabase'
+import ERPLayout from '../components/ERPLayout'
+import ModuleHeader from '../components/ModuleHeader'
+import ModuleTabs from '../components/ModuleTabs'
+import StatsStrip from '../components/StatsStrip'
 
 // ─── Dark theme ───────────────────────────────────────────────────────────────
 const DARK = {
@@ -547,32 +551,6 @@ export default function Analytics() {
   const currentYear = new Date().getFullYear()
   const yearOptions = Array.from({ length: 5 }, (_, i) => String(currentYear - i))
 
-  const TABS = [
-    { key: 'overview',  label: 'Overview' },
-    { key: 'sales',     label: 'Sales' },
-    { key: 'purchasing',label: 'Purchasing' },
-    { key: 'match',     label: '🎯 Product Match' },
-  ]
-
-  const tabBtn = (key, label) => (
-    <button
-      key={key}
-      onClick={() => setTab(key)}
-      style={{
-        border: `1px solid ${tab === key ? 'var(--gold)' : 'var(--border)'}`,
-        background: tab === key ? 'var(--gold)' : 'none',
-        color: tab === key ? '#0f0f0f' : 'var(--muted)',
-        padding: '6px 18px',
-        fontFamily: "'DM Sans', sans-serif",
-        fontSize: 12,
-        fontWeight: tab === key ? 700 : 400,
-        cursor: 'pointer',
-        letterSpacing: 1,
-        transition: 'all 0.2s',
-      }}
-    >{label}</button>
-  )
-
   // Derived
   const top5Brands = ytdBrand.slice(0, 5)
 
@@ -580,223 +558,211 @@ export default function Analytics() {
   const totalReturnCount = retByMonth.reduce((s, r) => s + (r.return_count || 0), 0)
   const totalRefundValue = retByMonth.reduce((s, r) => s + (r.refund_value || 0), 0)
 
+  const ANA_TABS = [
+    { id: 'overview',   label: 'Overview' },
+    { id: 'sales',      label: 'Sales' },
+    { id: 'purchasing', label: 'Purchasing' },
+    { id: 'match',      label: '🎯 Product Match' },
+  ]
+  const ANA_TAB_LABELS = {
+    overview: 'Overview', sales: 'Sales', purchasing: 'Purchasing', match: 'Product Match',
+  }
+
   return (
-    <div ref={containerRef} style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)' }}>
+    <div ref={containerRef}>
+      <ERPLayout>
+        <ModuleHeader moduleLabel="ANALYTICS" breadcrumb={ANA_TAB_LABELS[tab]} />
+        <ModuleTabs tabs={ANA_TABS} activeTab={tab} onChange={setTab} />
+        <StatsStrip stats={[]}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <select
+              value={year}
+              onChange={e => setYear(e.target.value)}
+              style={{
+                background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--ink)',
+                padding: '6px 10px', fontFamily: 'inherit', fontSize: 12, cursor: 'pointer',
+                borderRadius: 6,
+              }}
+            >
+              {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <button onClick={loadAll} className="btn btn-ghost" style={{ fontSize: 11, padding: '6px 14px' }}>
+              ↺ Refresh
+            </button>
+          </div>
+        </StatsStrip>
+        <div className="erp-content">
+          {loading && (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>Loading…</div>
+          )}
+          {!loading && (
+            <>
+              {/* ══ OVERVIEW TAB ══════════════════════════════════════════════════ */}
+              {tab === 'overview' && (
+                <>
+                  {/* KPI Row */}
+                  <Section title="This Month">
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
+                      <KpiCard
+                        label="Total Sales"
+                        value={overview ? fmt(overview.sales?.total) : '—'}
+                        sub={overview ? `${overview.sales?.count ?? 0} orders` : undefined}
+                        color="var(--gold)"
+                      />
+                      <KpiCard
+                        label="Purchase Orders"
+                        value={overview ? `${overview.po?.count ?? 0} POs` : '—'}
+                        sub={overview ? `Pending: ${fmt(overview.po?.pending)}` : undefined}
+                        color="var(--blue)"
+                      />
+                      <KpiCard
+                        label="Salary Paid"
+                        value={overview ? fmt(overview.salary?.paid) : '—'}
+                        color="var(--green)"
+                      />
+                    </div>
+                  </Section>
 
-      {/* ── Dark Topbar ── */}
-      <div style={{
-        background: 'var(--surface)', borderBottom: '1px solid var(--border)',
-        padding: '0 28px', height: 56, display: 'flex', alignItems: 'center',
-        justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-          <Link to="/" style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: 12, letterSpacing: 1, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            ← Home
-          </Link>
-          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 18, color: 'var(--text)', flexShrink: 0 }}>
-            Fat Closet <span style={{ color: 'var(--gold)' }}>/ Analytics</span>
-          </div>
-          <div style={{ width: 1, height: 24, background: 'var(--border)' }} />
-          <div style={{ display: 'flex', gap: 4 }}>
-            {TABS.map(t => tabBtn(t.key, t.label))}
-          </div>
+                  {/* Monthly Sales + Profit side by side */}
+                  <Section title={`Monthly Revenue & Profit — ${year}`}>
+                    {monthlySales.length > 0 ? (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
+                        <div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, letterSpacing: 1, textTransform: 'uppercase' }}>Revenue</div>
+                          <ColumnChart data={monthlySales} valueKey="revenue" labelKey="month" color="gold" chartHeight={200} />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, letterSpacing: 1, textTransform: 'uppercase' }}>Gross Profit</div>
+                          <ColumnChart data={monthlySales} valueKey="profit" labelKey="month" color="green" chartHeight={200} />
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ color: 'var(--muted)', fontSize: 13 }}>No sales data for {year}</div>
+                    )}
+                  </Section>
+
+                  {/* Top 5 Brands by Sales */}
+                  <Section title={`Top 5 Brands by Sales — ${year}`}>
+                    {top5Brands.length > 0 ? (
+                      <BarChart data={top5Brands} valueKey="revenue" labelKey="brand" color="var(--gold)" />
+                    ) : (
+                      <div style={{ color: 'var(--muted)', fontSize: 13 }}>No brand data for {year}</div>
+                    )}
+                  </Section>
+
+                  {/* Top 10 Products by Profit */}
+                  <Section title={`Top 10 Products by Profit — ${year}`}>
+                    <ProfitTable data={topProfitProds} />
+                  </Section>
+                </>
+              )}
+
+              {/* ══ SALES TAB ════════════════════════════════════════════════════ */}
+              {tab === 'sales' && (
+                <>
+                  {/* ── Sales breakdown ── */}
+                  <Section title={`YTD Sales by Brand — ${year}`}>
+                    {ytdBrand.length > 0 ? (
+                      <BarChart data={ytdBrand} valueKey="revenue" labelKey="brand" color="var(--gold)" />
+                    ) : (
+                      <div style={{ color: 'var(--muted)', fontSize: 13 }}>No brand data for {year}</div>
+                    )}
+                  </Section>
+
+                  <Section title={`YTD Sales by Category — ${year}`}>
+                    {ytdCategory.length > 0 ? (
+                      <BarChart data={ytdCategory} valueKey="revenue" labelKey="category" color="var(--blue)" />
+                    ) : (
+                      <div style={{ color: 'var(--muted)', fontSize: 13 }}>No category data for {year}</div>
+                    )}
+                  </Section>
+
+                  {/* ── Returns ── */}
+                  <div style={{ marginTop: 8, marginBottom: 24, paddingTop: 16, borderTop: '2px solid var(--border)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--red)', marginBottom: 16 }}>
+                      ↩ Returns — {year}
+                    </div>
+                    {/* Returns KPI mini row */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 16, marginBottom: 32 }}>
+                      <KpiCard label="Total Returns" value={totalReturnCount} sub={`${year} YTD`} color="var(--red)" />
+                      <KpiCard label="Total Refund Value" value={fmt(totalRefundValue)} sub={`${year} YTD`} color="var(--rust)" />
+                    </div>
+                  </div>
+
+                  <Section title={`Returns by Month — ${year}`}>
+                    {retByMonth.length > 0 ? (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
+                        <div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, letterSpacing: 1, textTransform: 'uppercase' }}>No. of Returns</div>
+                          <ColumnChart
+                            data={retByMonth} valueKey="return_count" labelKey="month"
+                            color="red" chartHeight={180}
+                            valueFmt={n => (n == null ? '—' : String(n))}
+                          />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, letterSpacing: 1, textTransform: 'uppercase' }}>Refund Value</div>
+                          <ColumnChart data={retByMonth} valueKey="refund_value" labelKey="month" color="rust" chartHeight={180} />
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ color: 'var(--muted)', fontSize: 13 }}>No returns data for {year}</div>
+                    )}
+                  </Section>
+
+                  <Section title={`Returns by Brand — ${year}`}>
+                    {retByBrand.length > 0 ? (
+                      <BarChart data={retByBrand} valueKey="refund_value" labelKey="brand" color="var(--red)" />
+                    ) : (
+                      <div style={{ color: 'var(--muted)', fontSize: 13 }}>No brand returns data for {year}</div>
+                    )}
+                  </Section>
+
+                  <Section title={`Returns by Reason — ${year}`}>
+                    {retByReason.length > 0 ? (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 40 }}>
+                        <div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10, letterSpacing: 1, textTransform: 'uppercase' }}>By Refund Value</div>
+                          <BarChart data={retByReason} valueKey="refund_value" labelKey="reason" color="var(--rust)" labelWidth={180} />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10, letterSpacing: 1, textTransform: 'uppercase' }}>By No. of Orders</div>
+                          <BarChart
+                            data={retByReason} valueKey="return_count" labelKey="reason"
+                            color="var(--red)" labelWidth={180}
+                            valueFmt={n => (n == null ? '—' : `${n} orders`)}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ color: 'var(--muted)', fontSize: 13 }}>No reason data for {year}</div>
+                    )}
+                  </Section>
+
+                  <Section title={`Top 5 Customers by Returns — ${year}`}>
+                    <ReturnCustomersTable data={topReturnCusts} />
+                  </Section>
+                </>
+              )}
+
+              {/* ══ PURCHASING TAB ═══════════════════════════════════════════════ */}
+              {tab === 'purchasing' && (
+                <>
+                  <Section title={`Purchase Orders by Brand — ${year}`}>
+                    <PoBreakdownTable data={poBrand} rowKey="brand" />
+                  </Section>
+
+                  <Section title={`Purchase Orders by Category — ${year}`}>
+                    <PoBreakdownTable data={poCategory} rowKey="category" />
+                  </Section>
+                </>
+              )}
+
+              {tab === 'match' && <ProductMatchTab />}
+            </>
+          )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <select
-            value={year}
-            onChange={e => setYear(e.target.value)}
-            style={{
-              background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)',
-              padding: '6px 10px', fontFamily: "'DM Sans', sans-serif", fontSize: 12,
-              cursor: 'pointer', colorScheme: 'dark',
-            }}
-          >
-            {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-          <button
-            onClick={loadAll}
-            style={{
-              background: 'none', border: '1px solid var(--border)', color: 'var(--muted)',
-              padding: '6px 14px', fontFamily: "'DM Sans', sans-serif", fontSize: 11,
-              letterSpacing: 2, textTransform: 'uppercase', cursor: 'pointer', transition: 'all 0.2s',
-            }}
-          >↻ Refresh</button>
-        </div>
-      </div>
-
-      {/* ── Content ── */}
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 32px 64px' }}>
-        {loading ? (
-          <div style={{ color: 'var(--muted)', fontSize: 14, textAlign: 'center', paddingTop: 80 }}>
-            Loading analytics…
-          </div>
-        ) : (
-          <>
-            {/* ══ OVERVIEW TAB ══════════════════════════════════════════════════ */}
-            {tab === 'overview' && (
-              <>
-                {/* KPI Row */}
-                <Section title="This Month">
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
-                    <KpiCard
-                      label="Total Sales"
-                      value={overview ? fmt(overview.sales?.total) : '—'}
-                      sub={overview ? `${overview.sales?.count ?? 0} orders` : undefined}
-                      color="var(--gold)"
-                    />
-                    <KpiCard
-                      label="Purchase Orders"
-                      value={overview ? `${overview.po?.count ?? 0} POs` : '—'}
-                      sub={overview ? `Pending: ${fmt(overview.po?.pending)}` : undefined}
-                      color="var(--blue)"
-                    />
-                    <KpiCard
-                      label="Salary Paid"
-                      value={overview ? fmt(overview.salary?.paid) : '—'}
-                      color="var(--green)"
-                    />
-                  </div>
-                </Section>
-
-                {/* Monthly Sales + Profit side by side */}
-                <Section title={`Monthly Revenue & Profit — ${year}`}>
-                  {monthlySales.length > 0 ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
-                      <div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, letterSpacing: 1, textTransform: 'uppercase' }}>Revenue</div>
-                        <ColumnChart data={monthlySales} valueKey="revenue" labelKey="month" color="gold" chartHeight={200} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, letterSpacing: 1, textTransform: 'uppercase' }}>Gross Profit</div>
-                        <ColumnChart data={monthlySales} valueKey="profit" labelKey="month" color="green" chartHeight={200} />
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>No sales data for {year}</div>
-                  )}
-                </Section>
-
-                {/* Top 5 Brands by Sales */}
-                <Section title={`Top 5 Brands by Sales — ${year}`}>
-                  {top5Brands.length > 0 ? (
-                    <BarChart data={top5Brands} valueKey="revenue" labelKey="brand" color="var(--gold)" />
-                  ) : (
-                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>No brand data for {year}</div>
-                  )}
-                </Section>
-
-                {/* Top 10 Products by Profit */}
-                <Section title={`Top 10 Products by Profit — ${year}`}>
-                  <ProfitTable data={topProfitProds} />
-                </Section>
-              </>
-            )}
-
-            {/* ══ SALES TAB ════════════════════════════════════════════════════ */}
-            {tab === 'sales' && (
-              <>
-                {/* ── Sales breakdown ── */}
-                <Section title={`YTD Sales by Brand — ${year}`}>
-                  {ytdBrand.length > 0 ? (
-                    <BarChart data={ytdBrand} valueKey="revenue" labelKey="brand" color="var(--gold)" />
-                  ) : (
-                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>No brand data for {year}</div>
-                  )}
-                </Section>
-
-                <Section title={`YTD Sales by Category — ${year}`}>
-                  {ytdCategory.length > 0 ? (
-                    <BarChart data={ytdCategory} valueKey="revenue" labelKey="category" color="var(--blue)" />
-                  ) : (
-                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>No category data for {year}</div>
-                  )}
-                </Section>
-
-                {/* ── Returns ── */}
-                <div style={{ marginTop: 8, marginBottom: 24, paddingTop: 16, borderTop: '2px solid var(--border)' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--red)', marginBottom: 16 }}>
-                    ↩ Returns — {year}
-                  </div>
-                  {/* Returns KPI mini row */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 16, marginBottom: 32 }}>
-                    <KpiCard label="Total Returns" value={totalReturnCount} sub={`${year} YTD`} color="var(--red)" />
-                    <KpiCard label="Total Refund Value" value={fmt(totalRefundValue)} sub={`${year} YTD`} color="var(--rust)" />
-                  </div>
-                </div>
-
-                <Section title={`Returns by Month — ${year}`}>
-                  {retByMonth.length > 0 ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
-                      <div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, letterSpacing: 1, textTransform: 'uppercase' }}>No. of Returns</div>
-                        <ColumnChart
-                          data={retByMonth} valueKey="return_count" labelKey="month"
-                          color="red" chartHeight={180}
-                          valueFmt={n => (n == null ? '—' : String(n))}
-                        />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, letterSpacing: 1, textTransform: 'uppercase' }}>Refund Value</div>
-                        <ColumnChart data={retByMonth} valueKey="refund_value" labelKey="month" color="rust" chartHeight={180} />
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>No returns data for {year}</div>
-                  )}
-                </Section>
-
-                <Section title={`Returns by Brand — ${year}`}>
-                  {retByBrand.length > 0 ? (
-                    <BarChart data={retByBrand} valueKey="refund_value" labelKey="brand" color="var(--red)" />
-                  ) : (
-                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>No brand returns data for {year}</div>
-                  )}
-                </Section>
-
-                <Section title={`Returns by Reason — ${year}`}>
-                  {retByReason.length > 0 ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 40 }}>
-                      <div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10, letterSpacing: 1, textTransform: 'uppercase' }}>By Refund Value</div>
-                        <BarChart data={retByReason} valueKey="refund_value" labelKey="reason" color="var(--rust)" labelWidth={180} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10, letterSpacing: 1, textTransform: 'uppercase' }}>By No. of Orders</div>
-                        <BarChart
-                          data={retByReason} valueKey="return_count" labelKey="reason"
-                          color="var(--red)" labelWidth={180}
-                          valueFmt={n => (n == null ? '—' : `${n} orders`)}
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>No reason data for {year}</div>
-                  )}
-                </Section>
-
-                <Section title={`Top 5 Customers by Returns — ${year}`}>
-                  <ReturnCustomersTable data={topReturnCusts} />
-                </Section>
-              </>
-            )}
-
-            {/* ══ PURCHASING TAB ═══════════════════════════════════════════════ */}
-            {tab === 'purchasing' && (
-              <>
-                <Section title={`Purchase Orders by Brand — ${year}`}>
-                  <PoBreakdownTable data={poBrand} rowKey="brand" />
-                </Section>
-
-                <Section title={`Purchase Orders by Category — ${year}`}>
-                  <PoBreakdownTable data={poCategory} rowKey="category" />
-                </Section>
-              </>
-            )}
-
-            {tab === 'match' && <ProductMatchTab />}
-          </>
-        )}
-      </div>
+      </ERPLayout>
     </div>
   )
 }
