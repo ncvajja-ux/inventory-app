@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import Sidebar from '../components/Sidebar'
 import { useToast } from '../components/Toast'
 import { db } from '../lib/supabase'
+import ERPLayout from '../components/ERPLayout'
+import ModuleHeader from '../components/ModuleHeader'
+import ModuleTabs from '../components/ModuleTabs'
+import StatsStrip from '../components/StatsStrip'
 
 // ─── hooks ────────────────────────────────────────────────────────────────────
 function useGroups() {
@@ -289,17 +292,52 @@ function ViewGroupsTab({ showToast }) {
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
+const GROUP_TABS = [
+  { id: 'view', label: 'Groups' },
+  { id: 'new',  label: 'New Group' },
+]
+
 export default function Groups() {
   const [tab, setTab] = useState('view')
   const showToast = useToast()
+  const [stats, setStats] = useState({ groups: '—', members: '—' })
+
+  useEffect(() => {
+    async function loadStats() {
+      try {
+        const [{ count: gCount }, { count: mCount }] = await Promise.all([
+          db.groups().from('customer_groups').select('*', { count: 'exact', head: true }),
+          db.groups().from('group_members').select('*', { count: 'exact', head: true }),
+        ])
+        setStats({ groups: gCount ?? 0, members: mCount ?? 0 })
+      } catch { /* non-fatal */ }
+    }
+    loadStats()
+  }, [tab])
 
   return (
-    <div className="page-layout">
-      <Sidebar section="Groups" activeTab={tab} onTabChange={setTab} />
-      <main className="main">
+    <ERPLayout>
+      <ModuleHeader
+        moduleLabel="CUSTOMER GROUPS"
+        breadcrumb={tab === 'view' ? 'All Groups' : 'New Group'}
+        action={
+          tab !== 'new' && (
+            <button className="btn btn-primary" style={{ fontSize: 12, padding: '6px 14px' }}
+              onClick={() => setTab('new')}>
+              + New Group
+            </button>
+          )
+        }
+      />
+      <ModuleTabs tabs={GROUP_TABS} activeTab={tab} onChange={setTab} />
+      <StatsStrip stats={[
+        { value: stats.groups,  label: 'Groups' },
+        { value: stats.members, label: 'Total Members' },
+      ]} />
+      <div className="erp-content">
         {tab === 'view' && <ViewGroupsTab showToast={showToast} />}
         {tab === 'new'  && <NewGroupTab onCreated={() => setTab('view')} showToast={showToast} />}
-      </main>
-    </div>
+      </div>
+    </ERPLayout>
   )
 }
