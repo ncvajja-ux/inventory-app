@@ -665,11 +665,11 @@ export default function PurchaseOrders() {
       try {
         const [{ count: total }, { data: amounts }, { count: pending }] = await Promise.all([
           db.transactions().from('po_header').select('*', { count: 'exact', head: true }),
-          db.transactions().from('po_header').select('total_amount'),
+          db.transactions().from('po_items').select('line_total'),
           db.transactions().from('po_header').select('*', { count: 'exact', head: true })
             .in('status', ['Pending', 'pending', 'PENDING', 'Open', 'open']),
         ])
-        const totalVal = (amounts || []).reduce((s, r) => s + (r.total_amount || 0), 0)
+        const totalVal = (amounts || []).reduce((s, r) => s + (r.line_total || 0), 0)
         const fmt = n => n >= 100000
           ? `₹${(n / 100000).toFixed(1)}L`
           : n >= 1000

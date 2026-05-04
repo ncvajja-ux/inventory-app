@@ -569,11 +569,10 @@ export default function Analytics() {
   }
 
   return (
-    <div ref={containerRef}>
-      <ERPLayout>
-        <ModuleHeader moduleLabel="ANALYTICS" breadcrumb={ANA_TAB_LABELS[tab]} />
-        <ModuleTabs tabs={ANA_TABS} activeTab={tab} onChange={setTab} />
-        <StatsStrip stats={[]}>
+    <ERPLayout>
+      <ModuleHeader moduleLabel="ANALYTICS" breadcrumb={ANA_TAB_LABELS[tab]} />
+      <ModuleTabs tabs={ANA_TABS} activeTab={tab} onChange={setTab} />
+      <StatsStrip stats={[]}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <select
               value={year}
@@ -591,7 +590,7 @@ export default function Analytics() {
             </button>
           </div>
         </StatsStrip>
-        <div className="erp-content">
+        <div className="erp-content" ref={containerRef}>
           {loading && (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>Loading…</div>
           )}
@@ -763,6 +762,5 @@ export default function Analytics() {
           )}
         </div>
       </ERPLayout>
-    </div>
   )
 }

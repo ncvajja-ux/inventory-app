@@ -278,7 +278,6 @@
   .erp-bottom-nav    { display: flex; }
   .erp-main          { padding-bottom: 60px; }
   .erp-content       { padding: 0; }
-  .erp-tabs          { padding: 0 12px; }
   .erp-module-header { display: none; }
   .erp-mobile-topbar { display: flex; }
   .erp-tabs          { top: 48px; padding: 0 12px; }

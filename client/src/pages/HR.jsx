@@ -1013,7 +1013,7 @@ export default function HR() {
         const [{ count: empCount }, { count: presentCount }] = await Promise.all([
           db.hr().from('employees').select('*', { count: 'exact', head: true }),
           db.hr().from('attendance').select('*', { count: 'exact', head: true })
-            .eq('date', today).eq('status', 'present'),
+            .eq('att_date', today).eq('status', 'full'),
         ])
         setStats({ employees: empCount ?? 0, present: presentCount ?? 0 })
       } catch { /* non-fatal */ }
