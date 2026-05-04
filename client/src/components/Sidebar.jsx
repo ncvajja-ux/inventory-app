@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useTheme } from './ThemeContext'
 import { useRole } from './RoleContext'
+import { supabase } from '../lib/supabase'
 
 const ALL_NAV = [
   { href: '/',                icon: '🏠', label: 'Home' },
@@ -79,7 +80,7 @@ export default function Sidebar() {
         })}
       </>
 
-      {/* Theme toggle */}
+      {/* Theme toggle + Sign out */}
       <div className="sidebar-footer">
         <button
           className="nav-item"
@@ -88,6 +89,15 @@ export default function Sidebar() {
         >
           <span className="nav-icon">{theme === 'dark' ? '☀️' : '🌙'}</span>
           {!collapsed && <span className="nav-label">{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>}
+        </button>
+        <button
+          className="nav-item"
+          onClick={() => supabase.auth.signOut()}
+          title="Sign out"
+          style={{ color: 'var(--danger)' }}
+        >
+          <span className="nav-icon">🚪</span>
+          {!collapsed && <span className="nav-label">Sign Out</span>}
         </button>
       </div>
     </div>

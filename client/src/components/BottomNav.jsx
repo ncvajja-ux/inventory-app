@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useRole } from './RoleContext'
+import { supabase } from '../lib/supabase'
 
 const ADMIN_ITEMS = [
   { icon: '🏷️', label: 'Stock',  href: '/inventory' },
@@ -74,6 +75,14 @@ export default function BottomNav() {
                 {item.label}
               </Link>
             ))}
+            <button
+              className="erp-more-item"
+              style={{ color: 'var(--danger)', background: 'none', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer' }}
+              onClick={() => { setMoreOpen(false); supabase.auth.signOut() }}
+            >
+              <span>🚪</span>
+              Sign Out
+            </button>
           </div>
         </div>
       )}
