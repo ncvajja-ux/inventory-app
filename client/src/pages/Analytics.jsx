@@ -269,8 +269,10 @@ function ProductMatchTab() {
   const [matchData, setMatchData]       = useState(null)   // { product, results }
   const [loading, setLoading]           = useState(false)
   const [searching, setSearching]       = useState(false)
-  const [bodyTypes, setBodyTypes]       = useState([])
+  const [bodyTypes, setBodyTypes]           = useState([])
   const [bodyTypeFilter, setBodyTypeFilter] = useState(null)
+  const [btCustomers, setBtCustomers]       = useState([])   // customers for chip-only view
+  const [btCustLoading, setBtCustLoading]   = useState(false)
 
   // Load available body types once
   useEffect(() => {
@@ -279,9 +281,21 @@ function ProductMatchTab() {
       .catch(() => {})
   }, [])
 
-  // Re-run search when body type filter changes
+  // When body type chip is toggled: load matching customers and re-run product search
   useEffect(() => {
     doSearch(query, bodyTypeFilter)
+    if (bodyTypeFilter) {
+      setBtCustLoading(true)
+      db.customers().from('kna1')
+        .select('kunnr, name, number, body_type')
+        .eq('body_type', bodyTypeFilter)
+        .order('name')
+        .then(({ data }) => setBtCustomers(data || []))
+        .catch(() => setBtCustomers([]))
+        .finally(() => setBtCustLoading(false))
+    } else {
+      setBtCustomers([])
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bodyTypeFilter])
 
@@ -425,6 +439,46 @@ function ProductMatchTab() {
           </div>
         )}
       </div>
+
+      {/* Body-type customer list (shown when a chip is active but no product selected) */}
+      {bodyTypeFilter && !selected && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: 10 }}>
+            Customers · {bodyTypeFilter}
+            {!btCustLoading && <span style={{ fontWeight: 400, marginLeft: 6 }}>({btCustomers.length})</span>}
+          </div>
+          {btCustLoading ? (
+            <div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>
+          ) : btCustomers.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>No customers with body type "{bodyTypeFilter}".</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {btCustomers.map(c => (
+                <div key={c.kunnr} style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  background: 'var(--surface)', border: '1px solid var(--border)',
+                  borderRadius: 10, padding: '10px 14px',
+                }}>
+                  <div style={{
+                    width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+                    background: 'rgba(91,141,238,0.15)', border: '1px solid rgba(91,141,238,0.35)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 13, fontWeight: 700, color: 'var(--blue)',
+                  }}>
+                    {c.name?.[0]?.toUpperCase() || '?'}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>{c.name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace', marginTop: 1 }}>{c.kunnr}</div>
+                  </div>
+                  {c.number && <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>{c.number}</span>}
+                  <span style={{ fontSize: 11, color: 'var(--blue)', background: 'rgba(91,141,238,0.12)', border: '1px solid rgba(91,141,238,0.3)', borderRadius: 6, padding: '2px 8px', flexShrink: 0 }}>{c.body_type}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Selected product chip */}
       {selected && (
