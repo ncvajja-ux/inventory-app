@@ -7,7 +7,6 @@ import { useRole } from './RoleContext'
 const ALL_NAV = [
   { href: '/',                icon: '🏠', label: 'Home' },
   { href: '/customers',       icon: '👤', label: 'Customers' },
-  { href: '/groups',          icon: '👥', label: 'Customer Groups' },
   { href: '/inventory',       icon: '🏷️', label: 'Inventory' },
   { href: '/sales',           icon: '🧾', label: 'Sales' },
   { href: '/buyers',          icon: '🏢', label: 'Buyers' },
@@ -18,7 +17,7 @@ const ALL_NAV = [
 
 const ALLOWED = {
   admin: null,
-  sales: new Set(['/', '/customers', '/sales', '/invoice', '/inventory', '/analytics', '/groups']),
+  sales: new Set(['/', '/customers', '/sales', '/invoice', '/inventory', '/analytics']),
 }
 
 export default function Sidebar() {

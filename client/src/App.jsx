@@ -16,7 +16,6 @@ import Buyers from './pages/Buyers'
 import PurchaseOrders from './pages/PurchaseOrders'
 import Analytics from './pages/Analytics'
 import HR from './pages/HR'
-import Groups from './pages/Groups'
 
 const VALID_ROLES = ['admin', 'sales']
 
@@ -54,7 +53,7 @@ function AppRoutes({ role }) {
           <HR />
         </ProtectedRoute>
       } />
-      <Route path="/groups" element={<Groups />} />
+      <Route path="/groups" element={<Navigate to="/customers" replace />} />
     </Routes>
   )
 }

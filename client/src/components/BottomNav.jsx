@@ -14,13 +14,12 @@ const SALES_ITEMS = [
   { icon: '🏷️', label: 'Stock',     href: '/inventory' },
   { icon: '🧾', label: 'Sales',     href: '/sales' },
   { icon: '👤', label: 'CRM',       href: '/customers' },
-  { icon: '👥', label: 'Groups',    href: '/groups' },
   { icon: '📊', label: 'Analytics', href: '/analytics' },
+  { icon: '⋯',  label: 'More',      href: null },
 ]
 const MORE_ITEMS = [
   { icon: '📊', label: 'Analytics', href: '/analytics' },
   { icon: '🏢', label: 'Buyers',    href: '/buyers' },
-  { icon: '👥', label: 'Groups',    href: '/groups' },
   { icon: '👷', label: 'HR',        href: '/hr' },
 ]
 const MORE_HREFS = new Set(MORE_ITEMS.map(i => i.href))
