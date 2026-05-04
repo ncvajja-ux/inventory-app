@@ -263,23 +263,53 @@ function ReturnCustomersTable({ data }) {
 // ─── Product Match Tab ────────────────────────────────────────────────────────
 function ProductMatchTab() {
   const showToast = useToast()
-  const [query, setQuery]         = useState('')
-  const [products, setProducts]   = useState([])
-  const [selected, setSelected]   = useState(null)   // chosen product
-  const [matchData, setMatchData] = useState(null)   // { product, results }
-  const [loading, setLoading]     = useState(false)
-  const [searching, setSearching] = useState(false)
+  const [query, setQuery]               = useState('')
+  const [products, setProducts]         = useState([])
+  const [selected, setSelected]         = useState(null)   // chosen product
+  const [matchData, setMatchData]       = useState(null)   // { product, results }
+  const [loading, setLoading]           = useState(false)
+  const [searching, setSearching]       = useState(false)
+  const [bodyTypes, setBodyTypes]       = useState([])
+  const [bodyTypeFilter, setBodyTypeFilter] = useState(null)
+
+  // Load available body types once
+  useEffect(() => {
+    db.inventory().from('body_types').select('name').order('name')
+      .then(({ data }) => { if (data) setBodyTypes(data.map(r => r.name)) })
+      .catch(() => {})
+  }, [])
+
+  // Re-run search when body type filter changes
+  useEffect(() => {
+    doSearch(query, bodyTypeFilter)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bodyTypeFilter])
+
+  async function doSearch(q, btFilter) {
+    if (!q.trim() && !btFilter) { setProducts([]); return }
+    setSearching(true)
+    try {
+      let qb = db.inventory().from('mara').select('matnr, brand, category, body_type, size')
+      if (q.trim()) qb = qb.or(`matnr.ilike.%${q}%,brand.ilike.%${q}%,body_type.ilike.%${q}%`)
+      if (btFilter) qb = qb.eq('body_type', btFilter)
+      const { data: prods } = await qb.limit(20)
+      setProducts(prods || [])
+    } catch { /* ignore */ } finally { setSearching(false) }
+  }
 
   // Search inventory as user types
   async function searchProducts(q) {
     setQuery(q)
-    if (!q.trim()) { setProducts([]); return }
-    setSearching(true)
-    try {
-      const { data: prods } = await db.inventory().from('mara').select('matnr, brand, category, body_type, size')
-        .or(`matnr.ilike.%${q}%,brand.ilike.%${q}%`).limit(20)
-      setProducts(prods || [])
-    } catch { /* ignore */ } finally { setSearching(false) }
+    doSearch(q, bodyTypeFilter)
+  }
+
+  function toggleBodyType(bt) {
+    const next = bodyTypeFilter === bt ? null : bt
+    setBodyTypeFilter(next)
+    // Clear selected product when filter changes
+    setSelected(null)
+    setMatchData(null)
+    setQuery('')
   }
 
   async function runMatch(product) {
@@ -330,12 +360,39 @@ function ProductMatchTab() {
         ))}
       </div>
 
+      {/* Body type filter chips */}
+      {bodyTypes.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', textTransform: 'uppercase', flexShrink: 0 }}>Body type</span>
+          {bodyTypes.map(bt => {
+            const active = bodyTypeFilter === bt
+            return (
+              <button key={bt} onClick={() => toggleBodyType(bt)} style={{
+                padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 400, cursor: 'pointer',
+                background: active ? 'var(--blue)' : 'transparent',
+                color: active ? '#fff' : 'var(--muted)',
+                border: active ? '1px solid var(--blue)' : '1px solid var(--border)',
+                transition: 'all 0.15s',
+              }}>
+                {bt}
+              </button>
+            )
+          })}
+          {bodyTypeFilter && (
+            <button onClick={() => toggleBodyType(bodyTypeFilter)} style={{
+              padding: '4px 10px', borderRadius: 20, fontSize: 11, cursor: 'pointer',
+              background: 'none', color: 'var(--muted)', border: '1px solid transparent',
+            }}>✕ Clear</button>
+          )}
+        </div>
+      )}
+
       {/* Product search */}
       <div style={{ position: 'relative', marginBottom: 24 }}>
         <input
           value={query}
           onChange={e => searchProducts(e.target.value)}
-          placeholder="Search product by MATNR, brand, category…"
+          placeholder={bodyTypeFilter ? `Search ${bodyTypeFilter} products by MATNR or brand…` : 'Search product by MATNR, brand, or body type…'}
           style={{
             width: '100%', boxSizing: 'border-box',
             background: 'var(--surface)', border: '1px solid var(--border)',
@@ -343,7 +400,7 @@ function ProductMatchTab() {
             fontFamily: "'DM Sans', sans-serif", outline: 'none',
             borderRadius: selected ? '8px 8px 0 0' : 8,
           }}
-          onFocus={() => { if (!selected && query) searchProducts(query) }}
+          onFocus={() => { if (!selected && (query || bodyTypeFilter)) doSearch(query, bodyTypeFilter) }}
         />
         {products.length > 0 && (
           <div style={{
