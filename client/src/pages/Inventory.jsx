@@ -203,6 +203,7 @@ function getSizes(catData, category, subcategory, subsubcategory) {
 // New AddTab — creates a product (SKU), no sizes required
 function AddTab({ onAdded }) {
   const showToast = useToast()
+  const navigate = useNavigate()
   const { catData, categories, reload: reloadCats } = useCategoryData()
   const [brands] = useBrands()
   const [colors] = useColors()
@@ -258,7 +259,7 @@ function AddTab({ onAdded }) {
         : 100000
       const sku_code = 'P' + String(maxNum + 1).padStart(6, '0')
 
-      const { error } = await db.inventory().from('products').insert({
+      const { data: inserted, error } = await db.inventory().from('products').insert({
         sku_code,
         brand: form.brand,
         brandfamily: form.brandfamily || null,
@@ -273,12 +274,11 @@ function AddTab({ onAdded }) {
         material_type: form.material_type || null,
         mrp: parseFloat(form.mrp) || 0,
         cost_price: parseFloat(form.cost_price) || 0,
-      })
+      }).select('sku_id').single()
       if (error) throw new Error(error.message)
-      showToast(`✅ Product ${sku_code} created!`)
-      setFormKey(k => k + 1)
-      loadNextSkuCode()
+      showToast(`✅ Product ${sku_code} created! Add sizes on the next screen.`)
       onAdded()
+      navigate(`/inventory/product/${inserted.sku_id}`)
     } catch (err) { showToast(`❌ ${err.message}`, 'error') }
   }
 
