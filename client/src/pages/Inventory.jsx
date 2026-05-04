@@ -723,6 +723,7 @@ function BrowseTab({ refreshKey }) {
       return [p.brand, p.category, p.color, p.fit, p.sku_code, p.subcategory]
         .some(v => (v || '').toLowerCase().includes(q))
     })
+    .sort((a, b) => (a.brand || '').localeCompare(b.brand || ''))
 
   async function deleteProduct(sku_id) {
     if (!window.confirm('Delete this product and all its size variants?')) return
@@ -813,7 +814,11 @@ function BrowseTab({ refreshKey }) {
               <div
                 key={p.sku_id}
                 className={`erp-table-row clickable${i % 2 === 1 ? ' alt' : ''}`}
-                style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 80px 90px 110px', cursor: 'pointer' }}
+                style={{
+                  gridTemplateColumns: '2fr 1fr 1fr 1fr 80px 90px 110px',
+                  cursor: 'pointer',
+                  ...(p.total_stock === 0 ? { background: 'rgba(239,68,68,0.08)', borderLeft: '3px solid var(--danger)' } : {}),
+                }}
                 onClick={() => navigate(`/inventory/product/${p.sku_id}`)}
               >
                 {INV_COLUMNS.map(c => (
@@ -896,7 +901,6 @@ export default function Inventory() {
       <ModuleTabs tabs={INV_TABS} activeTab={tab} onChange={t => { setTab(t); if (t === 'view') setRefreshKey(k => k + 1) }} />
       <StatsStrip stats={[
         { value: stats.skus,       label: 'SKUs' },
-        { value: stats.variants,   label: 'Variants' },
         { value: stats.outOfStock, label: 'Out of Stock', color: stats.outOfStock > 0 ? 'var(--danger)' : undefined },
       ]} />
       <div className="erp-content">
