@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useToast } from '../components/Toast'
 import { db } from '../lib/supabase'
 import ERPLayout from '../components/ERPLayout'
@@ -697,6 +698,7 @@ function EditProductModal({ product, onClose, onSaved }) {
 
 function BrowseTab({ refreshKey }) {
   const showToast = useToast()
+  const navigate = useNavigate()
   const [products, reload, loading] = useProducts()
   const [search, setSearch] = useState('')
   const [editingProduct, setEditingProduct] = useState(null)
@@ -761,6 +763,7 @@ function BrowseTab({ refreshKey }) {
           items={filtered}
           loading={loading}
           emptyText="No products found."
+          onCardClick={item => navigate(`/inventory/product/${item.sku_id}`)}
           renderCard={item => (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
               <div style={{ flex: 1 }}>
@@ -793,8 +796,9 @@ function BrowseTab({ refreshKey }) {
             renderRow={(p, i) => (
               <div
                 key={p.sku_id}
-                className={`erp-table-row${i % 2 === 1 ? ' alt' : ''}`}
-                style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 80px 90px' }}
+                className={`erp-table-row clickable${i % 2 === 1 ? ' alt' : ''}`}
+                style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 80px 90px', cursor: 'pointer' }}
+                onClick={() => navigate(`/inventory/product/${p.sku_id}`)}
               >
                 {INV_COLUMNS.map(c => (
                   <div key={c.key} className="erp-td" style={{ textAlign: c.align || 'left' }}>
