@@ -21,6 +21,7 @@ const MORE_ITEMS = [
   { icon: '📊', label: 'Analytics', href: '/analytics' },
   { icon: '🏢', label: 'Buyers',    href: '/buyers' },
   { icon: '👷', label: 'HR',        href: '/hr' },
+  { icon: '⚙️', label: 'Config',    href: '/config' },
 ]
 const MORE_HREFS = new Set(MORE_ITEMS.map(i => i.href))
 
