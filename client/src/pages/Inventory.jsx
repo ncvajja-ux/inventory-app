@@ -743,6 +743,14 @@ function BrowseTab({ refreshKey }) {
     { key: 'mrp', label: 'MRP', align: 'right', render: r =>
       r.mrp ? `₹${Number(r.mrp).toLocaleString('en-IN')}` : '—'
     },
+    { key: 'actions', label: '', render: r => (
+      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}>
+        <button className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 10px' }}
+          onClick={() => setEditingProduct(r)}>Edit</button>
+        <button className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 10px', color: 'var(--danger)' }}
+          onClick={() => deleteProduct(r.sku_id)}>Delete</button>
+      </div>
+    )},
   ]
 
   return (
@@ -790,14 +798,14 @@ function BrowseTab({ refreshKey }) {
           <DataTable
             columns={INV_COLUMNS}
             rows={filtered}
-            gridCols="2fr 1fr 1fr 1fr 80px 90px"
+            gridCols="2fr 1fr 1fr 1fr 80px 90px 110px"
             loading={loading}
             emptyText="No products found."
             renderRow={(p, i) => (
               <div
                 key={p.sku_id}
                 className={`erp-table-row clickable${i % 2 === 1 ? ' alt' : ''}`}
-                style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 80px 90px', cursor: 'pointer' }}
+                style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 80px 90px 110px', cursor: 'pointer' }}
                 onClick={() => navigate(`/inventory/product/${p.sku_id}`)}
               >
                 {INV_COLUMNS.map(c => (
