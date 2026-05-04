@@ -564,6 +564,7 @@ function ProductRow({ product, onRefresh, onEdit, onDelete }) {
 
 function EditProductModal({ product, onClose, onSaved }) {
   const showToast = useToast()
+  const navigate  = useNavigate()
   const { catData, categories } = useCategoryData()
   const [brands] = useBrands()
   const [colors] = useColors()
@@ -687,9 +688,16 @@ function EditProductModal({ product, onClose, onSaved }) {
           <div className="form-group"><label>MRP (₹)</label><input type="number" value={form.mrp} onChange={set('mrp')} min="0" step="0.01" /></div>
           <div className="form-group"><label>Cost Price (₹)</label><input type="number" value={form.cost_price} onChange={set('cost_price')} min="0" step="0.01" /></div>
         </div>
-        <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
+        <div style={{ display: 'flex', gap: 12, marginTop: 20, alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="btn btn-primary" onClick={save}>Save Changes</button>
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button
+            className="btn btn-ghost"
+            style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--accent)' }}
+            onClick={() => { onClose(); navigate(`/inventory/product/${product.sku_id}`) }}
+          >
+            Manage Sizes →
+          </button>
         </div>
       </div>
     </div>
