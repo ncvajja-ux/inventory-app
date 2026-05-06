@@ -303,17 +303,18 @@ function ProductMatchTab() {
     if (!q.trim() && !btFilter) { setProducts([]); return }
     setSearching(true)
     try {
-      const base = db.inventory().from('mara').select('matnr, brand, category, body_type, size')
+      // brand, category, body_type live on products table (not mara)
+      const base = db.inventory().from('products')
+        .select('sku_id, sku_code, brand, category, subcategory, color, body_type')
       if (q.trim() && btFilter) {
-        // PostgREST 400s when combining or() + eq() — fetch by body_type then filter client-side
         const { data } = await base.eq('body_type', btFilter).limit(500)
         const lq = q.trim().toLowerCase()
         setProducts((data || [])
-          .filter(p => p.matnr?.toLowerCase().includes(lq) || p.brand?.toLowerCase().includes(lq))
+          .filter(p => p.sku_code?.toLowerCase().includes(lq) || p.brand?.toLowerCase().includes(lq))
           .slice(0, 20))
       } else if (q.trim()) {
         const { data } = await base
-          .or(`matnr.ilike.%${q}%,brand.ilike.%${q}%,body_type.ilike.%${q}%`)
+          .or(`sku_code.ilike.%${q}%,brand.ilike.%${q}%,body_type.ilike.%${q}%`)
           .limit(20)
         setProducts(data || [])
       } else {
@@ -341,11 +342,16 @@ function ProductMatchTab() {
   async function runMatch(product) {
     setSelected(product)
     setProducts([])
-    setQuery(`${product.brand} — ${product.matnr}`)
+    setQuery(`${product.brand} — ${product.sku_code}`)
     setMatchData(null)
     setLoading(true)
     try {
-      const { data, error } = await supabase.rpc('analytics_product_match', { p_matnr: product.matnr })
+      // analytics_product_match needs a matnr — fetch the first variant for this product
+      const { data: variantRows } = await db.inventory().from('mara')
+        .select('matnr').eq('sku_id', product.sku_id).limit(1)
+      const matnr = variantRows?.[0]?.matnr
+      if (!matnr) { showToast('No size variants for this product — add a variant first', 'error'); setLoading(false); return }
+      const { data, error } = await supabase.rpc('analytics_product_match', { p_matnr: matnr })
       if (error) { showToast(error.message, 'error'); return }
       const results = (data || []).filter(r => r.indicator !== null).sort((a, b) => a.rank - b.rank)
       setMatchData({ product, results })
@@ -418,7 +424,7 @@ function ProductMatchTab() {
         <input
           value={query}
           onChange={e => searchProducts(e.target.value)}
-          placeholder={bodyTypeFilter ? `Search ${bodyTypeFilter} products by MATNR or brand…` : 'Search product by MATNR, brand, or body type…'}
+          placeholder={bodyTypeFilter ? `Search ${bodyTypeFilter} products by SKU or brand…` : 'Search product by SKU, brand, or body type…'}
           style={{
             width: '100%', boxSizing: 'border-box',
             background: 'var(--surface)', border: '1px solid var(--border)',
@@ -435,16 +441,16 @@ function ProductMatchTab() {
             borderRadius: '0 0 8px 8px', maxHeight: 280, overflowY: 'auto',
           }}>
             {products.map(p => (
-              <div key={p.matnr} onClick={() => runMatch(p)} style={{
+              <div key={p.sku_id} onClick={() => runMatch(p)} style={{
                 padding: '10px 16px', cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'center',
                 borderBottom: '1px solid var(--border)',
               }}
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
               >
-                <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--gold)', background: 'rgba(201,168,76,0.12)', padding: '2px 6px', borderRadius: 4, flexShrink: 0 }}>{p.matnr}</span>
+                <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--gold)', background: 'rgba(201,168,76,0.12)', padding: '2px 6px', borderRadius: 4, flexShrink: 0 }}>{p.sku_code}</span>
                 <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{p.brand}</span>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>{[p.category, p.subcategory, p.size, p.color].filter(Boolean).join(' · ')}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>{[p.category, p.subcategory, p.color].filter(Boolean).join(' · ')}</span>
                 {p.body_type && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>{p.body_type}</span>}
               </div>
             ))}
@@ -499,9 +505,9 @@ function ProductMatchTab() {
           background: 'var(--surface)', border: '1px solid var(--gold)',
           borderRadius: 10, padding: '12px 16px', marginBottom: 24,
         }}>
-          <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--gold)', background: 'rgba(201,168,76,0.12)', padding: '3px 8px', borderRadius: 4 }}>{selected.matnr}</span>
+          <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--gold)', background: 'rgba(201,168,76,0.12)', padding: '3px 8px', borderRadius: 4 }}>{selected.sku_code}</span>
           <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)' }}>{selected.brand}</span>
-          <span style={{ fontSize: 13, color: 'var(--muted)' }}>{[selected.category, selected.subcategory, selected.size, selected.color].filter(Boolean).join(' · ')}</span>
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>{[selected.category, selected.subcategory, selected.color].filter(Boolean).join(' · ')}</span>
           {selected.body_type && (
             <span style={{ fontSize: 12, color: 'var(--blue)', background: 'rgba(91,141,238,0.12)', border: '1px solid rgba(91,141,238,0.3)', borderRadius: 6, padding: '2px 8px' }}>
               Body: {selected.body_type}

@@ -15,6 +15,7 @@ import Invoice from './pages/Invoice'
 import Buyers from './pages/Buyers'
 import PurchaseOrders from './pages/PurchaseOrders'
 import Analytics from './pages/Analytics'
+import Wishlist from './pages/Wishlist'
 import HR from './pages/HR'
 import Config from './pages/Config'
 
@@ -49,6 +50,7 @@ function AppRoutes({ role }) {
         </ProtectedRoute>
       } />
       <Route path="/analytics" element={<Analytics />} />
+      <Route path="/wishlist" element={<Wishlist />} />
       <Route path="/hr" element={
         <ProtectedRoute role={role} allowedRoles={['admin']}>
           <HR />

@@ -97,12 +97,243 @@ function ImageCard({ skuId, initialImage }) {
 }
 
 // ─── Overview tab ─────────────────────────────────────────────────────────────
+// ─── Stock Receipt Modal (PO + auto-GR) ──────────────────────────────────────
+function StockReceiptModal({ variant, product, onClose, onDone }) {
+  const showToast = useToast()
+  const wrapRef   = useRef(null)
+  const debounceRef = useRef(null)
+
+  // Buyer state
+  const [buyerQuery,   setBuyerQuery]   = useState('')
+  const [buyerResults, setBuyerResults] = useState([])
+  const [buyerOpen,    setBuyerOpen]    = useState(false)
+  const [buyer,        setBuyer]        = useState(null)
+
+  // Lines: [{ matnr, size, brand, category, color, qty, unit_price, currentStock }]
+  const [lines, setLines] = useState([{
+    matnr:        variant.matnr,
+    size:         variant.size || variant.matnr,
+    brand:        product.brand,
+    category:     product.category,
+    color:        product.color,
+    qty:          '1',
+    unit_price:   product.cost_price ? String(product.cost_price) : '',
+    currentStock: variant.quantity || 0,
+  }])
+
+  const [saving, setSaving] = useState(false)
+
+  // Close buyer dropdown when clicking outside
+  useEffect(() => {
+    function h(e) { if (wrapRef.current && !wrapRef.current.contains(e.target)) setBuyerOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+
+  async function searchBuyer(q) {
+    if (!q.trim()) { setBuyerResults([]); setBuyerOpen(false); return }
+    const { data } = await db.buyers().from('buyers')
+      .select('*')
+      .or(`name.ilike.%${q}%,buyer_id.ilike.%${q}%`)
+      .limit(8)
+    const results = data || []
+    setBuyerResults(results)
+    setBuyerOpen(results.length > 0)
+  }
+
+  function onBuyerInput(e) {
+    const val = e.target.value
+    setBuyerQuery(val); setBuyer(null)
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => searchBuyer(val), 250)
+  }
+
+  function selectBuyer(b) {
+    setBuyer(b); setBuyerQuery(''); setBuyerResults([]); setBuyerOpen(false)
+  }
+
+  function updateLine(matnr, field, val) {
+    setLines(prev => prev.map(l => l.matnr === matnr ? { ...l, [field]: val } : l))
+  }
+
+  function removeLine(matnr) {
+    setLines(prev => prev.filter(l => l.matnr !== matnr))
+  }
+
+  const poTotal = lines.reduce((s, l) => s + (parseInt(l.qty) || 0) * (parseFloat(l.unit_price) || 0), 0)
+
+  async function confirm() {
+    if (!buyer) return showToast('Select a buyer', 'error')
+    if (!lines.length) return showToast('No lines to receive', 'error')
+    for (const l of lines) {
+      if (!(parseInt(l.qty) > 0)) return showToast(`Enter quantity for size ${l.size}`, 'error')
+      if (isNaN(parseFloat(l.unit_price)) || parseFloat(l.unit_price) < 0) return showToast(`Enter unit price for size ${l.size}`, 'error')
+    }
+    setSaving(true)
+    try {
+      const { data: lastPO } = await db.transactions().from('po_header')
+        .select('po_id').order('po_id', { ascending: false }).limit(1)
+      const maxNum = lastPO?.length ? parseInt(lastPO[0].po_id.replace(/\D/g, ''), 10) || 0 : 0
+      const po_id = 'P' + String(maxNum + 1).padStart(6, '0')
+
+      const { error: hErr } = await db.transactions().from('po_header').insert({
+        po_id,
+        buyer_id: buyer.buyer_id,
+        po_date: new Date().toISOString().split('T')[0],
+        notes: `Stock receipt from inventory: ${product.sku_code}`,
+      })
+      if (hErr) throw new Error(hErr.message)
+
+      const linesArray = lines.map((l, i) => ({
+        po_id, line_no: i + 1,
+        matnr: l.matnr,
+        quantity: parseInt(l.qty),
+        unit_price: parseFloat(l.unit_price),
+        line_total: parseInt(l.qty) * parseFloat(l.unit_price),
+        status: 'Goods Receipt',
+      }))
+      const { error: lErr } = await db.transactions().from('po_items').insert(linesArray)
+      if (lErr) throw new Error(lErr.message)
+
+      // GR: increment stock for each line
+      await Promise.all(lines.map(l =>
+        db.inventory().from('mara')
+          .update({ quantity: l.currentStock + parseInt(l.qty) })
+          .eq('matnr', l.matnr)
+      ))
+
+      showToast(`✅ PO ${po_id} created & GR done`)
+      onDone()
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
+    finally { setSaving(false) }
+  }
+
+  const fmt = n => '₹' + parseFloat(n || 0).toFixed(2)
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 720, width: '95vw', maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <div className="modal-title">Stock Receipt</div>
+            <div className="modal-sub" style={{ marginTop: 2 }}>Creates a Purchase Order and performs Goods Receipt</div>
+          </div>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+
+        {/* Buyer search */}
+        <div style={{ marginBottom: 20 }} ref={wrapRef}>
+          <label style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Buyer *</label>
+          <div style={{ position: 'relative' }}>
+            <input
+              value={buyer ? (buyer.company_name || buyer.name) : buyerQuery}
+              onChange={onBuyerInput}
+              onFocus={() => { if (buyerResults.length && !buyer) setBuyerOpen(true) }}
+              placeholder="Search by buyer name or ID…"
+              style={{ width: '100%', boxSizing: 'border-box' }}
+              autoComplete="off"
+              readOnly={!!buyer}
+            />
+            {buyer && (
+              <button
+                onClick={() => { setBuyer(null); setBuyerQuery('') }}
+                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}
+              >×</button>
+            )}
+            {buyerOpen && !buyer && buyerResults.length > 0 && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
+                background: 'var(--card)', border: '1px solid var(--border)',
+                borderTop: 'none', borderRadius: '0 0 8px 8px', maxHeight: 200, overflowY: 'auto',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+              }}>
+                {buyerResults.map(b => (
+                  <div key={b.buyer_id}
+                    onMouseDown={e => { e.preventDefault(); selectBuyer(b) }}
+                    style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)', fontSize: 13 }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'var(--card)'}
+                  >
+                    <strong>{b.company_name || b.name}</strong>
+                    <span style={{ marginLeft: 8, fontFamily: 'monospace', fontSize: 11, color: 'var(--muted)' }}>{b.buyer_id}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Lines table */}
+        <div style={{ overflowX: 'auto', marginBottom: 16 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
+                {['Line', 'MATNR', 'Product', 'Qty', 'Unit Price (₹)', 'Line Total', ''].map((h, i) => (
+                  <th key={i} style={{
+                    padding: '10px 12px', fontSize: 11, fontWeight: 600,
+                    textTransform: 'uppercase', color: 'var(--muted)',
+                    textAlign: i >= 3 && i < 6 ? 'right' : 'left',
+                  }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {lines.length === 0 ? (
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: 32, color: 'var(--muted)', fontSize: 13 }}>No lines.</td></tr>
+              ) : lines.map((l, i) => (
+                <tr key={l.matnr} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ padding: '10px 12px', color: 'var(--muted)' }}>{i + 1}</td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--gold)', background: 'rgba(201,168,76,0.12)', padding: '2px 6px', borderRadius: 4 }}>{l.matnr}</span>
+                  </td>
+                  <td style={{ padding: '10px 12px' }}>
+                    {l.brand} — {[l.category, l.size, l.color].filter(Boolean).join(' · ')}
+                  </td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                    <input type="number" min="1" value={l.qty}
+                      onChange={e => updateLine(l.matnr, 'qty', e.target.value)}
+                      style={{ width: 70, textAlign: 'center', padding: '4px 8px', fontSize: 13 }} />
+                  </td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                    <input type="number" min="0" step="0.01" value={l.unit_price}
+                      onChange={e => updateLine(l.matnr, 'unit_price', e.target.value)}
+                      style={{ width: 90, textAlign: 'right', padding: '4px 8px', fontSize: 13 }} />
+                  </td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700 }}>
+                    {fmt((parseInt(l.qty) || 0) * (parseFloat(l.unit_price) || 0))}
+                  </td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <button onClick={() => removeLine(l.matnr)}
+                      style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: 'var(--danger)', borderRadius: 6, width: 28, height: 28, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>
+            Total: <span style={{ color: 'var(--gold)' }}>{fmt(poTotal)}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
+            <button className="btn btn-primary" onClick={confirm} disabled={saving || !lines.length}>
+              {saving ? 'Creating…' : 'Create PO & Receive Stock'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function OverviewTab({ product, variants, skuId, onReload }) {
   const showToast = useToast()
   const [validSizes,   setValidSizes]   = useState([])
-  const [addForm,      setAddForm]      = useState(null)   // { size, qty } | null
-  const [editingMatnr, setEditingMatnr] = useState(null)  // matnr being edited
-  const [editQty,      setEditQty]      = useState('')
+  const [addForm,      setAddForm]      = useState(null)   // { size } | null
+  const [stockModal,   setStockModal]   = useState(null)   // variant | null
+  const debounceRef = useRef(null)
 
   // Load valid sizes from category_l3 for this product's category path
   useEffect(() => {
@@ -138,23 +369,11 @@ function OverviewTab({ product, variants, skuId, onReload }) {
         matnr,
         sku_id: parseInt(skuId, 10),
         size: addForm.size.trim(),
-        quantity: parseInt(addForm.qty) || 0,
+        quantity: 0,   // stock is added separately via PO
       })
       if (error) throw error
-      showToast(`✅ Size ${addForm.size} added`)
+      showToast(`✅ Size ${addForm.size} added — use "+ Add Stock" to receive inventory`)
       setAddForm(null)
-      onReload()
-    } catch (e) { showToast('❌ ' + e.message, 'error') }
-  }
-
-  async function saveEditQty(matnr) {
-    try {
-      const { error } = await db.inventory().from('mara')
-        .update({ quantity: parseInt(editQty) || 0 })
-        .eq('matnr', matnr)
-      if (error) throw error
-      showToast('✅ Quantity updated')
-      setEditingMatnr(null)
       onReload()
     } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
@@ -235,14 +454,7 @@ function OverviewTab({ product, variants, skuId, onReload }) {
                 style={{ padding: '7px 10px', borderRadius: 6, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, width: 120 }}
               />
             )}
-            <input
-              type="number" min="0"
-              value={addForm.qty}
-              onChange={e => setAddForm(f => ({ ...f, qty: e.target.value }))}
-              placeholder="Qty"
-              style={{ padding: '7px 10px', borderRadius: 6, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, width: 80 }}
-            />
-            <button className="btn btn-primary" style={{ fontSize: 12, padding: '7px 14px' }} onClick={addVariant}>Save</button>
+            <button className="btn btn-primary" style={{ fontSize: 12, padding: '7px 14px' }} onClick={addVariant}>Add Size</button>
             <button className="btn btn-ghost"   style={{ fontSize: 12, padding: '7px 10px' }} onClick={() => setAddForm(null)}>Cancel</button>
           </div>
         )}
@@ -267,31 +479,19 @@ function OverviewTab({ product, variants, skuId, onReload }) {
                   <td style={{ padding: '10px 8px', fontFamily: 'monospace', fontSize: 12 }}>{v.matnr}</td>
                   <td style={{ padding: '10px 8px', fontWeight: 600 }}>{v.size || '—'}</td>
                   <td style={{ padding: '10px 8px', textAlign: 'right' }}>
-                    {editingMatnr === v.matnr ? (
-                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
-                        <input type="number" min="0" value={editQty}
-                          onChange={e => setEditQty(e.target.value)}
-                          style={{ width: 70, padding: '3px 6px', borderRadius: 5, border: '1.5px solid var(--accent)', textAlign: 'right', fontSize: 13, background: 'var(--card)', color: 'var(--ink)' }}
-                          autoFocus onKeyDown={e => { if (e.key === 'Enter') saveEditQty(v.matnr); if (e.key === 'Escape') setEditingMatnr(null) }}
-                        />
-                        <button className="btn btn-primary" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => saveEditQty(v.matnr)}>✓</button>
-                        <button className="btn btn-ghost"   style={{ fontSize: 11, padding: '3px 8px'  }} onClick={() => setEditingMatnr(null)}>✕</button>
-                      </div>
-                    ) : (
-                      <span
-                        style={{ cursor: 'pointer', color: (v.quantity || 0) === 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}
-                        title="Click to edit quantity"
-                        onClick={() => { setEditingMatnr(v.matnr); setEditQty(String(v.quantity || 0)) }}
-                      >
-                        {v.quantity || 0}
-                      </span>
-                    )}
+                    <span style={{ color: (v.quantity || 0) === 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>
+                      {v.quantity || 0}
+                    </span>
                   </td>
                   <td style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--muted)' }}>{v.reserved || 0}</td>
                   <td style={{ padding: '10px 8px', textAlign: 'right' }}>{(v.quantity || 0) - (v.reserved || 0)}</td>
                   <td style={{ padding: '10px 8px', textAlign: 'right' }}>
-                    <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px', color: 'var(--danger)' }}
-                      onClick={() => deleteVariant(v.matnr, v.size)}>Delete</button>
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                      <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 10px', color: 'var(--success)', borderColor: 'var(--success)' }}
+                        onClick={() => setStockModal(v)}>+ Stock</button>
+                      <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px', color: 'var(--danger)' }}
+                        onClick={() => deleteVariant(v.matnr, v.size)}>Delete</button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -299,6 +499,16 @@ function OverviewTab({ product, variants, skuId, onReload }) {
           </table>
         )}
       </div>
+
+      {/* Stock Receipt Modal */}
+      {stockModal && (
+        <StockReceiptModal
+          variant={stockModal}
+          product={product}
+          onClose={() => setStockModal(null)}
+          onDone={() => { setStockModal(null); onReload() }}
+        />
+      )}
     </>
   )
 }

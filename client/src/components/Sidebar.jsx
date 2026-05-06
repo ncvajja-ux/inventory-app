@@ -13,6 +13,7 @@ const ALL_NAV = [
   { href: '/buyers',          icon: '🏢', label: 'Buyers' },
   { href: '/purchase-orders', icon: '📦', label: 'Purchase Orders' },
   { href: '/analytics',       icon: '📊', label: 'Analytics' },
+  { href: '/wishlist',        icon: '🌟', label: 'Wishlist' },
   { href: '/hr',              icon: '👷', label: 'HR' },
   { href: '/config',          icon: '⚙️', label: 'Config' },
 ]

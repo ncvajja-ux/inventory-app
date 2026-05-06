@@ -872,13 +872,21 @@ export default function Inventory() {
   useEffect(() => {
     async function loadStats() {
       try {
-        const [{ count: skuCount }, { data: stockRows }] = await Promise.all([
+        const [{ count: skuCount }, { data: productRows }, { data: maraRows }] = await Promise.all([
           db.inventory().from('products').select('*', { count: 'exact', head: true }),
-          db.inventory().from('mara').select('quantity'),
+          db.inventory().from('products').select('sku_id'),
+          db.inventory().from('mara').select('sku_id, quantity'),
         ])
-        const total = (stockRows || []).reduce((s, r) => s + (r.quantity || 0), 0)
-        const oos   = (stockRows || []).filter(r => (r.quantity || 0) === 0).length
-        setStats({ skus: skuCount ?? '—', variants: total, outOfStock: oos })
+        // Sum quantity per sku_id
+        const stockBySkuId = {}
+        ;(maraRows || []).forEach(r => {
+          stockBySkuId[r.sku_id] = (stockBySkuId[r.sku_id] || 0) + (r.quantity || 0)
+        })
+        // A product is out-of-stock if it has no mara rows OR all quantities sum to 0
+        const oos = (productRows || []).filter(p =>
+          stockBySkuId[p.sku_id] === undefined || stockBySkuId[p.sku_id] === 0
+        ).length
+        setStats({ skus: skuCount ?? '—', outOfStock: oos })
       } catch { /* non-fatal */ }
     }
     loadStats()

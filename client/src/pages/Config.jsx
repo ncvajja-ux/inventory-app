@@ -213,6 +213,7 @@ function ProductsConfigTab() {
   const [l3Data, setL3Data] = useState([])
 
   const [newBrand,        setNewBrand]        = useState('')
+  const [wishlistAlert,   setWishlistAlert]   = useState(null) // { brandName, matches[] } | null
   const [newMaterialType, setNewMaterialType] = useState('')
   const [newColorName,    setNewColorName]    = useState('')
   const [newColorHex,     setNewColorHex]     = useState('#808000')
@@ -238,10 +239,22 @@ function ProductsConfigTab() {
   // Brands
   async function addBrand() {
     if (!newBrand.trim()) return
+    const brandName = newBrand.trim()
     try {
-      const { error } = await db.inventory().from('brands').insert({ name: newBrand.trim() })
+      const { error } = await db.inventory().from('brands').insert({ name: brandName })
       if (error) throw error
       setNewBrand(''); reloadBrands()
+      showToast(`✅ Brand "${brandName}" added`)
+
+      // Check wishlist for unlinked items that mention this brand
+      const { data: matches } = await db.customers().from('wishlist')
+        .select('id, product_name, size, customer_name, number, status')
+        .is('sku_id', null)
+        .ilike('product_name', `%${brandName}%`)
+        .neq('status', 'fulfilled')
+      if (matches && matches.length > 0) {
+        setWishlistAlert({ brandName, matches })
+      }
     } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
   async function removeBrand(id) {
@@ -691,6 +704,58 @@ export default function Config() {
         {tab === 'sales'      && <SalesConfigTab />}
         {tab === 'purchasing' && <PurchasingConfigTab />}
       </div>
+
+      {/* Wishlist match alert */}
+      {wishlistAlert && (
+        <div className="modal-backdrop" onClick={() => setWishlistAlert(null)}>
+          <div className="modal" style={{ maxWidth: 520, width: '95vw' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <div className="modal-title">Wishlist Items Found</div>
+                <div className="modal-sub" style={{ marginTop: 2 }}>
+                  {wishlistAlert.matches.length} open wishlist item{wishlistAlert.matches.length !== 1 ? 's' : ''} mention "{wishlistAlert.brandName}"
+                </div>
+              </div>
+              <button className="modal-close" onClick={() => setWishlistAlert(null)}>×</button>
+            </div>
+
+            <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
+              Now that <strong style={{ color: 'var(--text)' }}>{wishlistAlert.brandName}</strong> is in your inventory,
+              consider updating these wishlist entries to link them to the correct SKU.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+              {wishlistAlert.matches.map(m => (
+                <div key={m.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  background: 'var(--surface)', border: '1px solid var(--border)',
+                  borderRadius: 8, padding: '10px 14px', fontSize: 13,
+                }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600 }}>{m.product_name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                      {[m.size, m.customer_name, m.number].filter(Boolean).join(' · ')}
+                    </div>
+                  </div>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, textTransform: 'capitalize', padding: '2px 8px',
+                    borderRadius: 20, background: 'rgba(224,168,32,0.12)', color: '#e0a820',
+                    border: '1px solid rgba(224,168,32,0.3)', flexShrink: 0,
+                  }}>{m.status}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => setWishlistAlert(null)}>Dismiss</button>
+              <a href="/wishlist" className="btn btn-primary" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                onClick={() => setWishlistAlert(null)}>
+                Go to Wishlist →
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </ERPLayout>
   )
 }

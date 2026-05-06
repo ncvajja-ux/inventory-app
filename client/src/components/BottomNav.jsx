@@ -20,6 +20,7 @@ const SALES_ITEMS = [
 ]
 const MORE_ITEMS = [
   { icon: '📊', label: 'Analytics', href: '/analytics' },
+  { icon: '🌟', label: 'Wishlist',  href: '/wishlist' },
   { icon: '🏢', label: 'Buyers',    href: '/buyers' },
   { icon: '👷', label: 'HR',        href: '/hr' },
   { icon: '⚙️', label: 'Config',    href: '/config' },
