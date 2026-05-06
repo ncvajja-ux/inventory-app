@@ -18,20 +18,11 @@ const fmtK    = n => {
 const fmtDate = s => s ? new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 const dash    = v => v || '—'
 
-// ─── Image card ───────────────────────────────────────────────────────────────
-function ImageCard({ skuId, initialImageUrl, initialImageData }) {
-  const showToast = useToast()
-  const fileRef   = useRef(null)
-  const [imageUrl,  setImageUrl]  = useState(initialImageUrl  || null)  // ImageKit URL
-  const [imageData, setImageData] = useState(initialImageData || null)  // base64 fallback
-  const [pending,   setPending]   = useState(null)   // base64 preview before upload
-  const [saving,    setSaving]    = useState(false)
-
-  function onFileChange(e) {
-    const file = e.target.files[0]
-    if (!file) return
-    if (!file.type.startsWith('image/')) return showToast('Select an image file', 'error')
-    if (file.size > 20 * 1024 * 1024) return showToast('Image must be under 20 MB', 'error')
+// Resize any image File to a base64 JPEG (max 900px, 82% quality)
+function resizeToBase64(file) {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) { reject(new Error('Select an image file')); return }
+    if (file.size > 20 * 1024 * 1024) { reject(new Error('Image must be under 20 MB')); return }
     const img = new Image()
     const objectUrl = URL.createObjectURL(file)
     img.onload = () => {
@@ -43,63 +34,194 @@ function ImageCard({ skuId, initialImageUrl, initialImageData }) {
       const canvas = document.createElement('canvas')
       canvas.width = width; canvas.height = height
       canvas.getContext('2d').drawImage(img, 0, 0, width, height)
-      setPending(canvas.toDataURL('image/jpeg', 0.82))
+      resolve(canvas.toDataURL('image/jpeg', 0.82))
     }
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Failed to load image')) }
     img.src = objectUrl
-    e.target.value = ''
+  })
+}
+
+// ─── Photo Gallery ────────────────────────────────────────────────────────────
+function PhotoGallery({ skuId, initialImageUrl, initialImageData }) {
+  const showToast = useToast()
+  const fileRef   = useRef(null)
+  const [photos,    setPhotos]    = useState([])    // { id, url, position }
+  const [activeIdx, setActiveIdx] = useState(0)
+  const [managing,  setManaging]  = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [dragIdx,   setDragIdx]   = useState(null)
+
+  useEffect(() => { loadPhotos() }, [skuId])
+
+  async function loadPhotos() {
+    const { data, error } = await db.inventory().from('product_images')
+      .select('id, url, position')
+      .eq('sku_id', skuId)
+      .order('position')
+    if (error) { showToast('❌ ' + error.message, 'error'); return }
+    setPhotos(data || [])
   }
 
-  async function saveImage() {
-    if (!pending) return
-    setSaving(true)
+  async function uploadFiles(files) {
+    if (!files.length) return
+    setUploading(true)
     try {
-      const url = await uploadToImageKit(pending, `sku_${skuId}.jpg`, '/products')
-      const { error } = await db.inventory().from('products')
-        .update({ image_url: url, image_data: null })
-        .eq('sku_id', skuId)
-      if (error) throw error
-      setImageUrl(url); setImageData(null); setPending(null)
-      showToast('✅ Photo saved')
-    } catch (err) { showToast(`❌ ${err.message}`, 'error') }
-    finally { setSaving(false) }
+      let nextPos = photos.length
+      const added = []
+      for (const file of files) {
+        const base64 = await resizeToBase64(file)
+        const url = await uploadToImageKit(base64, `sku_${skuId}_${Date.now()}.jpg`, 'products')
+        const { data, error } = await db.inventory().from('product_images')
+          .insert({ sku_id: skuId, url, position: nextPos })
+          .select('id, url, position')
+          .single()
+        if (error) throw error
+        added.push(data)
+        nextPos++
+      }
+      setPhotos(prev => [...prev, ...added])
+      showToast(`✅ ${added.length} photo${added.length !== 1 ? 's' : ''} uploaded`)
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = '' }
   }
 
-  async function removeImage() {
+  async function deletePhoto(photo) {
     if (!window.confirm('Remove this photo?')) return
-    try {
-      const { error } = await db.inventory().from('products')
-        .update({ image_url: null, image_data: null })
-        .eq('sku_id', skuId)
-      if (error) throw error
-      setImageUrl(null); setImageData(null); setPending(null)
-    } catch (err) { showToast(`❌ ${err.message}`, 'error') }
+    const { error } = await db.inventory().from('product_images').delete().eq('id', photo.id)
+    if (error) { showToast('❌ ' + error.message, 'error'); return }
+    const remaining = photos.filter(p => p.id !== photo.id)
+    const renumbered = remaining.map((p, i) => ({ ...p, position: i }))
+    await Promise.all(renumbered.map(p =>
+      db.inventory().from('product_images').update({ position: p.position }).eq('id', p.id)
+    ))
+    setPhotos(renumbered)
+    setActiveIdx(i => Math.min(i, Math.max(0, renumbered.length - 1)))
   }
 
-  // Priority: preview > ImageKit URL > base64 fallback
-  const display = pending ? pending : ikUrl(imageUrl || imageData)
+  async function reorder(fromIdx, toIdx) {
+    if (fromIdx === toIdx) return
+    const reordered = [...photos]
+    const [moved] = reordered.splice(fromIdx, 1)
+    reordered.splice(toIdx, 0, moved)
+    const withPos = reordered.map((p, i) => ({ ...p, position: i }))
+    setPhotos(withPos)
+    await Promise.all(withPos.map(p =>
+      db.inventory().from('product_images').update({ position: p.position }).eq('id', p.id)
+    ))
+  }
+
+  // Legacy fallback for un-migrated products
+  const legacySrc = photos.length === 0 ? ikUrl(initialImageUrl || initialImageData) : null
+  const mainSrc   = photos.length > 0 ? ikUrl(photos[activeIdx]?.url, 'w_600,q_auto') : legacySrc
+
+  const THUMB = { width: 48, height: 48, borderRadius: 6, overflow: 'hidden', flexShrink: 0, cursor: 'pointer', border: '2px solid transparent', position: 'relative' }
 
   return (
     <div className="card" style={{ marginBottom: 20 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Product Photo</div>
-      <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onFileChange} />
-      {display ? (
-        <div>
-          <img src={display} alt="Product" style={{ maxWidth: 260, borderRadius: 10, display: 'block', marginBottom: 12 }} />
-          {pending && <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>Preview — unsaved</div>}
-          <div style={{ display: 'flex', gap: 8 }}>
-            {pending  && <button className="btn btn-primary" onClick={saveImage} disabled={saving} style={{ fontSize: 13 }}>{saving ? 'Uploading…' : 'Save Photo'}</button>}
-            {pending  && <button className="btn btn-ghost"   onClick={() => setPending(null)} style={{ fontSize: 13 }}>Discard</button>}
-            {!pending && <button className="btn btn-ghost"   onClick={() => fileRef.current?.click()} style={{ fontSize: 13 }}>Change Photo</button>}
-            {!pending && <button onClick={removeImage} style={{ fontSize: 11, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer' }}>Remove</button>}
-          </div>
+      {/* Header row */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+          Product Photos {photos.length > 0 && <span style={{ fontWeight: 400 }}>({photos.length})</span>}
         </div>
-      ) : (
-        <div>
-          <div style={{ width: 200, height: 200, background: 'var(--bg)', borderRadius: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 12 }}>
-            <div style={{ fontSize: 36, opacity: 0.3 }}>👕</div>
-            <div style={{ fontSize: 13, color: 'var(--muted)' }}>No photo</div>
+        {photos.length > 0 && (
+          <button className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 10px' }}
+            onClick={() => setManaging(m => !m)}>
+            {managing ? 'Done' : 'Manage'}
+          </button>
+        )}
+      </div>
+
+      <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+        onChange={e => uploadFiles(Array.from(e.target.files))} />
+
+      {/* ── DISPLAY MODE ── */}
+      {!managing && (
+        mainSrc ? (
+          <div>
+            <img src={mainSrc} alt="Product" style={{ maxWidth: 260, borderRadius: 10, display: 'block', marginBottom: 10 }} />
+            {/* Thumbnail strip */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+              {photos.map((p, i) => (
+                <div key={p.id} onClick={() => setActiveIdx(i)}
+                  style={{ ...THUMB, border: `2px solid ${i === activeIdx ? 'var(--accent)' : 'var(--border)'}` }}>
+                  <img src={ikUrl(p.url, 'w_100,q_auto')} alt=""
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  {i === 0 && (
+                    <span style={{ position: 'absolute', bottom: 2, left: 2, fontSize: 8,
+                      background: 'rgba(0,0,0,0.65)', color: '#c9a84c', padding: '1px 3px', borderRadius: 3 }}>★</span>
+                  )}
+                </div>
+              ))}
+              {/* + add slot */}
+              <div onClick={() => !uploading && fileRef.current?.click()}
+                style={{ ...THUMB, border: '2px dashed var(--border)', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', color: 'var(--muted)', fontSize: 20, cursor: uploading ? 'wait' : 'pointer' }}>
+                {uploading ? '…' : '+'}
+              </div>
+            </div>
           </div>
-          <button className="btn btn-ghost" onClick={() => fileRef.current?.click()} style={{ fontSize: 12 }}>Upload Photo</button>
+        ) : (
+          <div>
+            <div style={{ width: 200, height: 200, background: 'var(--bg)', borderRadius: 10,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              gap: 8, marginBottom: 12 }}>
+              <div style={{ fontSize: 36, opacity: 0.3 }}>👕</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)' }}>No photos</div>
+            </div>
+            <button className="btn btn-ghost" style={{ fontSize: 12 }}
+              onClick={() => fileRef.current?.click()}>Upload Photo</button>
+          </div>
+        )
+      )}
+
+      {/* ── MANAGE MODE ── */}
+      {managing && (
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 12 }}>
+            {photos.map((p, i) => (
+              <div key={p.id}
+                draggable
+                onDragStart={() => setDragIdx(i)}
+                onDragOver={e => e.preventDefault()}
+                onDrop={() => { reorder(dragIdx, i); setDragIdx(null) }}
+                style={{ position: 'relative', paddingTop: '100%', borderRadius: 8, overflow: 'visible', cursor: 'grab',
+                  border: `2px solid ${i === 0 ? 'var(--accent)' : 'var(--border)'}`,
+                  opacity: dragIdx === i ? 0.5 : 1 }}>
+                <img src={ikUrl(p.url, 'w_200,q_auto')} alt=""
+                  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6 }} />
+                {i === 0 && (
+                  <span style={{ position: 'absolute', bottom: 4, left: 4, fontSize: 9,
+                    background: 'rgba(0,0,0,0.7)', color: '#c9a84c', padding: '1px 4px',
+                    borderRadius: 3, fontWeight: 700 }}>★ Cover</span>
+                )}
+                <button onClick={() => deletePhoto(p)}
+                  style={{ position: 'absolute', top: -6, right: -6, width: 18, height: 18,
+                    borderRadius: '50%', background: 'var(--danger)', border: 'none', color: '#fff',
+                    cursor: 'pointer', fontSize: 11, lineHeight: 1, zIndex: 1, display: 'flex',
+                    alignItems: 'center', justifyContent: 'center' }}>×</button>
+              </div>
+            ))}
+            {/* + upload slot */}
+            <div onClick={() => !uploading && fileRef.current?.click()}
+              style={{ paddingTop: '100%', background: 'var(--bg)', borderRadius: 8,
+                border: '2px dashed var(--border)', cursor: uploading ? 'wait' : 'pointer',
+                position: 'relative' }}>
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', gap: 4 }}>
+                {uploading
+                  ? <span style={{ fontSize: 12 }}>Uploading…</span>
+                  : <><span style={{ fontSize: 22 }}>+</span><span style={{ fontSize: 11 }}>Add</span></>}
+              </div>
+            </div>
+          </div>
+          {/* Drop zone */}
+          <div
+            onDragOver={e => e.preventDefault()}
+            onDrop={e => { e.preventDefault(); uploadFiles(Array.from(e.dataTransfer.files)) }}
+            style={{ border: '2px dashed var(--border)', borderRadius: 8, padding: 12,
+              textAlign: 'center', fontSize: 12, color: 'var(--muted)' }}>
+            Drop multiple photos here to upload all at once
+          </div>
         </div>
       )}
     </div>
@@ -420,7 +542,7 @@ function OverviewTab({ product, variants, skuId, onReload }) {
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20, alignItems: 'start' }}>
-        <ImageCard skuId={parseInt(skuId)} initialImageUrl={product.image_url} initialImageData={product.image_data} />
+        <PhotoGallery skuId={parseInt(skuId)} initialImageUrl={product.image_url} initialImageData={product.image_data} />
         <div className="card">
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 16 }}>Product Attributes</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
