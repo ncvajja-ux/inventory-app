@@ -203,7 +203,7 @@ function BuyersConfigTab() {
 }
 
 // ─── Products tab: Brands, Colors, Fits, Material Types, GST, Categories ──────
-function ProductsConfigTab() {
+function ProductsConfigTab({ setWishlistAlert }) {
   const showToast = useToast()
   const [brands, reloadBrands]               = useBrands()
   const [colors, reloadColors]               = useColors()
@@ -214,7 +214,6 @@ function ProductsConfigTab() {
   const [l3Data, setL3Data] = useState([])
 
   const [newBrand,        setNewBrand]        = useState('')
-  const [wishlistAlert,   setWishlistAlert]   = useState(null) // { brandName, matches[] } | null
   const [newMaterialType, setNewMaterialType] = useState('')
   const [newColorName,    setNewColorName]    = useState('')
   const [newColorHex,     setNewColorHex]     = useState('#808000')
@@ -694,6 +693,7 @@ const TAB_LABELS = {
 export default function Config() {
   const showToast = useToast()
   const [tab, setTab] = useState('products')
+  const [wishlistAlert, setWishlistAlert] = useState(null)
 
   const [unmigratedCount,  setUnmigratedCount]  = useState(null)
   const [migrating,        setMigrating]        = useState(false)
@@ -755,7 +755,7 @@ export default function Config() {
       <div className="erp-content">
         {tab === 'customers'  && <CustomersConfigTab />}
         {tab === 'buyers'     && <BuyersConfigTab />}
-        {tab === 'products'   && <ProductsConfigTab />}
+        {tab === 'products'   && <ProductsConfigTab setWishlistAlert={setWishlistAlert} />}
         {tab === 'sales'      && <SalesConfigTab />}
         {tab === 'purchasing' && <PurchasingConfigTab />}
       </div>
