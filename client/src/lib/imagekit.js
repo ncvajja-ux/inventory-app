@@ -1,37 +1,40 @@
-// client/src/lib/imagekit.js
-const UPLOAD_URL    = 'https://upload.imagekit.io/api/v1/files/upload'
-const PUBLIC_KEY    = import.meta.env.VITE_IMAGEKIT_PUBLIC_KEY
-const URL_ENDPOINT  = import.meta.env.VITE_IMAGEKIT_URL_ENDPOINT  // https://ik.imagekit.io/urbantribe
+// client/src/lib/imagekit.js — powered by Cloudinary (unsigned upload)
+const CLOUD_NAME    = 'dpu06rcam'
+const UPLOAD_PRESET = 'FATCLOSET'
+const UPLOAD_URL    = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`
 
 /**
  * Returns a display-ready src for an image.
- * - If value is already a base64 data URL → return as-is (un-migrated fallback)
- * - If value is an http URL → append ImageKit transform params
- * - If null/undefined → return null
+ * - base64 data URL → return as-is (un-migrated fallback)
+ * - Cloudinary URL → inject transforms after /upload/
+ * - other URL → return as-is
  */
-export function ikUrl(value, transforms = 'w-500,q-auto') {
+export function ikUrl(value, transforms = 'w_500,q_auto') {
   if (!value) return null
-  if (value.startsWith('data:')) return value          // base64 passthrough
-  return `${value}?tr=${transforms}`
+  if (value.startsWith('data:')) return value                          // base64 passthrough
+  if (value.includes('res.cloudinary.com')) {
+    return value.replace('/upload/', `/upload/${transforms}/`)         // e.g. w_500,q_auto
+  }
+  return value
 }
 
 /**
- * Upload a base64 data URL or File blob to ImageKit unsigned upload.
- * Returns the CDN URL string on success.
- * Throws on failure.
+ * Upload a base64 data URL to Cloudinary using an unsigned upload preset.
+ * Returns the secure_url string on success. Throws on failure.
  */
-export async function uploadToImageKit(fileOrBase64, fileName, folder = '/products') {
+export async function uploadToImageKit(fileOrBase64, fileName, folder = 'products') {
+  const publicId = fileName.replace(/\.[^.]+$/, '')                   // strip extension → sku_42
   const body = new FormData()
   body.append('file', fileOrBase64)
-  body.append('fileName', fileName)
+  body.append('upload_preset', UPLOAD_PRESET)
   body.append('folder', folder)
-  body.append('publicKey', PUBLIC_KEY)
+  body.append('public_id', publicId)
 
   const res = await fetch(UPLOAD_URL, { method: 'POST', body })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    throw new Error(err.message || `ImageKit upload failed (HTTP ${res.status})`)
+    throw new Error(err.error?.message || `Upload failed (HTTP ${res.status})`)
   }
   const data = await res.json()
-  return data.url  // e.g. https://ik.imagekit.io/urbantribe/products/sku_42.jpg
+  return data.secure_url   // e.g. https://res.cloudinary.com/dpu06rcam/image/upload/products/sku_42.jpg
 }
