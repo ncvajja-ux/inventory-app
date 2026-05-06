@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useToast } from '../components/Toast'
 import { db } from '../lib/supabase'
+import { uploadToImageKit } from '../lib/imagekit'
 import ERPLayout from '../components/ERPLayout'
 import ModuleHeader from '../components/ModuleHeader'
 import ModuleTabs from '../components/ModuleTabs'
@@ -691,7 +692,61 @@ const TAB_LABELS = {
 }
 
 export default function Config() {
+  const showToast = useToast()
   const [tab, setTab] = useState('products')
+
+  const [unmigratedCount,  setUnmigratedCount]  = useState(null)
+  const [migrating,        setMigrating]        = useState(false)
+  const [migrateProgress,  setMigrateProgress]  = useState(0)
+  const [migrateTotal,     setMigrateTotal]     = useState(0)
+  const [migrateError,     setMigrateError]     = useState(null)
+
+  async function loadUnmigratedCount() {
+    try {
+      const { count, error } = await db.inventory().from('products')
+        .select('sku_id', { count: 'exact', head: true })
+        .not('image_data', 'is', null)
+        .is('image_url', null)
+      if (error) throw error
+      setUnmigratedCount(count || 0)
+    } catch (e) { showToast('❌ ' + e.message, 'error') }
+  }
+
+  async function runMigration() {
+    setMigrating(true); setMigrateError(null); setMigrateProgress(0)
+    try {
+      const { data, error } = await db.inventory().from('products')
+        .select('sku_id, image_data')
+        .not('image_data', 'is', null)
+        .is('image_url', null)
+      if (error) throw error
+
+      const items = data || []
+      setMigrateTotal(items.length)
+
+      for (let i = 0; i < items.length; i++) {
+        const { sku_id, image_data } = items[i]
+        try {
+          const url = await uploadToImageKit(image_data, `sku_${sku_id}.jpg`, '/products')
+          const { error: upErr } = await db.inventory().from('products')
+            .update({ image_url: url, image_data: null })
+            .eq('sku_id', sku_id)
+          if (upErr) throw upErr
+        } catch (itemErr) {
+          setMigrateError(`Failed on SKU ${sku_id}: ${itemErr.message}`)
+          setMigrating(false)
+          return
+        }
+        setMigrateProgress(i + 1)
+      }
+
+      setUnmigratedCount(0)
+      showToast(`✅ ${items.length} photo${items.length !== 1 ? 's' : ''} migrated to ImageKit`)
+    } catch (e) { setMigrateError(e.message) }
+    finally { setMigrating(false) }
+  }
+
+  useEffect(() => { loadUnmigratedCount() }, [])
 
   return (
     <ERPLayout>
@@ -756,6 +811,58 @@ export default function Config() {
           </div>
         </div>
       )}
+
+      {/* ── ImageKit Photo Migration ──────────────────────────────────── */}
+      <div className="card" style={{ marginTop: 32 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>
+          Product Photos
+        </div>
+        <div className="config-sub" style={{ marginBottom: 16 }}>
+          Migrate product photos from database storage to ImageKit CDN for faster loading.
+        </div>
+
+        {unmigratedCount === null ? (
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>Checking…</div>
+        ) : unmigratedCount === 0 && !migrating ? (
+          <div style={{ fontSize: 13, color: 'var(--success)' }}>✅ All photos are on ImageKit</div>
+        ) : (
+          <div>
+            {!migrating && (
+              <div style={{ fontSize: 13, marginBottom: 12 }}>
+                <strong>{unmigratedCount}</strong> photo{unmigratedCount !== 1 ? 's' : ''} still stored in database
+              </div>
+            )}
+            {migrating && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 13, marginBottom: 6 }}>
+                  Migrating {migrateProgress} / {migrateTotal}…
+                </div>
+                <div style={{ height: 6, background: 'var(--bg)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%', borderRadius: 3,
+                    background: 'var(--accent)',
+                    width: migrateTotal > 0 ? `${Math.round(migrateProgress / migrateTotal * 100)}%` : '0%',
+                    transition: 'width 0.3s',
+                  }} />
+                </div>
+              </div>
+            )}
+            {migrateError && (
+              <div style={{ fontSize: 13, color: 'var(--danger)', marginBottom: 12 }}>
+                ❌ {migrateError}
+              </div>
+            )}
+            <button
+              className="btn btn-primary"
+              onClick={runMigration}
+              disabled={migrating || unmigratedCount === 0}
+              style={{ fontSize: 13 }}
+            >
+              {migrating ? `Migrating ${migrateProgress}/${migrateTotal}…` : `Migrate ${unmigratedCount} Photo${unmigratedCount !== 1 ? 's' : ''} →`}
+            </button>
+          </div>
+        )}
+      </div>
     </ERPLayout>
   )
 }
