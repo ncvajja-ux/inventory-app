@@ -52,7 +52,7 @@ function PhotoGallery({ skuId, initialImageUrl, initialImageData }) {
   const [uploading, setUploading] = useState(false)
   const [dragIdx,   setDragIdx]   = useState(null)
 
-  useEffect(() => { loadPhotos() }, [skuId])
+  useEffect(() => { loadPhotos(); setManaging(false) }, [skuId])
 
   async function loadPhotos() {
     const { data, error } = await db.inventory().from('product_images')
@@ -67,7 +67,10 @@ function PhotoGallery({ skuId, initialImageUrl, initialImageData }) {
     if (!files.length) return
     setUploading(true)
     try {
-      let nextPos = photos.length
+      // Read current max position from DB to avoid stale-closure collisions
+      const { data: existing } = await db.inventory().from('product_images')
+        .select('position').eq('sku_id', skuId).order('position', { ascending: false }).limit(1)
+      let nextPos = existing?.length ? (existing[0].position + 1) : 0
       const added = []
       for (const file of files) {
         const base64 = await resizeToBase64(file)
@@ -83,7 +86,7 @@ function PhotoGallery({ skuId, initialImageUrl, initialImageData }) {
       setPhotos(prev => [...prev, ...added])
       showToast(`✅ ${added.length} photo${added.length !== 1 ? 's' : ''} uploaded`)
     } catch (e) { showToast('❌ ' + e.message, 'error') }
-    finally { setUploading(false); if (fileRef.current) fileRef.current.value = '' }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ''; if (singleFileRef.current) singleFileRef.current.value = '' }
   }
 
   async function deletePhoto(photo) {
@@ -94,7 +97,11 @@ function PhotoGallery({ skuId, initialImageUrl, initialImageData }) {
     const renumbered = remaining.map((p, i) => ({ ...p, position: i }))
     await Promise.all(renumbered.map(p =>
       db.inventory().from('product_images').update({ position: p.position }).eq('id', p.id)
-    ))
+    )).catch(err => {
+      showToast('❌ Renumber failed: ' + err.message, 'error')
+      loadPhotos()
+      return
+    })
     setPhotos(renumbered)
     setActiveIdx(prev => {
       const deletedIdx = photos.findIndex(p => p.id === photo.id)
@@ -120,12 +127,17 @@ function PhotoGallery({ skuId, initialImageUrl, initialImageData }) {
     })
     await Promise.all(withPos.map(p =>
       db.inventory().from('product_images').update({ position: p.position }).eq('id', p.id)
-    ))
+    )).catch(err => {
+      showToast('❌ Reorder failed: ' + err.message, 'error')
+      loadPhotos() // re-fetch to restore consistent state
+    })
   }
 
+  // Clamp activeIdx in case photos array shrinks (e.g. concurrent delete in another session)
+  const safeIdx  = Math.min(activeIdx, Math.max(0, photos.length - 1))
   // Legacy fallback for un-migrated products
   const legacySrc = photos.length === 0 ? ikUrl(initialImageUrl || initialImageData) : null
-  const mainSrc   = photos.length > 0 ? ikUrl(photos[activeIdx]?.url, 'w_600,q_auto') : legacySrc
+  const mainSrc   = photos.length > 0 ? ikUrl(photos[safeIdx]?.url, 'w_600,q_auto') : legacySrc
 
   const THUMB = { width: 48, height: 48, borderRadius: 6, overflow: 'hidden', flexShrink: 0, cursor: 'pointer', border: '2px solid transparent', position: 'relative' }
 
@@ -158,7 +170,7 @@ function PhotoGallery({ skuId, initialImageUrl, initialImageData }) {
             <div style={{ display: 'flex', gap: 6, flexWrap: 'nowrap', overflowX: 'auto', marginBottom: 10, paddingBottom: 4 }}>
               {photos.map((p, i) => (
                 <div key={p.id} onClick={() => setActiveIdx(i)}
-                  style={{ ...THUMB, border: `2px solid ${i === activeIdx ? 'var(--accent)' : 'var(--border)'}` }}>
+                  style={{ ...THUMB, border: `2px solid ${i === safeIdx ? 'var(--accent)' : 'var(--border)'}` }}>
                   <img src={ikUrl(p.url, 'w_100,q_auto')} alt=""
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   {i === 0 && (
@@ -232,7 +244,7 @@ function PhotoGallery({ skuId, initialImageUrl, initialImageData }) {
           {/* Drop zone */}
           <div
             onDragOver={e => e.preventDefault()}
-            onDrop={e => { e.preventDefault(); uploadFiles(Array.from(e.dataTransfer.files)) }}
+            onDrop={e => { e.preventDefault(); if (!uploading) uploadFiles(Array.from(e.dataTransfer.files)) }}
             style={{ border: '2px dashed var(--border)', borderRadius: 8, padding: 12,
               textAlign: 'center', fontSize: 12, color: 'var(--muted)' }}>
             Drop multiple photos here to upload all at once
