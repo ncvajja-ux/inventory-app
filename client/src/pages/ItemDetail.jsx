@@ -44,7 +44,8 @@ function resizeToBase64(file) {
 // ─── Photo Gallery ────────────────────────────────────────────────────────────
 function PhotoGallery({ skuId, initialImageUrl, initialImageData }) {
   const showToast = useToast()
-  const fileRef   = useRef(null)
+  const fileRef       = useRef(null)   // multi-file: display mode + batch
+  const singleFileRef = useRef(null)   // single file: manage mode + slot
   const [photos,    setPhotos]    = useState([])    // { id, url, position }
   const [activeIdx, setActiveIdx] = useState(0)
   const [managing,  setManaging]  = useState(false)
@@ -95,7 +96,12 @@ function PhotoGallery({ skuId, initialImageUrl, initialImageData }) {
       db.inventory().from('product_images').update({ position: p.position }).eq('id', p.id)
     ))
     setPhotos(renumbered)
-    setActiveIdx(i => Math.min(i, Math.max(0, renumbered.length - 1)))
+    setActiveIdx(prev => {
+      const deletedIdx = photos.findIndex(p => p.id === photo.id)
+      if (prev === deletedIdx) return 0  // deleted the active photo → show cover
+      if (prev > deletedIdx) return prev - 1  // shift down
+      return prev
+    })
   }
 
   async function reorder(fromIdx, toIdx) {
@@ -105,6 +111,13 @@ function PhotoGallery({ skuId, initialImageUrl, initialImageData }) {
     reordered.splice(toIdx, 0, moved)
     const withPos = reordered.map((p, i) => ({ ...p, position: i }))
     setPhotos(withPos)
+    // Keep active photo tracking with the moved photo
+    setActiveIdx(prev => {
+      if (prev === fromIdx) return toIdx
+      if (prev > fromIdx && prev <= toIdx) return prev - 1
+      if (prev < fromIdx && prev >= toIdx) return prev + 1
+      return prev
+    })
     await Promise.all(withPos.map(p =>
       db.inventory().from('product_images').update({ position: p.position }).eq('id', p.id)
     ))
@@ -126,12 +139,14 @@ function PhotoGallery({ skuId, initialImageUrl, initialImageData }) {
         {photos.length > 0 && (
           <button className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 10px' }}
             onClick={() => setManaging(m => !m)}>
-            {managing ? 'Done' : 'Manage'}
+            {managing ? 'Done' : 'Manage Photos'}
           </button>
         )}
       </div>
 
       <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+        onChange={e => uploadFiles(Array.from(e.target.files))} />
+      <input ref={singleFileRef} type="file" accept="image/*" style={{ display: 'none' }}
         onChange={e => uploadFiles(Array.from(e.target.files))} />
 
       {/* ── DISPLAY MODE ── */}
@@ -140,7 +155,7 @@ function PhotoGallery({ skuId, initialImageUrl, initialImageData }) {
           <div>
             <img src={mainSrc} alt="Product" style={{ maxWidth: 260, borderRadius: 10, display: 'block', marginBottom: 10 }} />
             {/* Thumbnail strip */}
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'nowrap', overflowX: 'auto', marginBottom: 10, paddingBottom: 4 }}>
               {photos.map((p, i) => (
                 <div key={p.id} onClick={() => setActiveIdx(i)}
                   style={{ ...THUMB, border: `2px solid ${i === activeIdx ? 'var(--accent)' : 'var(--border)'}` }}>
@@ -202,7 +217,7 @@ function PhotoGallery({ skuId, initialImageUrl, initialImageData }) {
               </div>
             ))}
             {/* + upload slot */}
-            <div onClick={() => !uploading && fileRef.current?.click()}
+            <div onClick={() => !uploading && singleFileRef.current?.click()}
               style={{ paddingTop: '100%', background: 'var(--bg)', borderRadius: 8,
                 border: '2px dashed var(--border)', cursor: uploading ? 'wait' : 'pointer',
                 position: 'relative' }}>
