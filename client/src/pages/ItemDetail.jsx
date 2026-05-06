@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useToast } from '../components/Toast'
 import { db } from '../lib/supabase'
+import { ikUrl, uploadToImageKit } from '../lib/imagekit'
 import ERPLayout from '../components/ERPLayout'
 import ModuleHeader from '../components/ModuleHeader'
 import ModuleTabs from '../components/ModuleTabs'
@@ -17,12 +18,13 @@ const fmtK    = n => {
 const fmtDate = s => s ? new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 const dash    = v => v || '—'
 
-// ─── Image card (unchanged) ───────────────────────────────────────────────────
-function ImageCard({ skuId, initialImage }) {
+// ─── Image card ───────────────────────────────────────────────────────────────
+function ImageCard({ skuId, initialImageUrl, initialImageData }) {
   const showToast = useToast()
-  const fileRef = useRef(null)
-  const [imageData, setImageData] = useState(initialImage || null)
-  const [pending,   setPending]   = useState(null)
+  const fileRef   = useRef(null)
+  const [imageUrl,  setImageUrl]  = useState(initialImageUrl  || null)  // ImageKit URL
+  const [imageData, setImageData] = useState(initialImageData || null)  // base64 fallback
+  const [pending,   setPending]   = useState(null)   // base64 preview before upload
   const [saving,    setSaving]    = useState(false)
 
   function onFileChange(e) {
@@ -51,9 +53,13 @@ function ImageCard({ skuId, initialImage }) {
     if (!pending) return
     setSaving(true)
     try {
-      const { error } = await db.inventory().from('products').update({ image_data: pending }).eq('sku_id', skuId)
+      const url = await uploadToImageKit(pending, `sku_${skuId}.jpg`, '/products')
+      const { error } = await db.inventory().from('products')
+        .update({ image_url: url, image_data: null })
+        .eq('sku_id', skuId)
       if (error) throw error
-      setImageData(pending); setPending(null); showToast('✅ Image saved')
+      setImageUrl(url); setImageData(null); setPending(null)
+      showToast('✅ Photo saved')
     } catch (err) { showToast(`❌ ${err.message}`, 'error') }
     finally { setSaving(false) }
   }
@@ -61,13 +67,17 @@ function ImageCard({ skuId, initialImage }) {
   async function removeImage() {
     if (!window.confirm('Remove this photo?')) return
     try {
-      const { error } = await db.inventory().from('products').update({ image_data: null }).eq('sku_id', skuId)
+      const { error } = await db.inventory().from('products')
+        .update({ image_url: null, image_data: null })
+        .eq('sku_id', skuId)
       if (error) throw error
-      setImageData(null); setPending(null)
+      setImageUrl(null); setImageData(null); setPending(null)
     } catch (err) { showToast(`❌ ${err.message}`, 'error') }
   }
 
-  const display = pending || imageData
+  // Priority: preview > ImageKit URL > base64 fallback
+  const display = pending ? pending : ikUrl(imageUrl || imageData)
+
   return (
     <div className="card" style={{ marginBottom: 20 }}>
       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Product Photo</div>
@@ -77,9 +87,9 @@ function ImageCard({ skuId, initialImage }) {
           <img src={display} alt="Product" style={{ maxWidth: 260, borderRadius: 10, display: 'block', marginBottom: 12 }} />
           {pending && <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>Preview — unsaved</div>}
           <div style={{ display: 'flex', gap: 8 }}>
-            {pending  && <button className="btn btn-primary" onClick={saveImage} disabled={saving} style={{ fontSize: 13 }}>Save Photo</button>}
-            {pending  && <button className="btn btn-ghost"   onClick={() => setPending(null)}           style={{ fontSize: 13 }}>Discard</button>}
-            {!pending && <button className="btn btn-ghost"   onClick={() => fileRef.current?.click()}   style={{ fontSize: 13 }}>Change Photo</button>}
+            {pending  && <button className="btn btn-primary" onClick={saveImage} disabled={saving} style={{ fontSize: 13 }}>{saving ? 'Uploading…' : 'Save Photo'}</button>}
+            {pending  && <button className="btn btn-ghost"   onClick={() => setPending(null)} style={{ fontSize: 13 }}>Discard</button>}
+            {!pending && <button className="btn btn-ghost"   onClick={() => fileRef.current?.click()} style={{ fontSize: 13 }}>Change Photo</button>}
             {!pending && <button onClick={removeImage} style={{ fontSize: 11, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer' }}>Remove</button>}
           </div>
         </div>
@@ -410,7 +420,7 @@ function OverviewTab({ product, variants, skuId, onReload }) {
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20, alignItems: 'start' }}>
-        <ImageCard skuId={parseInt(skuId)} initialImage={product.image_data} />
+        <ImageCard skuId={parseInt(skuId)} initialImageUrl={product.image_url} initialImageData={product.image_data} />
         <div className="card">
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 16 }}>Product Attributes</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
