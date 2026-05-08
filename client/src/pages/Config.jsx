@@ -703,33 +703,55 @@ export default function Config() {
 
   async function loadUnmigratedCount() {
     try {
-      const { count, error } = await db.inventory().from('products')
-        .select('sku_id', { count: 'exact', head: true })
-        .not('image_data', 'is', null)
-        .is('image_url', null)
-      if (error) throw error
-      setUnmigratedCount(count || 0)
+      // Products with image_url or image_data that haven't been migrated to product_images yet
+      const { data: migrated, error: mErr } = await db.inventory()
+        .from('product_images').select('sku_id')
+      if (mErr) throw mErr
+      const migratedIds = new Set((migrated || []).map(r => r.sku_id))
+
+      const { data: prods, error: pErr } = await db.inventory().from('products')
+        .select('sku_id, image_url, image_data')
+        .or('image_url.not.is.null,image_data.not.is.null')
+      if (pErr) throw pErr
+
+      const count = (prods || []).filter(p => !migratedIds.has(p.sku_id)).length
+      setUnmigratedCount(count)
     } catch (e) { showToast('❌ ' + e.message, 'error') }
   }
 
   async function runMigration() {
     setMigrating(true); setMigrateError(null); setMigrateProgress(0)
     try {
-      const { data, error } = await db.inventory().from('products')
-        .select('sku_id, image_data')
-        .not('image_data', 'is', null)
-        .is('image_url', null)
-      if (error) throw error
+      // Find already-migrated sku_ids
+      const { data: migrated, error: mErr } = await db.inventory()
+        .from('product_images').select('sku_id')
+      if (mErr) throw mErr
+      const migratedIds = new Set((migrated || []).map(r => r.sku_id))
 
-      const items = data || []
+      // Find products with image_url or image_data not yet migrated
+      const { data: prods, error: pErr } = await db.inventory().from('products')
+        .select('sku_id, image_url, image_data')
+        .or('image_url.not.is.null,image_data.not.is.null')
+      if (pErr) throw pErr
+
+      const items = (prods || []).filter(p => !migratedIds.has(p.sku_id))
       setMigrateTotal(items.length)
 
       for (let i = 0; i < items.length; i++) {
-        const { sku_id, image_data } = items[i]
+        const { sku_id, image_url, image_data } = items[i]
         try {
-          const url = await uploadToImageKit(image_data, `sku_${sku_id}.jpg`, '/products')
+          let url = image_url
+          // If only base64, upload to Cloudinary first
+          if (!url && image_data) {
+            url = await uploadToImageKit(image_data, `sku_${sku_id}.jpg`, 'products')
+          }
+          // Insert into product_images
+          const { error: insErr } = await db.inventory().from('product_images')
+            .insert({ sku_id, url, position: 0 })
+          if (insErr) throw insErr
+          // Null out old columns
           const { error: upErr } = await db.inventory().from('products')
-            .update({ image_url: url, image_data: null })
+            .update({ image_url: null, image_data: null })
             .eq('sku_id', sku_id)
           if (upErr) throw upErr
         } catch (itemErr) {
@@ -741,7 +763,7 @@ export default function Config() {
       }
 
       setUnmigratedCount(0)
-      showToast(`✅ ${items.length} photo${items.length !== 1 ? 's' : ''} migrated to ImageKit`)
+      showToast(`✅ ${items.length} photo${items.length !== 1 ? 's' : ''} migrated`)
     } catch (e) { setMigrateError(e.message) }
     finally { setMigrating(false) }
   }
