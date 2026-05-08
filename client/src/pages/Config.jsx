@@ -705,13 +705,13 @@ export default function Config() {
     try {
       // Products with image_url or image_data that haven't been migrated to product_images yet
       const { data: migrated, error: mErr } = await db.inventory()
-        .from('product_images').select('sku_id')
+        .from('product_images').select('sku_id').limit(5000)
       if (mErr) throw mErr
       const migratedIds = new Set((migrated || []).map(r => r.sku_id))
 
       const { data: prods, error: pErr } = await db.inventory().from('products')
         .select('sku_id, image_url, image_data')
-        .or('image_url.not.is.null,image_data.not.is.null')
+        .or('image_url.neq.null,image_data.neq.null')
       if (pErr) throw pErr
 
       const count = (prods || []).filter(p => !migratedIds.has(p.sku_id)).length
@@ -724,14 +724,14 @@ export default function Config() {
     try {
       // Find already-migrated sku_ids
       const { data: migrated, error: mErr } = await db.inventory()
-        .from('product_images').select('sku_id')
+        .from('product_images').select('sku_id').limit(5000)
       if (mErr) throw mErr
       const migratedIds = new Set((migrated || []).map(r => r.sku_id))
 
       // Find products with image_url or image_data not yet migrated
       const { data: prods, error: pErr } = await db.inventory().from('products')
         .select('sku_id, image_url, image_data')
-        .or('image_url.not.is.null,image_data.not.is.null')
+        .or('image_url.neq.null,image_data.neq.null')
       if (pErr) throw pErr
 
       const items = (prods || []).filter(p => !migratedIds.has(p.sku_id))
@@ -756,16 +756,14 @@ export default function Config() {
           if (upErr) throw upErr
         } catch (itemErr) {
           setMigrateError(`Failed on SKU ${sku_id}: ${itemErr.message}`)
-          setMigrating(false)
           return
         }
         setMigrateProgress(i + 1)
       }
 
-      setUnmigratedCount(0)
       showToast(`✅ ${items.length} photo${items.length !== 1 ? 's' : ''} migrated`)
-    } catch (e) { setMigrateError(e.message) }
-    finally { setMigrating(false) }
+    } catch (e) { setMigrateError(e.message); showToast('❌ ' + e.message, 'error') }
+    finally { setMigrating(false); loadUnmigratedCount() }
   }
 
   useEffect(() => { loadUnmigratedCount() }, [])
