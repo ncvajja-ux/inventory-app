@@ -1602,36 +1602,38 @@ export default function Sales() {
     })
   }
 
-  const [stats, setStats] = useState({ orders: '—', revenue: '—', pending: '—', thisMonth: '—' })
+  const [stats, setStats] = useState({ orders: '—', revenue: '—', returns: '—', pending: '—', thisMonth: '—' })
 
   useEffect(() => {
     async function loadStats() {
       try {
         const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
           .toISOString().split('T')[0]
-        const [
-          { count: total },
-          { data: amounts },
-          { count: pending },
-          { count: month },
-        ] = await Promise.all([
-          db.transactions().from('vbak').select('*', { count: 'exact', head: true }),
-          db.transactions().from('vbak').select('order_type, vbap(line_total)'),
-          db.transactions().from('vbak').select('*', { count: 'exact', head: true })
-            .in('status', ['Pending', 'pending', 'PENDING']),
-          db.transactions().from('vbak').select('*', { count: 'exact', head: true })
-            .gte('erdat', monthStart),
-        ])
-        const revenue = (amounts || []).reduce((s, r) => {
-          const amt = (r.vbap || []).reduce((ls, l) => ls + parseFloat(l.line_total || 0), 0)
-          return r.order_type === 'R' ? s - amt : s + amt
-        }, 0)
+        // Single fetch — derive all stats client-side
+        const { data, error } = await db.transactions().from('vbak')
+          .select('order_type, status, erdat, vbap(line_total)')
+        if (error) throw error
+        const rows = data || []
         const fmt = n => n >= 100000
           ? `₹${(n / 100000).toFixed(1)}L`
           : n >= 1000
           ? `₹${(n / 1000).toFixed(1)}K`
-          : `₹${n}`
-        setStats({ orders: total ?? 0, revenue: fmt(revenue), pending: pending ?? 0, thisMonth: month ?? 0 })
+          : `₹${parseFloat(n).toFixed(0)}`
+        const rowAmt = r => (r.vbap || []).reduce((s, l) => s + parseFloat(l.line_total || 0), 0)
+        const sales   = rows.filter(r => r.order_type !== 'R')
+        const returns = rows.filter(r => r.order_type === 'R')
+        const revenue = sales.reduce((s, r) => s + rowAmt(r), 0)
+                      - returns.reduce((s, r) => s + rowAmt(r), 0)
+        const returnsAmt = returns.reduce((s, r) => s + rowAmt(r), 0)
+        const pending    = rows.filter(r => r.status?.toUpperCase() === 'PENDING').length
+        const thisMonth  = rows.filter(r => r.erdat >= monthStart).length
+        setStats({
+          orders:    sales.length,
+          revenue:   fmt(revenue),
+          returns:   fmt(returnsAmt),
+          pending:   pending,
+          thisMonth: thisMonth,
+        })
       } catch { /* non-fatal */ }
     }
     loadStats()
@@ -1662,8 +1664,9 @@ export default function Sales() {
       <ModuleTabs tabs={SALES_TABS} activeTab={tab} onChange={setTab} />
       <StatsStrip stats={[
         { value: stats.orders,    label: 'Orders' },
-        { value: stats.revenue,   label: 'Revenue', color: 'var(--success)' },
-        { value: stats.pending,   label: 'Pending', color: stats.pending > 0 ? 'var(--accent)' : undefined },
+        { value: stats.revenue,   label: 'Revenue',    color: 'var(--success)' },
+        { value: stats.returns,   label: 'Returns',    color: 'var(--danger)' },
+        { value: stats.pending,   label: 'Pending',    color: stats.pending > 0 ? 'var(--accent)' : undefined },
         { value: stats.thisMonth, label: 'This Month' },
       ]} />
       <div className="erp-content">
