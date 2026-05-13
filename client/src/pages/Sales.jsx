@@ -1611,7 +1611,7 @@ export default function Sales() {
           .toISOString().split('T')[0]
         // Single fetch — derive all stats client-side
         const { data, error } = await db.transactions().from('vbak')
-          .select('order_type, status, erdat, vbap(line_total)')
+          .select('order_type, status, created_at, vbap(line_total)')
         if (error) throw error
         const rows = data || []
         const fmt = n => n >= 100000
@@ -1626,7 +1626,7 @@ export default function Sales() {
                       - returns.reduce((s, r) => s + rowAmt(r), 0)
         const returnsAmt = returns.reduce((s, r) => s + rowAmt(r), 0)
         const pending    = rows.filter(r => r.status?.toUpperCase() === 'PENDING').length
-        const thisMonth  = rows.filter(r => r.erdat >= monthStart).length
+        const thisMonth  = rows.filter(r => r.created_at >= monthStart).length
         setStats({
           orders:    sales.length,
           revenue:   fmt(revenue),
