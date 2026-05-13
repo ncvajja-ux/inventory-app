@@ -1616,14 +1616,16 @@ export default function Sales() {
           { count: month },
         ] = await Promise.all([
           db.transactions().from('vbak').select('*', { count: 'exact', head: true }),
-          db.transactions().from('vbak').select('vbap(line_total)'),
+          db.transactions().from('vbak').select('order_type, vbap(line_total)'),
           db.transactions().from('vbak').select('*', { count: 'exact', head: true })
             .in('status', ['Pending', 'pending', 'PENDING']),
           db.transactions().from('vbak').select('*', { count: 'exact', head: true })
             .gte('erdat', monthStart),
         ])
-        const revenue = (amounts || []).reduce((s, r) =>
-          s + (r.vbap || []).reduce((ls, l) => ls + parseFloat(l.line_total || 0), 0), 0)
+        const revenue = (amounts || []).reduce((s, r) => {
+          const amt = (r.vbap || []).reduce((ls, l) => ls + parseFloat(l.line_total || 0), 0)
+          return r.order_type === 'R' ? s - amt : s + amt
+        }, 0)
         const fmt = n => n >= 100000
           ? `₹${(n / 100000).toFixed(1)}L`
           : n >= 1000
